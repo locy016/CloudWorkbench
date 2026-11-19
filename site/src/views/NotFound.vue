@@ -1,0 +1,1 @@
+<template><div class="container page-space empty-state not-found"><span class="eyebrow">404 / A LITTLE DETOUR</span><h1>这条小路还没有通向这里。</h1><p>页面可能已经移动，先回到花园入口吧。</p><RouterLink to="/" class="button primary">回到首页 →</RouterLink></div></template>

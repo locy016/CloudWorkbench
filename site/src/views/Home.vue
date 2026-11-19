@@ -1,0 +1,13 @@
+<script setup>
+import { projects, articles } from '../content.js'
+import GardenScene from '../components/GardenScene.vue'
+import ProjectCard from '../components/ProjectCard.vue'
+import Icon from '../components/Icon.vue'
+</script>
+<template><div class="home-view">
+  <section class="hero container"><div class="hero-copy"><div class="eyebrow"><span class="live-dot"></span> 栖物里 · 数字花园</div><h1>让作品与想法，<br>在这里<span class="word-mark">安放<svg viewBox="0 0 200 20" aria-hidden="true"><path d="M4 13Q90-1 195 10M15 18Q105 7 180 15"/></svg></span>。</h1><p class="hero-description">实用小工具，实践笔记，还有一些新尝试。</p><div class="hero-actions"><RouterLink class="button primary" to="/projects">浏览项目 <Icon name="arrow" /></RouterLink><RouterLink class="text-link" to="/about">关于栖物里 <Icon name="diagonal" /></RouterLink></div><div class="hero-foot"><span class="mini-leaf">✳</span><span>工具 · 笔记 · 实验</span></div></div><GardenScene /></section>
+  <section class="section container" v-reveal><div class="section-heading"><div><div class="eyebrow">01 / SELECTED PROJECTS</div><h2>精选项目<span class="serif-dot">.</span></h2></div><RouterLink class="text-link" to="/projects">查看全部项目 <Icon name="arrow" /></RouterLink></div><div class="project-grid"><ProjectCard v-for="project in projects.slice(0, 3)" :key="project.id" :project="project" /></div></section>
+  <section class="journal-section"><div class="container section" v-reveal><div class="section-heading"><div><div class="eyebrow">02 / NOTES ALONG THE WAY</div><h2>沿途笔记</h2></div><RouterLink class="text-link" to="/journal">翻开笔记 <Icon name="arrow" /></RouterLink></div><div class="home-journal"><RouterLink v-for="(article, i) in articles" :key="article.id" :to="`/journal/${article.id}`" class="journal-row"><span class="entry-index">0{{ i + 1 }}</span><div><div class="entry-meta">{{ article.category }} <span>·</span> {{ article.minutes }} 分钟阅读</div><h3>{{ article.title }}</h3><p>{{ article.summary }}</p></div><Icon name="diagonal" /></RouterLink></div></div></section>
+  <section class="container section" v-reveal><div class="lab-banner"><div class="lab-banner-copy"><div class="eyebrow">03 / LITTLE EXPERIMENTS</div><h2>动手试试。</h2><p>画一朵花，抽一张签，或专注片刻。</p><RouterLink class="button light" to="/lab">打开实验室 <Icon name="arrow" /></RouterLink></div><div class="lab-banner-art" aria-hidden="true"><div class="big-asterisk">✳</div><span class="orbit-text">TRY · PLAY · DISCOVER</span><div class="sample-squares"><i></i><i></i><i></i><i></i></div></div></div></section>
+  <section class="container home-contact" v-reveal><div class="eyebrow">SAY HELLO</div><h2>有想法，来聊聊。</h2><RouterLink to="/contact" class="text-link">联系栖物里 <Icon name="diagonal" /></RouterLink></section>
+</div></template>
