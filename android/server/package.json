@@ -1,0 +1,9 @@
+{
+  "name": "cloud-workbench-gateway",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.13.0" },
+  "dependencies": { "ws": "8.23.0" },
+  "scripts": { "start": "node src/main.mjs", "test": "node --test test/*.test.mjs" }
+}

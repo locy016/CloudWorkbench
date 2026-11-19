@@ -1,0 +1,23 @@
+[Unit]
+Description=Private mobile Cloud Workbench
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=xux
+Group=xux
+WorkingDirectory=/home/xux/.local/lib/cloud-workbench
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+Environment=HOME=/home/xux
+ExecStart=/usr/local/bin/node src/main.mjs
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+KillMode=control-group
+UMask=0077
+MemoryAccounting=yes
+TasksMax=256
+
+[Install]
+WantedBy=multi-user.target

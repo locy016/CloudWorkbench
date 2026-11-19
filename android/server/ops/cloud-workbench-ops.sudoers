@@ -1,0 +1,2 @@
+Cmnd_Alias WORKBENCH_OPS = /usr/local/sbin/cloud-workbench-ops check-site, /usr/local/sbin/cloud-workbench-ops deploy-site, /usr/local/sbin/cloud-workbench-ops reload-nginx, /usr/local/sbin/cloud-workbench-ops restart-nginx, /usr/local/sbin/cloud-workbench-ops restart-workbench
+xux ALL=(root) NOPASSWD: WORKBENCH_OPS

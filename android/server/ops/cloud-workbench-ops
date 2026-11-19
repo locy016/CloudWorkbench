@@ -1,0 +1,176 @@
+#!/usr/bin/python3 -I
+"""Root-owned entry point for a fixed set of workbench operations."""
+from contextlib import contextmanager
+import fcntl
+import os
+from pathlib import Path
+import pwd
+import shutil
+import stat
+import subprocess
+import sys
+import tempfile
+import time
+
+SOURCE = Path("/home/xux/projects/qiwuli-site/dist")
+PUBLIC = Path("/var/www/qiwuli.com")
+PREVIOUS = Path("/var/www/.qiwuli.com-previous")
+DATABASE = Path("/home/xux/.local/share/cloud-workbench/workbench.db")
+WORKBENCH = "cloud-workbench.service"
+NGINX = "nginx.service"
+HELPER = "/usr/local/sbin/cloud-workbench-ops"
+SOURCE_UID = pwd.getpwnam("xux").pw_uid
+DIRECTORY = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+
+
+def run(*args):
+    subprocess.run(args, check=True, timeout=45)
+
+
+def copy_site(destination):
+    # Open each directory relative to a pinned parent and refuse links and devices.
+    # Running as root must not let the publisher read files the build user cannot.
+    def copy_tree(parent, target, depth=0):
+        nonlocal total, count
+        if depth > 20:
+            raise ValueError("Site output is nested too deeply")
+        for name in os.listdir(parent):
+            count += 1
+            if count > 10000 or name.startswith("."):
+                raise ValueError("Site output contains unexpected files")
+            with open_entry(parent, name) as fd:
+                metadata = os.fstat(fd)
+                if metadata.st_uid != SOURCE_UID:
+                    raise ValueError("Site entries must belong to the build user")
+                child = target / name
+                if stat.S_ISDIR(metadata.st_mode):
+                    child.mkdir(mode=0o755)
+                    child.chmod(0o755)
+                    directory = os.open(".", DIRECTORY, dir_fd=fd)
+                    try:
+                        copy_tree(directory, child, depth + 1)
+                    finally:
+                        os.close(directory)
+                elif stat.S_ISREG(metadata.st_mode) and metadata.st_nlink == 1:
+                    with open(f"/proc/self/fd/{fd}", "rb") as source, child.open("xb") as output:
+                        for chunk in iter(lambda: source.read(65536), b""):
+                            total += len(chunk)
+                            if total > 100 * 1024 * 1024:
+                                raise ValueError("Site output exceeds 100 MiB")
+                            output.write(chunk)
+                    child.chmod(0o644)
+                else:
+                    raise ValueError("Site output contains a special file or hard link")
+
+    total = count = 0
+    with open_source() as source:
+        copy_tree(source, destination)
+    index = destination / "index.html"
+    if not index.is_file() or index.stat().st_size == 0:
+        raise ValueError("Build output must contain a nonempty index.html")
+
+
+@contextmanager
+def open_source():
+    fd = os.open("/", DIRECTORY)
+    try:
+        for part in SOURCE.parts[1:]:
+            next_fd = os.open(part, DIRECTORY, dir_fd=fd)
+            os.close(fd)
+            fd = next_fd
+        yield fd
+    finally:
+        os.close(fd)
+
+
+@contextmanager
+def open_entry(parent, name):
+    fd = os.open(name, os.O_PATH | os.O_NOFOLLOW, dir_fd=parent)
+    try:
+        yield fd
+    finally:
+        os.close(fd)
+
+
+def site(publish):
+    # The staging tree sits under the root-owned web parent for same-filesystem renames.
+    with tempfile.TemporaryDirectory(prefix=".qiwuli-stage-", dir=PUBLIC.parent) as directory:
+        staged = Path(directory) / "site"
+        staged.mkdir(mode=0o755)
+        staged.chmod(0o755)
+        copy_site(staged)
+        run("/usr/sbin/nginx", "-t")
+        if not publish:
+            print("Qiwuli build output and Nginx configuration are valid")
+            return
+        if PUBLIC.is_symlink() or not PUBLIC.is_dir() or PUBLIC.stat().st_uid != 0:
+            raise ValueError("Unexpected live site directory")
+        if PREVIOUS.exists():
+            if PREVIOUS.is_symlink() or not PREVIOUS.is_dir() or PREVIOUS.stat().st_uid != 0:
+                raise ValueError("Unexpected site backup directory")
+            shutil.rmtree(PREVIOUS)
+        PUBLIC.rename(PREVIOUS)
+        try:
+            staged.rename(PUBLIC)
+            run("/usr/bin/curl", "-q", "--fail", "--silent", "--show-error", "--max-time", "10",
+                "--resolve", "qiwuli.com:443:127.0.0.1", "--output", "/dev/null", "https://qiwuli.com/")
+        except Exception:
+            if PUBLIC.exists():
+                PUBLIC.rename(staged)
+            PREVIOUS.rename(PUBLIC)
+            raise
+        print("Published Qiwuli and verified HTTPS; previous release kept in /var/www/.qiwuli.com-previous")
+
+
+def restart_idle_workbench():
+    # Open the gateway-owned database with its owner's privileges.
+    query = (
+        "import sqlite3,sys; db=sqlite3.connect('file:'+sys.argv[1]+'?mode=ro',uri=True);"
+        "print(int(db.execute(\"SELECT 1 FROM threads WHERE status IN "
+        "('starting','running','approval') LIMIT 1\").fetchone() is not None))"
+    )
+    for _ in range(60):
+        state = subprocess.check_output(
+            ["/usr/sbin/runuser", "-u", "xux", "--", "/usr/bin/python3", "-I", "-c", query, str(DATABASE)],
+            text=True, timeout=10,
+        ).strip()
+        if state == "0":
+            run("/usr/bin/systemctl", "restart", WORKBENCH)
+            run("/usr/bin/systemctl", "is-active", WORKBENCH)
+            return
+        time.sleep(5)
+    raise RuntimeError("Workbench still has an active task; restart was skipped")
+
+
+def main():
+    if os.geteuid() != 0 or len(sys.argv) != 2:
+        raise ValueError("Expected one authorized operation")
+    action = sys.argv[1]
+    if action == "restart-workbench":
+        run("/usr/bin/systemd-run", "--quiet", "--collect", "--unit=cloud-workbench-restart-request",
+            "--on-active=5s", HELPER, "restart-idle-workbench")
+        print("Restart scheduled for when the workbench is idle")
+        return
+    if action == "restart-idle-workbench":
+        if os.environ.get("SUDO_USER"):
+            raise ValueError("Only the scheduled service may run this operation")
+        restart_idle_workbench()
+        return
+    with open("/run/cloud-workbench-ops.lock", "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if action in ("check-site", "deploy-site"):
+            site(action == "deploy-site")
+        elif action in ("reload-nginx", "restart-nginx"):
+            run("/usr/sbin/nginx", "-t")
+            run("/usr/bin/systemctl", "reload" if action == "reload-nginx" else "restart", NGINX)
+            run("/usr/bin/systemctl", "is-active", NGINX)
+        else:
+            raise ValueError("Unknown operation")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
+        print(f"Operation failed: {error}", file=sys.stderr)
+        sys.exit(1)
