@@ -13,6 +13,9 @@
 
 ## 开发与发布
 
+- Android 和 Windows 在本机 `E:\AliyunSV\CloudWorkbench` 中开发。Android APK 由维护者本地构建、签名并按现有流程发布。Windows 继续使用本地工具链构建和验收。
+- 网关和站点需求在服务器 Codex 会话中实施，默认模型为 GPT-6.2 Sol，推理强度为 `high`。网关从服务器维护工作区进入，站点从栖物里源码工作区进入。每次传入需求、涉及的仓库路径、允许修改的范围和验收条件。按该项目的部署流程执行并回收提交及线上验证结果。
+
 - 保留完整检出。Windows Rust 构建读取 [共享公开路由契约](android/server/src/public-routes.json)，Windows 接入服务复用 Android 网关的授权策略。跨端修改应同时复验调用方和网关。
 - Android 使用 JDK 17、Android SDK 35 和 Gradle Wrapper。先按客户端说明准备固定版本的语音组件与模型。Windows 使用项目固定 Rust 工具链、MSVC、Windows SDK 和 Node.js。网关及站点支持各自的 Node.js 测试入口。
 - 仓库记录源码、依赖锁、构建及部署工具。发布包、语音模型、签名材料、设备授权、连接日志、数据库与服务器账户配置由各自的受控位置管理。
