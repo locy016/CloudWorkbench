@@ -1,0 +1,13 @@
+sherpa-onnx 2.0.1
+https://github.com/k2-fsa/sherpa-onnx/tree/v2.0.1
+Apache License 2.0. See sherpa-onnx.txt.
+
+Streaming Zipformer Chinese-English, release 2023-02-20
+Original model: https://huggingface.co/pfluo/k2fsa-zipformer-chinese-english-mixed
+ONNX distribution: https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20
+Apache License 2.0. See sherpa-onnx.txt for the license text.
+This app includes the upstream INT8 encoder and joiner, FP32 decoder, and tokens.
+
+ONNX Runtime 1.28.2, bundled in the upstream sherpa-onnx Android AAR
+https://github.com/microsoft/onnxruntime/tree/v1.28.2
+See onnxruntime.txt and onnxruntime-third-party.txt.

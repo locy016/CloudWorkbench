@@ -1,0 +1,6 @@
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="@drawable/ic_launcher_artwork"
+    android:insetLeft="23%"
+    android:insetTop="26.8%"
+    android:insetRight="23%"
+    android:insetBottom="26.8%" />

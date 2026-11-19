@@ -1,0 +1,15 @@
+.gradle/
+**/build/
+local.properties
+*.db*
+.env
+*.token
+artifacts/
+android/app/libs/sherpa-onnx-2.0.1.aar
+android/app/src/main/assets/voice/
+android/app/src/androidTest/assets/voice-sample.wav
+node_modules/
+*.log
+__pycache__/
+*.pyc
+/signing/
