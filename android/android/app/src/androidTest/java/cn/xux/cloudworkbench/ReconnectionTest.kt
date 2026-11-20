@@ -1,10 +1,13 @@
 package cn.xux.cloudworkbench
 
 import android.app.Application
+import android.graphics.Bitmap
 import android.os.SystemClock
+import androidx.core.content.FileProvider
 import androidx.lifecycle.ViewModelStore
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import kotlinx.coroutines.flow.onStart
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.After
@@ -15,6 +18,7 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.IOException
+import java.io.File
 
 @RunWith(AndroidJUnit4::class)
 class ReconnectionTest {
@@ -76,6 +80,7 @@ class ReconnectionTest {
             assertEquals(1, gateway.posted.size)
             gateway.threadStatus = "interrupted"
             gateway.available = true
+            recreateModel()
         }
         await { model.hostOnline && !model.reconnecting }
         onMain {
@@ -84,21 +89,44 @@ class ReconnectionTest {
             assertEquals("u-${gateway.posted.single()}", model.messages.single().getString("id"))
             assertEquals("", model.draft)
             assertEquals(1, gateway.posted.size)
+            assertEquals("服务器已接收", model.submissionHint)
         }
     }
 
     @Test
     fun keepsUnreceivedDraftAndReusesRequestIdOnlyWhenUserRetries() {
+        val photo = File(File(app.cacheDir, "camera").apply { mkdirs() }, "reconnect-draft.png")
+        val bitmap = Bitmap.createBitmap(16, 16, Bitmap.Config.ARGB_8888)
+        try {
+            photo.outputStream().use { assertTrue(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) }
+        } finally {
+            bitmap.recycle()
+        }
+        onMain {
+            val uri = FileProvider.getUriForFile(app, "${app.packageName}.camera", photo)
+            model.importImages(model.draftKey, listOf(uri), photo)
+        }
+        await { !model.importingAttachment && model.draftImages.size == 1 }
+        val imageId = onMain { model.draftImages.single().upload.localId }
+        assertFalse(photo.exists())
         onMain {
             model.draft = "保留草稿"
             gateway.dropNextBeforeReceipt = true
             model.send()
         }
         await { model.reconnecting && gateway.posted.size == 1 }
-        onMain { gateway.available = true }
+        onMain {
+            gateway.available = true
+            recreateModel()
+        }
         await { model.hostOnline && !model.reconnecting }
         onMain {
+            assertEquals(THREAD, model.currentId)
             assertEquals("保留草稿", model.draft)
+            assertEquals(imageId, model.draftImages.single().upload.localId)
+            assertTrue(model.draftImages.single().upload.file.exists())
+            assertEquals("发送结果待确认", model.submissionHint)
+            assertEquals("发送待确认", model.continuations.single().state)
             assertEquals(1, gateway.posted.size)
             assertTrue(model.messages.isEmpty())
             model.send()
@@ -107,8 +135,32 @@ class ReconnectionTest {
         onMain {
             assertEquals(2, gateway.posted.size)
             assertEquals(gateway.posted.first(), gateway.posted.last())
+            assertEquals(1, gateway.uploads)
             assertEquals("", model.draft)
+            assertEquals(emptyList<DraftImage>(), model.draftImages)
         }
+    }
+
+    @Test
+    fun restoresIndependentProjectAndConversationDrafts() {
+        onMain {
+            model.draft = "已选会话的草稿"
+            model.newThread()
+            model.draft = "默认项目的新会话草稿"
+            model.selectProject(OTHER_PROJECT)
+            model.draft = "另一个项目的新会话草稿"
+            recreateModel()
+        }
+        await { model.hostOnline }
+        onMain {
+            assertEquals(OTHER_PROJECT, model.projectId)
+            assertEquals("另一个项目的新会话草稿", model.draft)
+            model.selectProject("default")
+            assertEquals("默认项目的新会话草稿", model.draft)
+            model.select(THREAD)
+        }
+        await { !model.busy && model.currentId == THREAD }
+        onMain { assertEquals("已选会话的草稿", model.draft) }
     }
 
     @Test
@@ -162,6 +214,56 @@ class ReconnectionTest {
     }
 
     @Test
+    fun keepsTheExistingSshSessionAndEventStreamDuringAShortBackgroundSwitch() {
+        val (connects, streams, updates) = onMain {
+            model.defaultNetworkChanged(100)
+            model.draft = "交接草稿"
+            model.foreground(false)
+            Triple(gateway.connects, gateway.streams, gateway.updatePaths.size)
+        }
+        await { gateway.updatePaths.size > updates }
+        onMain {
+            model.foreground(true)
+            assertTrue(model.hostOnline)
+            assertFalse(model.reconnecting)
+            assertEquals(connects, gateway.connects)
+            assertEquals(streams, gateway.streams)
+            assertEquals(THREAD, model.currentId)
+            assertEquals("交接草稿", model.draft)
+        }
+    }
+
+    @Test
+    fun reconnectsOnceWhenTheNetworkChangesInTheBackground() {
+        val connects = onMain {
+            model.defaultNetworkChanged(100)
+            model.foreground(false)
+            model.defaultNetworkChanged(null)
+            model.defaultNetworkChanged(101)
+            val previous = gateway.connects
+            model.foreground(true)
+            previous
+        }
+        await { model.hostOnline && gateway.connects == connects + 1 }
+        onMain {
+            assertFalse(model.reconnecting)
+            assertEquals(THREAD, model.currentId)
+        }
+    }
+
+    @Test
+    fun reopensTheSshSessionWhenItsSocketClosedInTheBackground() {
+        val connects = onMain {
+            model.foreground(false)
+            gateway.latestConnection?.disconnect()
+            val previous = gateway.connects
+            model.foreground(true)
+            previous
+        }
+        await { model.hostOnline && gateway.connects == connects + 1 }
+    }
+
+    @Test
     fun mergesUpdatesAcrossPagesAndLoadsOlderMessages() {
         onMain {
             gateway.pages.add(gateway.update("next", messages = listOf(gateway.message("new", "片段", 20)), more = true))
@@ -202,7 +304,26 @@ class ReconnectionTest {
         onMain {
             assertEquals(THREAD, model.currentId)
             assertTrue(gateway.updatePaths.all { it.startsWith("/v1/threads/$THREAD/updates?") })
+            val item = model.continuations.single()
+            assertEquals(OTHER_THREAD, item.id)
+            assertEquals(OTHER_PROJECT, item.project)
+            assertEquals("待审批", item.state)
+            model.select(item.id)
         }
+        await { !model.busy && model.currentId == OTHER_THREAD }
+        onMain {
+            assertEquals(OTHER_PROJECT, model.projectId)
+            assertEquals(WorkbenchPage.Sessions, model.tab)
+            assertEquals("other-approval", model.approvals.single().getString("id"))
+        }
+    }
+
+    private fun recreateModel() {
+        model.foreground(false)
+        models.clear()
+        model = WorkbenchModel(app, gateway::newConnection, Credentials("fixture"), prefs)
+        models.put("workbench", model)
+        model.foreground(true)
     }
 
     private fun await(condition: () -> Boolean) {
@@ -223,9 +344,12 @@ class ReconnectionTest {
     private class GatewayFixture {
         var available = true
         var connects = 0
+        var streams = 0
+        var latestConnection: WorkbenchConnection? = null
         var dropNextResponse = false
         var dropNextBeforeReceipt = false
         var threadStatus = "idle"
+        var uploads = 0
         val posted = mutableListOf<String>()
         val updatePaths = mutableListOf<String>()
         val pages = ArrayDeque<JSONObject>()
@@ -246,6 +370,8 @@ class ReconnectionTest {
 
             override fun disconnect() { connected = false }
 
+            override fun changes() = super<WorkbenchConnection>.changes().onStart { streams++ }
+
             override suspend fun request(path: String, body: JSONObject?, delete: Boolean): JSONObject {
                 if (!available || !connected) throw IOException("模拟网络中断")
                 if (path == "/v1/threads") businessFailure?.let { throw it }
@@ -259,12 +385,17 @@ class ReconnectionTest {
                         else snapshot().put("cursor", "fixture-cursor").put("hasMore", false)
                             .put("reset", "&cursor=" !in path || threadStatus == "interrupted")
                 }
+                if (path.startsWith("/v1/threads/$OTHER_THREAD/updates?")) {
+                    val approvals = overviewApprovals.objects().filter { it.optString("threadId") == OTHER_THREAD }
+                    return JSONObject().put("thread", otherThread()).put("cursor", "other-fixture-cursor")
+                        .put("hasMore", false).put("reset", true).put("messages", JSONArray()).put("approvals", JSONArray(approvals))
+                }
                 return when (path) {
                     "/v1/status" -> JSONObject()
-                    "/v1/projects" -> JSONObject().put("projects", JSONArray().put(JSONObject().put("id", "default")))
+                    "/v1/projects" -> JSONObject().put("projects", JSONArray().put(JSONObject().put("id", "default"))
+                        .put(JSONObject().put("id", OTHER_PROJECT)))
                     "/v1/threads" -> JSONObject().put("threads", JSONArray().put(thread()).apply {
-                        if (overviewApprovals.length() > 0) put(JSONObject().put("id", OTHER_THREAD)
-                            .put("status", "approval").put("projectId", "default"))
+                        if (overviewApprovals.length() > 0) put(otherThread())
                     })
                         .put("projectsWithEmptyThreads", JSONArray())
                         .put("approvals", overviewApprovals)
@@ -272,9 +403,15 @@ class ReconnectionTest {
                     "/v1/threads/$THREAD/history?limit=40&before=older" -> JSONObject()
                         .put("messages", JSONArray(listOf(message("old", "更早", 10), message("new", "旧内容", 20))))
                         .put("hasMore", false)
+                    "/v1/attachments" -> {
+                        assertEquals(THREAD, body?.getString("threadId"))
+                        assertEquals("image/png", body?.getString("mime"))
+                        JSONObject().put("id", "attachment-${++uploads}")
+                    }
                     "/v1/threads/$THREAD/messages" -> {
                         val submission = checkNotNull(body)
                         val id = submission.getString("requestId")
+                        if (uploads != 0) assertEquals("attachment-1", submission.getJSONArray("attachmentIds").getString(0))
                         posted.add(id)
                         if (dropNextBeforeReceipt) {
                             dropNextBeforeReceipt = false
@@ -293,9 +430,10 @@ class ReconnectionTest {
                 }
             }
 
-        }
+        }.also { latestConnection = it }
 
         private fun thread() = JSONObject().put("id", THREAD).put("status", threadStatus).put("projectId", "default")
+        private fun otherThread() = JSONObject().put("id", OTHER_THREAD).put("status", "approval").put("projectId", OTHER_PROJECT)
         fun message(id: String, text: String, created: Long) = JSONObject().put("id", id).put("role", "assistant")
             .put("text", text).put("created", created)
         fun update(cursor: String, messages: List<JSONObject>, more: Boolean = false, historyBefore: String? = null,
@@ -312,5 +450,6 @@ class ReconnectionTest {
     private companion object {
         const val THREAD = "reconnect-test-thread"
         const val OTHER_THREAD = "reconnect-test-other-thread"
+        const val OTHER_PROJECT = "fixture-project"
     }
 }

@@ -132,7 +132,7 @@ internal fun ConversationComposer(vm: WorkbenchModel, statusHint: String?, onEdi
     }
 
     val canAct = vm.connected && vm.hostOnline && !vm.connecting && !vm.busy
-    val hasDraft = vm.draft.isNotBlank() || vm.draftImages.isNotEmpty()
+    val hasDraft = vm.hasDraft
     val canSend = canAct && speech.stage == null && !vm.importingAttachment && vm.activeThread == null && hasDraft
     val attachmentsEnabled = speech.stage == null && !vm.busy && !vm.importingAttachment
     val error = speech.error ?: vm.attachmentError
@@ -268,7 +268,9 @@ internal fun ConversationComposer(vm: WorkbenchModel, statusHint: String?, onEdi
                         } else if (hasDraft) {
                             Button(onClick = { vm.send() }, enabled = canSend,
                                 modifier = Modifier.heightIn(min = 44.dp).testTag("send"),
-                                contentPadding = PaddingValues(horizontal = 12.dp)) { Text("发送", maxLines = 1) }
+                                contentPadding = PaddingValues(horizontal = 12.dp)) {
+                                Text(if (vm.retrySubmission) "重试" else "发送", maxLines = 1)
+                            }
                         }
                     }
                 }

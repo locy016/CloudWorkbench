@@ -12,6 +12,7 @@ import java.io.IOException
 
 internal interface MobileGatewaySession {
     val origin: String
+    val connected: Boolean get() = true
     fun bearer(): String
     fun invalidate(token: String) {}
     suspend fun forkForDownload(): MobileGatewaySession? = null
@@ -47,6 +48,7 @@ private class MobileSshGateway(
     private val clearIdentities: () -> Unit
 ) : MobileGatewaySession {
     override val origin = "http://127.0.0.1:$port"
+    override val connected get() = session.isConnected
     private var token = ""
     private var expiresAt = 0L
 

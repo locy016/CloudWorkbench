@@ -20,6 +20,7 @@ import androidx.compose.material.icons.outlined.CameraAlt
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.FolderOpen
+import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -151,7 +152,11 @@ internal fun DraftImageTray(images: List<DraftImage>, canRemove: Boolean, onRemo
                         onClick = { preview = image }, modifier = Modifier.fillMaxSize().testTag("draftImagePreview"),
                         shape = RoundedCornerShape(12.dp), color = Background
                     ) {
-                        Image(image.thumbnail.asImageBitmap(), "预览 ${image.name}", contentScale = ContentScale.Crop)
+                        val bitmap by draftBitmap(image, thumbnail = true)
+                        bitmap?.let { Image(it.asImageBitmap(), "预览 ${image.name}", contentScale = ContentScale.Crop) }
+                            ?: Box(contentAlignment = Alignment.Center) {
+                                Icon(Icons.Outlined.Image, "预览 ${image.name}", tint = Muted)
+                            }
                     }
                     IconButton(
                         onClick = { onRemove(image) }, enabled = canRemove, modifier = Modifier.align(Alignment.TopEnd)
@@ -165,17 +170,31 @@ internal fun DraftImageTray(images: List<DraftImage>, canRemove: Boolean, onRemo
         }
     }
     preview?.let { image ->
-        val bitmap by produceState<Bitmap?>(null, image) {
-            value = withContext(Dispatchers.IO) { BitmapFactory.decodeByteArray(image.upload.bytes, 0, image.upload.bytes.size) }
-        }
+        val bitmap by draftBitmap(image, thumbnail = false)
         AlertDialog(
             onDismissRequest = { preview = null },
             title = { Text(image.name, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) },
             text = {
-                Image((bitmap ?: image.thumbnail).asImageBitmap(), image.name,
-                    Modifier.fillMaxWidth().heightIn(max = 440.dp), contentScale = ContentScale.Fit)
+                bitmap?.let { Image(it.asImageBitmap(), image.name,
+                    Modifier.fillMaxWidth().heightIn(max = 440.dp), contentScale = ContentScale.Fit) }
+                    ?: Text("正在读取草稿图片，若持续无法显示请重新添加。")
             },
             confirmButton = { TextButton(onClick = { preview = null }) { Text("关闭") } }
         )
+    }
+}
+
+@Composable
+private fun draftBitmap(image: DraftImage, thumbnail: Boolean) = produceState<Bitmap?>(null, image, thumbnail) {
+    value = withContext(Dispatchers.IO) {
+        val options = BitmapFactory.Options()
+        if (thumbnail) {
+            options.inJustDecodeBounds = true
+            BitmapFactory.decodeFile(image.upload.file.path, options)
+            options.inJustDecodeBounds = false
+            options.inSampleSize = 1
+            while (maxOf(options.outWidth, options.outHeight) / options.inSampleSize > 400) options.inSampleSize *= 2
+        }
+        BitmapFactory.decodeFile(image.upload.file.path, options)
     }
 }

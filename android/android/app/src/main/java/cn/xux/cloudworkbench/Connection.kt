@@ -277,7 +277,7 @@ internal class Connection(
         .retryOnConnectionFailure(true)
         .dispatcher(Dispatcher().apply { maxRequestsPerHost = UPDATE_STREAMS })
         .build()
-    override val connected get() = gateway != null
+    override val connected get() = gateway?.connected == true
     @Synchronized override fun disconnect() {
         val oldGateway = gateway
         val oldUpdateChannels = extraUpdateChannels.toList()

@@ -302,6 +302,7 @@ private fun stateText(s: String) = mapOf("idle" to "已完成", "running" to "�
                         vm.connecting -> "正在连接…"
                         vm.reconnecting -> "正在重连…"
                         !vm.configured -> "连接服务器"
+                        vm.hostOnline && vm.currentId != null -> "继续上次会话"
                         vm.hostOnline -> "与 Codex 对话"
                         vm.connected -> "工作台服务暂不可用"
                         else -> "重试连接"
@@ -310,9 +311,29 @@ private fun stateText(s: String) = mapOf("idle" to "已完成", "running" to "�
             }
         }
         if (vm.connecting) {
-
             ConnectingDevice(vm.hostName)
             return@PageColumn
+        }
+        val continuations = vm.continuations
+        if (continuations.isNotEmpty()) {
+            Panel(Modifier.fillMaxWidth().testTag("taskContinuation")) {
+                Text("继续任务", style = MaterialTheme.typography.titleMedium)
+                continuations.forEach { item ->
+                    val enabled = (!vm.busy && vm.hostOnline) || (vm.currentId == item.id && vm.current != null)
+                    Row(Modifier.fillMaxWidth().clip(MaterialTheme.shapes.small)
+                        .clickable(enabled = enabled, role = Role.Button, onClickLabel = "打开会话") { vm.select(item.id) }
+                        .heightIn(min = 52.dp).padding(horizontal = 4.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Column(Modifier.weight(1f)) {
+                            Text(item.title, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            Text(vm.projectName(item.project), color = Muted, style = MaterialTheme.typography.bodySmall,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        StatusPill(item.state, item.state == "执行中")
+                        Icon(Icons.Outlined.ChevronRight, null, Modifier.size(18.dp), tint = Muted)
+                    }
+                }
+            }
         }
         val status = vm.status
         val live = vm.connected && vm.hostOnline
@@ -645,6 +666,7 @@ private data class MetricValue(val label: String, val value: String, val hint: S
                 } else {
                     val hint = when {
                         vm.busy -> "正在提交…"
+                        vm.submissionHint != null -> vm.submissionHint
                         !vm.hostOnline -> "设备未连接，草稿暂存于应用内"
                         vm.running -> "任务进行中"
                         vm.activeThread != null -> "另一个会话正在执行任务"

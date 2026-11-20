@@ -31,6 +31,7 @@ import java.util.UUID
 fun JSONArray.objects(): List<JSONObject> = (0 until length()).map { getJSONObject(it) }
 internal val activeTaskStates = setOf("starting", "running", "approval")
 internal const val MAX_DRAFT_LENGTH = 12000
+internal data class Continuation(val id: String, val title: String, val project: String, val state: String)
 internal enum class SshConnectionBlock(val message: String) {
     CREDENTIALS("SSH 密钥验证失败，请确认公钥已在服务器授权"),
     HOST_IDENTITY("服务器身份校验失败，请联系管理员核对 SSH 主机密钥")
@@ -58,6 +59,7 @@ class WorkbenchModel internal constructor(
     internal var transfers by mutableStateOf<ConnectionTransfers?>(null); private set
     private var credentials by mutableStateOf(initialCredentials ?: vault.load())
     private var connectionMonitor: Job? = null
+    private var backgroundPause: Job? = null
     private var foreground = false
     private var reconnectAutomatically = prefs.getBoolean("reconnectAutomatically", true)
     internal var connectionBlock by mutableStateOf<SshConnectionBlock?>(null); private set
@@ -99,21 +101,61 @@ class WorkbenchModel internal constructor(
     var browserUrl by mutableStateOf("")
     var browserSaved: android.os.Bundle? = null
     internal val browserBookmarks = BrowserBookmarks(prefs)
-    private val drafts = mutableStateMapOf<String, String>()
-    private val failedRequests = mutableMapOf<String, MessageAttempt>()
-    private val browserSubmissions = mutableMapOf<String, BrowserSubmission>()
-    private val imagesByDraft = mutableStateMapOf<String, List<DraftImage>>()
+    private val draftStore = DraftStore(prefs, File(app.noBackupFilesDir,
+        if (persistBinding) "workbench-drafts" else "workbench-test-drafts"))
+    private val drafts = mutableStateMapOf<String, DraftRecord>().apply { putAll(draftStore.restore()) }
+    private var receivedThread by mutableStateOf(draftStore.lastReceivedThread())
     private val attachmentErrors = mutableStateMapOf<String, String>()
     private var importingKey by mutableStateOf<String?>(null)
     internal val draftKey get() = currentId ?: "new:$projectId"
     internal val dictation = OfflineDictation(app, viewModelScope)
-    internal val draftImages get() = imagesByDraft[draftKey].orEmpty()
-    internal val imageSlots get() = MAX_MESSAGE_IMAGES - draftImages.size - if (browserSubmissions[currentId]?.image != null) 1 else 0
+    internal val draftImages get() = drafts[draftKey]?.images.orEmpty()
+    internal val imageSlots get() = MAX_MESSAGE_IMAGES - drafts[draftKey]?.uploads.orEmpty().size
     internal val importingAttachment get() = importingKey == draftKey
     internal val attachmentError get() = attachmentErrors[draftKey]
+    internal val hasDraft get() = draftRecord(draftKey).messageText() != null
+    internal val retrySubmission get() = draftRecord(draftKey).let { record ->
+        record.attempt?.matches(record.messageText(), record.uploads.map { it.localId }) == true
+    }
+    internal val submissionHint get() = when {
+        retrySubmission -> "发送结果待确认"
+        drafts[draftKey]?.attempt != null -> "上一条发送待确认"
+        currentId != null && currentId == receivedThread -> "服务器已接收"
+        else -> null
+    }
     var draft: String
-        get() = drafts[draftKey].orEmpty()
-        set(value) { if (value.isEmpty()) drafts.remove(draftKey) else drafts[draftKey] = value }
+        get() = drafts[draftKey]?.text.orEmpty()
+        set(value) { setDraftText(draftKey, value) }
+
+    init {
+        val unused = draftStore.unusedFiles(drafts.values)
+        if (unused.isNotEmpty()) viewModelScope.launch(Dispatchers.IO) { unused.forEach { it.delete() } }
+    }
+
+    private fun draftRecord(key: String) = drafts[key] ?: DraftRecord()
+
+    private fun setDraftText(key: String, text: String) {
+        val record = draftRecord(key)
+        if (record.text == text) return
+        if (receivedThread == key) receivedThread = null
+        saveDraft(key, record.copy(text = text))
+    }
+
+    private fun saveDraft(key: String, record: DraftRecord) = saveDrafts(mapOf(key to record))
+
+    private fun saveDrafts(changes: Map<String, DraftRecord>) {
+        val previous = changes.keys.flatMap { draftRecord(it).uploads }.map { it.file }
+        for ((key, record) in changes) {
+            if (record == DraftRecord()) drafts.remove(key) else drafts[key] = record
+        }
+        draftStore.save(changes, receivedThread)
+        if (previous.isEmpty()) return
+        val retained = changes.values.flatMap { it.uploads }.mapTo(hashSetOf()) { it.file }
+        val removed = previous.filterNot { it in retained }
+        if (removed.isNotEmpty()) viewModelScope.launch(Dispatchers.IO) {
+            if (draftStore.flush()) removed.forEach { it.delete() }
+        }
+    }
 
     internal fun reportAttachmentError(key: String, message: String?) {
         if (message == null) attachmentErrors.remove(key) else attachmentErrors[key] = message
@@ -121,8 +163,7 @@ class WorkbenchModel internal constructor(
 
     internal fun removeDraftImage(image: DraftImage) {
         if (busy || importingAttachment) return
-        val remaining = draftImages - image
-        if (remaining.isEmpty()) imagesByDraft.remove(draftKey) else imagesByDraft[draftKey] = remaining
+        saveDraft(draftKey, draftRecord(draftKey).copy(images = draftImages - image))
         reportAttachmentError(draftKey, null)
     }
 
@@ -131,8 +172,7 @@ class WorkbenchModel internal constructor(
             photo?.delete()
             return
         }
-        val existing = imagesByDraft[key].orEmpty()
-        val remaining = MAX_MESSAGE_IMAGES - existing.size - if (browserSubmissions[key]?.image != null) 1 else 0
+        val remaining = MAX_MESSAGE_IMAGES - draftRecord(key).uploads.size
         val selected = uris.distinct()
         importAttachment(key, onComplete = { photo?.delete() }) {
             if (remaining <= 0) {
@@ -143,8 +183,12 @@ class WorkbenchModel internal constructor(
             var unreadable = 0
             for (uri in selected.take(remaining)) {
                 try {
-                    val image = withContext(Dispatchers.IO) { resolver.readDraftImage(uri, photo?.let { "拍摄的照片" }) }
-                    imagesByDraft[key] = imagesByDraft[key].orEmpty() + image
+                    val image = withContext(Dispatchers.IO) {
+                        resolver.readDraftImage(uri, photo?.let { "拍摄的照片" }, draftStore)
+                    }
+                    val record = draftRecord(key)
+                    if (receivedThread == key) receivedThread = null
+                    saveDraft(key, record.copy(images = record.images + image))
                 } catch (e: CancellationException) {
                     throw e
                 } catch (_: Exception) {
@@ -193,10 +237,10 @@ class WorkbenchModel internal constructor(
     }
 
     private fun appendDraft(key: String, text: String): Boolean {
-        val existing = drafts[key].orEmpty()
+        val existing = draftRecord(key).text
         val combined = if (existing.isBlank()) text else "$existing\n$text"
         if (combined.length > MAX_DRAFT_LENGTH) return false
-        drafts[key] = combined
+        setDraftText(key, combined)
         return true
     }
     val configured get() = credentials.configured
@@ -207,14 +251,27 @@ class WorkbenchModel internal constructor(
     val activeThread get() = current?.takeIf { it.optString("status") in activeTaskStates }
         ?: threads.firstOrNull { it.optString("id") != currentId && it.optString("status") in activeTaskStates }
     val pendingApprovals get() = approvals + otherApprovals.filter { it.optString("threadId") != currentId }
-
-    private class BrowserSubmission(val context: JSONObject, val image: MessageImage?)
-    private data class MessageAttempt(
-        val text: String,
-        val imageIds: List<UUID>,
-        val requestId: String,
-        val draftAtSend: String?
-    )
+    internal val continuations: List<Continuation>
+        get() {
+            val summaries = (threads + listOfNotNull(current)).associateBy { it.getString("id") }
+            val items = linkedMapOf<String, Continuation>()
+            fun add(id: String, state: String, attempt: MessageAttempt? = null) {
+                if (id.isBlank() || id in items) return
+                val thread = summaries[id]
+                val title = thread?.let(::threadTitle) ?: attempt?.title ?: "会话"
+                val project = thread?.let(::threadProjectId) ?: attempt?.projectId.orEmpty()
+                items[id] = Continuation(id, title, project, state)
+            }
+            pendingApprovals.forEach { add(it.optString("threadId"), "待审批") }
+            summaries.values.filter { it.optString("status") in activeTaskStates }.forEach {
+                add(it.getString("id"), if (it.optString("status") == "approval") "待审批" else "执行中")
+            }
+            drafts.forEach { (id, record) -> record.attempt?.let { add(id, "发送待确认", it) } }
+            current?.takeIf { it.optString("status") in setOf("failed", "interrupted") }?.let {
+                add(it.getString("id"), if (it.optString("status") == "failed") "执行失败" else "执行中断")
+            }
+            return items.values.toList()
+        }
 
     val running get() = current?.optString("status") in activeTaskStates
     fun clearError() { error = null }
@@ -223,18 +280,28 @@ class WorkbenchModel internal constructor(
         foreground = value
         if (!value) {
             dictation.stop()
-            stopMonitoring()
+            backgroundPause = viewModelScope.launch {
+                delay(BACKGROUND_SYNC_GRACE_MS)
+                stopMonitoring()
+            }
         } else {
-            hostOnline = false
-            lastOverview = 0L
-            lastProjects = 0L
+            backgroundPause?.cancel()
+            backgroundPause = null
+            if (!busy && !connecting && (routeChanged || connected && !connection.connected)) {
+                stopMonitoring()
+                if (connected) resetTransport()
+            }
+            if (connectionMonitor?.isActive != true) {
+                lastOverview = 0L
+                lastProjects = 0L
+            }
             monitorConnection()
         }
     }
 
     internal fun defaultNetworkChanged(handle: Long?) {
         if (observedNetwork && defaultNetwork == handle) return
-        routeChanged = observedNetwork || handle == null
+        routeChanged = routeChanged || observedNetwork || handle == null
         observedNetwork = true
         defaultNetwork = handle
         if (routeChanged && foreground && reconnectAutomatically && connectionBlock == null && configured) {
@@ -496,7 +563,7 @@ class WorkbenchModel internal constructor(
 
     private suspend fun readUpdates(id: String, cursor: String? = null, foregroundRequest: Boolean = false): ConversationUpdates {
         // A larger bootstrap window makes the uncertain send receipt visible after a restart.
-        val limit = if (id in failedRequests) 160 else 40
+        val limit = if (drafts[id]?.attempt != null) 160 else 40
         suspend fun load(from: String?): ConversationUpdates {
             val path = updatesPath(id, from, limit)
             return ConversationUpdates(if (foregroundRequest) request(path) else connection.sync(path))
@@ -559,13 +626,13 @@ class WorkbenchModel internal constructor(
         action {
             val created = request("/v1/threads", JSONObject().put("title", "浏览：" + title.take(30)).put("projectId", projectId))
             val id = selectSnapshot(created)
-            draft = text
-            openProject()
-            browserSubmissions[id] = BrowserSubmission(
-                JSONObject().put("title", title).put("url", url).put("text", material.take(30000)),
-                image?.let { MessageImage("image/png", it) }
+            val browserImage = image?.let { withContext(Dispatchers.IO) { draftStore.stageImage("image/png", it) } }
+            val browser = BrowserSubmission(
+                JSONObject().put("title", title).put("url", url).put("text", material.take(30000)), browserImage
             )
-            submitMessage(id, text)
+            saveDraft(id, DraftRecord(text = text, browser = browser))
+            openProject()
+            submitMessage(id, text, text)
         }
     }
     private fun snapshot(j: JSONObject) {
@@ -579,7 +646,7 @@ class WorkbenchModel internal constructor(
         approvals = pending
         val id = thread.getString("id")
         threads = (listOf(thread) + threads.filter { it.optString("id") != id }).sortedByDescending { it.optLong("updated") }
-        val attempt = failedRequests[id] ?: return
+        val attempt = drafts[id]?.attempt ?: return
         val threadStatus = thread.optString("status")
         if (threadStatus != "failed" && threadStatus != "starting" &&
             window.any { it.optString("id") == "u-${attempt.requestId}" }) {
@@ -672,13 +739,9 @@ class WorkbenchModel internal constructor(
             threads = threads.filterNot { it.optString("id") in ids }
             historyThreads = historyThreads.filterNot { it.optString("id") in ids }
             otherApprovals = otherApprovals.filterNot { it.optString("threadId") in ids }
-            ids.forEach { key ->
-                drafts.remove(key)
-                imagesByDraft.remove(key)
-                attachmentErrors.remove(key)
-                failedRequests.remove(key)
-                browserSubmissions.remove(key)
-            }
+            if (receivedThread in ids) receivedThread = null
+            ids.forEach { attachmentErrors.remove(it) }
+            saveDrafts(ids.associateWith { DraftRecord() })
             onSuccess(ids.size)
         }
     }
@@ -724,61 +787,66 @@ class WorkbenchModel internal constructor(
         approvals = emptyList()
     }
     private fun keepPendingApprovals() {
-        if (approvals.isNotEmpty()) otherApprovals = approvals
+        otherApprovals = otherApprovals.filter { it.optString("threadId") != currentId } + approvals
     }
     fun send() {
         if (selectedConversationArchived || activeThread != null || importingAttachment || dictation.stage != null) return
-        val text = draft.trim().ifEmpty { if (draftImages.isNotEmpty()) "请分析附图。" else return }
+        val draftAtSend = draftRecord(draftKey)
+        val text = draftAtSend.messageText() ?: return
         action {
             val id = currentId ?: run {
                 val key = draftKey
                 val new = selectSnapshot(request("/v1/threads", JSONObject().put("title", "新的对话").put("projectId", projectId)))
-                drafts.remove(key)?.let { draft = it }
-                imagesByDraft.remove(key)?.let { imagesByDraft[new] = it }
+                saveDrafts(mapOf(key to DraftRecord(), new to draftRecord(key)))
                 attachmentErrors.remove(key)
                 new
             }
-            submitMessage(id, text)
+            submitMessage(id, text, draftAtSend.text)
         }
     }
-    private suspend fun submitMessage(id: String, text: String) {
-        val localImages = imagesByDraft[id].orEmpty()
-        val browser = browserSubmissions[id]
-        val images = listOfNotNull(browser?.image) + localImages.map { it.upload }
+    private suspend fun submitMessage(id: String, text: String, draftAtSend: String) {
+        val record = draftRecord(id)
+        val images = record.uploads
         val localIds = images.map { it.localId }
-        val requestId = failedRequests[id]?.takeIf { it.text == text && it.imageIds == localIds }?.requestId
+        val requestId = record.attempt?.takeIf { it.matches(text, localIds) }?.requestId
             ?: UUID.randomUUID().toString()
-        val attempt = MessageAttempt(text, localIds, requestId, drafts[id])
-        failedRequests[id] = attempt
+        val attempt = MessageAttempt(requestId, text, localIds, draftAtSend, projectId, conversationTitle)
         val body = JSONObject().put("text", text).put("requestId", requestId)
-        browser?.let { body.put("browserContext", it.context) }
+        record.browser?.let { body.put("browserContext", it.context) }
+        receivedThread = null
+        saveDraft(id, record.copy(attempt = attempt))
+        ensureDraftSaved()
         if (images.isNotEmpty()) {
             val ids = JSONArray()
             for (image in images) ids.put(uploadImage(id, image))
             body.put("attachmentIds", ids)
+            saveDraft(id, draftRecord(id))
+            ensureDraftSaved()
         }
         try {
             snapshot(request("/v1/threads/$id/messages", body))
         } catch (e: IOException) {
             throw IOException(SUBMISSION_UNCONFIRMED, e)
         }
-        if (failedRequests[id] == attempt) completeSubmission(id, attempt)
+        if (drafts[id]?.attempt == attempt) completeSubmission(id, attempt)
+    }
+
+    private suspend fun ensureDraftSaved() {
+        check(withContext(Dispatchers.IO) { draftStore.flush() }) { "无法保存发送记录，请检查设备存储后重试" }
     }
 
     private fun completeSubmission(id: String, attempt: MessageAttempt) {
-        if (drafts[id] == attempt.draftAtSend) drafts.remove(id)
-        imagesByDraft[id] = imagesByDraft[id].orEmpty().filterNot { it.upload.localId in attempt.imageIds }
-        if (imagesByDraft[id].isNullOrEmpty()) {
-            imagesByDraft.remove(id)
-            attachmentErrors.remove(id)
-        }
-        failedRequests.remove(id)
-        browserSubmissions.remove(id)
+        val record = draftRecord(id)
+        val text = record.text.takeUnless { it == attempt.draftAtSend }.orEmpty()
+        val images = record.images.filterNot { it.upload.localId in attempt.imageIds }
+        if (images.isEmpty()) attachmentErrors.remove(id)
+        if (text.isEmpty() && images.isEmpty()) receivedThread = id
+        saveDraft(id, DraftRecord(text, images))
         if (error == SUBMISSION_UNCONFIRMED) error = null
     }
     private suspend fun uploadImage(id: String, image: MessageImage): String {
         image.uploadedId?.let { return it }
-        val data = withContext(Dispatchers.Default) { Base64.encodeToString(image.bytes, Base64.NO_WRAP) }
+        val data = withContext(Dispatchers.IO) { Base64.encodeToString(image.readBytes(), Base64.NO_WRAP) }
         return request("/v1/attachments", JSONObject().put("threadId", id).put("mime", image.mime).put("data", data))
             .getString("id").also { image.uploadedId = it }
     }
@@ -795,7 +863,7 @@ class WorkbenchModel internal constructor(
         if (id == currentId) snapshot(result)
         else {
             threads = threads.map { if (it.optString("id") == id) thread else it }
-            otherApprovals = result.getJSONArray("approvals").objects()
+            otherApprovals = otherApprovals.filter { it.optString("threadId") != id } + result.getJSONArray("approvals").objects()
         }
     }
     override fun onCleared() {
@@ -804,6 +872,7 @@ class WorkbenchModel internal constructor(
     }
 
     private companion object {
+        const val BACKGROUND_SYNC_GRACE_MS = 30_000L
         const val ACTIVE_OVERVIEW_INTERVAL_MS = 4000L
         const val OVERVIEW_INTERVAL_MS = 10000L
         const val PROJECTS_INTERVAL_MS = 30000L

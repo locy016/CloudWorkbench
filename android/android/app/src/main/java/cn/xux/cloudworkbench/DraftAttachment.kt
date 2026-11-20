@@ -12,22 +12,30 @@ import android.net.Uri
 import android.os.Build
 import android.provider.OpenableColumns
 import java.io.ByteArrayOutputStream
+import java.io.File
 import java.nio.ByteBuffer
 import java.util.UUID
 import kotlin.math.roundToInt
 
 internal const val MAX_MESSAGE_IMAGES = 4
 private const val MAX_IMAGE_EDGE = 2048
-private const val MAX_IMAGE_BYTES = 5 * 1024 * 1024
+internal const val MAX_IMAGE_BYTES = 5 * 1024 * 1024
 
-internal class MessageImage(val mime: String, val bytes: ByteArray) {
-    val localId = UUID.randomUUID()
+internal class MessageImage(
+    val mime: String,
+    val file: File,
+    val localId: UUID,
     var uploadedId: String? = null
+) {
+    fun readBytes(): ByteArray {
+        require(file.length() in 8..MAX_IMAGE_BYTES.toLong()) { "草稿图片已损坏，请移除此图片后重新添加" }
+        return file.readBytes()
+    }
 }
 
-internal class DraftImage(val name: String, val thumbnail: Bitmap, val upload: MessageImage)
+internal class DraftImage(val name: String, val upload: MessageImage)
 
-internal fun ContentResolver.readDraftImage(uri: Uri, name: String? = null): DraftImage {
+internal fun ContentResolver.readDraftImage(uri: Uri, name: String?, store: DraftStore): DraftImage {
     val bitmap = decodeDraftImage(uri)
     try {
         val output = ByteArrayOutputStream()
@@ -46,13 +54,8 @@ internal fun ContentResolver.readDraftImage(uri: Uri, name: String? = null): Dra
             "image/jpeg"
         }
         require(output.size() in 8..MAX_IMAGE_BYTES) { "图片过大，请选择较小的图片" }
-        val scale = (320f / maxOf(bitmap.width, bitmap.height)).coerceAtMost(1f)
-        val preview = Bitmap.createScaledBitmap(
-            bitmap, (bitmap.width * scale).roundToInt().coerceAtLeast(1),
-            (bitmap.height * scale).roundToInt().coerceAtLeast(1), true
-        )
-        val thumbnail = if (preview === bitmap) checkNotNull(bitmap.copy(Bitmap.Config.ARGB_8888, false)) else preview
-        return DraftImage(name ?: uri.displayName(this).ifBlank { "图片" }, thumbnail, MessageImage(mime, output.toByteArray()))
+        val upload = store.stageImage(mime, output.toByteArray())
+        return DraftImage(name ?: uri.displayName(this).ifBlank { "图片" }, upload)
     } finally {
         bitmap.recycle()
     }
