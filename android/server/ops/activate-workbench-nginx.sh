@@ -7,7 +7,9 @@ domain=workbench.qiwuli.com
 http=/etc/nginx/conf.d/workbench-http.conf
 https=/etc/nginx/conf.d/workbench-https.conf
 [[ ! -e "$http" && ! -e "$https" ]]
-[[ $(curl -q --noproxy '*' --fail --silent --show-error --max-time 5 -H 'X-Workbench-Ingress: https' http://127.0.0.1:8766/v1/transport) == '{"protocol":1}' ]]
+workstation_status=/e64c1f0ba3427d59/api/v1/status
+[[ $(curl -q --noproxy '*' --silent --show-error --max-time 5 -o /dev/null -w '%{http_code}' \
+     -H 'X-Workbench-Ingress: workstation-v2' "http://127.0.0.1:8766$workstation_status") == 401 ]]
 [[ $(dig +time=3 +tries=1 +short "$domain" A @1.1.1.1) == 43.110.34.152 ]]
 [[ -z $(dig +time=3 +tries=1 +short "$domain" AAAA @1.1.1.1) ]]
 
@@ -53,12 +55,13 @@ probe() {
 }
 # Allow new workers to take over the listening sockets.
 for _ in {1..5}; do
-    if probe "$domain" 200 /v1/transport; then break; fi
+    if probe "$domain" 401 "$workstation_status"; then break; fi
     sleep 1
 done
-probe "$domain" 200 /v1/transport
-probe "$domain" 401 /v1/threads
-probe "$domain" close /internal/pair-device
+probe "$domain" 200 /
+probe "$domain" 401 "$workstation_status"
+probe "$domain" 404 /internal/pair-device
+probe "$domain" 410 /downloads/windows/latest.zip
 probe qiwuli.com 200 /
 probe www.qiwuli.com 308 /
 

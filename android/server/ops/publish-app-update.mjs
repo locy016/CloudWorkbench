@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { chmod, link, readFile, rename, stat, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { chmod, link, readFile, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises';
+import { basename, dirname, join } from 'node:path';
 import { readAppUpdate, validateAppUpdate } from '../src/releases.mjs';
 
 const [manifest, apk, directory] = process.argv.slice(2);
@@ -36,4 +36,8 @@ try {
 const pending = join(dirname(manifest), 'publish-current.json');
 await writeFile(pending, JSON.stringify(update) + '\n', { mode: 0o600, flag: 'w' });
 await rename(pending, join(directory, 'current.json'));
+for (const entry of await readdir(directory, { withFileTypes: true })) {
+  if (entry.name !== basename(target) && /^[a-f0-9]{64}\.apk$/.test(entry.name) &&
+      (entry.isFile() || entry.isSymbolicLink())) await unlink(join(directory, entry.name));
+}
 console.log(`Published ${update.versionName} (build ${update.versionCode}), ${update.size} bytes, SHA-256 ${update.sha256}`);

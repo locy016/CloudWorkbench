@@ -153,7 +153,7 @@ private suspend fun WebView.hasPageContent(): Boolean = suspendCancellableCorout
     var rendererGeneration by remember { mutableIntStateOf(0) }
     var toolsOpen by remember { mutableStateOf(false) }
     var selectedMaterial by remember { mutableStateOf<BrowserMaterial?>(null) }
-    val supported = vm.browserNetwork.supported
+    val supported = vm.browserReady
     val online = vm.browserReady
     val configureBrowser = { vm.tab = WorkbenchPage.Cloud }
     val canCollect = !startPage && online && pageReady && !loading && screenshot == null
@@ -305,7 +305,6 @@ private suspend fun WebView.hasPageContent(): Boolean = suspendCancellableCorout
                 focusedContainerColor = AccentSurface, unfocusedContainerColor = Background,
                 focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent
             ),
-            leadingIcon = { BrowserModeIcon(vm, beforeSwitch = ::finishAddressEdit) },
             trailingIcon = {
                 FilledIconButton(onClick = { navigate(address.text) }, enabled = canOpen,
                     modifier = Modifier.size(44.dp).testTag("browserGo")) {
@@ -439,7 +438,7 @@ private suspend fun WebView.hasPageContent(): Boolean = suspendCancellableCorout
                     settings.blockNetworkLoads = true
                     WebViewCompat.addDocumentStartJavaScript(this, """
                         (() => {
-                            // Disable APIs that can open direct connections outside the proxy.
+                            // Keep page network requests within the WebView request handler.
                             for (const key of ['RTCPeerConnection', 'webkitRTCPeerConnection', 'WebTransport']) {
                                 try { Object.defineProperty(window, key, { value: undefined }); } catch {}
                             }
@@ -459,11 +458,6 @@ private suspend fun WebView.hasPageContent(): Boolean = suspendCancellableCorout
                         })();
                     """.trimIndent(), setOf("*"))
                     webViewClient = object : WebViewClient() {
-                        override fun onReceivedHttpAuthRequest(v: WebView, handler: android.webkit.HttpAuthHandler, host: String, realm: String) {
-                            val password = vm.browserPassword(host, realm)
-                            if (password == null) super.onReceivedHttpAuthRequest(v, handler, host, realm)
-                            else handler.proceed("workbench", password)
-                        }
                         override fun shouldOverrideUrlLoading(v: WebView, r: WebResourceRequest): Boolean = r.url.scheme !in listOf("http", "https")
                         override fun onPageStarted(v: WebView, url: String, favicon: Bitmap?) {
                             if (startPage || pageError != null || !vm.browserReady || v !== view) return
@@ -500,7 +494,6 @@ private suspend fun WebView.hasPageContent(): Boolean = suspendCancellableCorout
                         }
                         override fun onRenderProcessGone(v: WebView, detail: RenderProcessGoneDetail): Boolean {
                             if (v !== view) return true
-                            vm.browserNetwork.detach(v)
                             vm.browserSaved = null
                             imageJob?.cancel()
                             screenshot = null
@@ -542,15 +535,6 @@ private suspend fun WebView.hasPageContent(): Boolean = suspendCancellableCorout
                             }; true
                         } else false
                     }
-                    vm.browserNetwork.attach(this) {
-                        imageJob?.cancel()
-                        if (pageLoading || progress in 1..99) {
-                            if (!pageReady) failPage("网页加载中断，请重试")
-                            stopLoading()
-                            pageLoading = false
-                            progress = 100
-                        }
-                    }
                     view = this
                 }
             }, update = { w ->
@@ -559,7 +543,6 @@ private suspend fun WebView.hasPageContent(): Boolean = suspendCancellableCorout
                 w.isEnabled = pageReady && screenshot == null
                 if (visible) w.onResume() else w.onPause()
             }, onRelease = { w ->
-                vm.browserNetwork.detach(w)
                 if (generation == rendererGeneration) {
                     val saved = Bundle()
                     vm.browserSaved = if (w.saveState(saved) != null) saved else null
@@ -681,28 +664,6 @@ private suspend fun WebView.hasPageContent(): Boolean = suspendCancellableCorout
         }, confirmButton = { TextButton(onClick = {
             try { val bytes = m.bitmap?.let(::png); vm.sendBrowser(instruction, m.title, m.url, m.text, bytes); material = null } catch (e: Exception) { error = e.message }
         }, enabled = vm.hostOnline && !vm.connecting && !vm.busy && vm.activeThread == null && instruction.isNotBlank(), modifier = Modifier.testTag("browserSend")) { Text("发送并打开会话") } }, dismissButton = { TextButton(onClick = { material = null }) { Text("取消") } })
-    }
-}
-
-@Composable private fun BrowserModeIcon(vm: WorkbenchModel, beforeSwitch: () -> Unit) {
-    val scheme = MaterialTheme.colorScheme
-    val network = vm.browserNetwork
-    val (tint, background) = when {
-        network.failed -> scheme.onErrorContainer to scheme.errorContainer
-        !network.supported -> Muted to scheme.surface
-        vm.browserReady -> Accent to AccentSurface
-        else -> Amber to WarmSurface
-    }
-    val next = if (network.mode == BrowserMode.Cloud) BrowserMode.Direct else BrowserMode.Cloud
-    val status = "${network.mode.title} · ${vm.browserStatus}"
-    Surface(onClick = { beforeSwitch(); vm.selectBrowserMode(next) }, enabled = network.supported,
-        modifier = Modifier.padding(start = 4.dp).testTag("browserModeIndicator"),
-        shape = MaterialTheme.shapes.small, color = background) {
-        Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {
-            Icon(if (network.mode == BrowserMode.Cloud) Icons.Outlined.CloudQueue else Icons.Outlined.TabletAndroid,
-                if (network.supported) "$status，点击切换为${next.title}" else status,
-                modifier = Modifier.size(20.dp), tint = tint)
-        }
     }
 }
 

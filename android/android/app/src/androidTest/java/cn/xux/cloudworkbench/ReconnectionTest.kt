@@ -235,7 +235,6 @@ class ReconnectionTest {
         private val received = linkedMapOf<String, String>()
 
         fun newConnection(): WorkbenchConnection = object : WorkbenchConnection {
-            override val browserPort get() = if (connected) 12000 else 0
             override var connected = false
                 private set
 
@@ -294,8 +293,6 @@ class ReconnectionTest {
                 }
             }
 
-            override suspend fun browserImage(url: String, cookie: String, agent: String): ByteArray =
-                error("Unexpected image download")
         }
 
         private fun thread() = JSONObject().put("id", THREAD).put("status", threadStatus).put("projectId", "default")

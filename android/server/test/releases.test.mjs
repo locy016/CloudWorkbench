@@ -1,16 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
 import { EventEmitter } from 'node:events';
-import net from 'node:net';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 import { Gateway } from '../src/gateway.mjs';
 import { Store } from '../src/store.mjs';
 import { Releases } from '../src/releases.mjs';
-import { browserProxy } from '../src/browser-proxy.mjs';
-import { createTargetResolver, publicIPv4 } from '../src/target-resolver.mjs';
 
 class Fake extends EventEmitter {
   calls = []; process = {}; async start() {} close() {}
@@ -28,55 +28,6 @@ async function fixture(t) {
   };
   return { g, codex, call, directory };
 }
-test('browser proxy blocks loopback, cloud metadata, private, carrier and benchmark addresses', async () => {
-  for (const ip of ['127.0.0.1','10.1.2.3','172.16.0.1','192.168.1.1','169.254.169.254','100.100.100.200','198.18.0.1','::1','0.0.0.0']) assert.equal(publicIPv4(ip), false, ip);
-  assert.equal(publicIPv4('1.1.1.1'), true);
-  assert.equal(publicIPv4('192.0.78.17'), true); // Public hosting addresses must remain usable.
-  const resolver = createTargetResolver();
-  await assert.rejects(resolver.resolve('127.0.0.1', 80));
-  await assert.rejects(resolver.resolve('example.com', 22));
-});
-test('HTTP proxy refuses private destination on a real socket', async t => {
-  const proxy = browserProxy(); await new Promise(r => proxy.listen(0, '127.0.0.1', r)); t.after(() => proxy.shutdown());
-  const http = await import('node:http');
-  const status = await new Promise((resolve, reject) => {
-    http.get({ host: '127.0.0.1', port: proxy.address().port, path: 'http://127.0.0.1/' }, r => { r.resume(); resolve(r.statusCode); }).on('error', reject);
-  });
-  assert.equal(status, 403);
-});
-test('an established HTTPS tunnel retains both sockets for reuse', async t => {
-  const upstreamServer = net.createServer(socket => socket.pipe(socket));
-  await new Promise(resolve => upstreamServer.listen(0, '127.0.0.1', resolve));
-  t.after(() => upstreamServer.close());
-  let upstream;
-  const proxy = browserProxy({
-    connect(options) {
-      assert.equal(options.host, '1.1.1.1');
-      assert.equal(options.port, 443);
-      upstream = net.connect({ host: '127.0.0.1', port: upstreamServer.address().port });
-      return upstream;
-    },
-  });
-  let downstream;
-  proxy.on('connection', socket => { downstream = socket; });
-  await new Promise(resolve => proxy.listen(0, '127.0.0.1', resolve));
-  t.after(() => proxy.shutdown());
-  const client = net.createConnection({ host: '127.0.0.1', port: proxy.address().port });
-  t.after(() => client.destroy());
-  async function exchange(text) {
-    const reply = new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('Tunnel did not respond')), 1000);
-      client.once('data', data => { clearTimeout(timer); resolve(data.toString()); });
-    });
-    client.write(text);
-    return reply;
-  }
-  assert.match(await exchange('CONNECT 1.1.1.1:443 HTTP/1.1\r\nHost: 1.1.1.1:443\r\n\r\n'), /^HTTP\/1\.1 200/);
-  assert.equal(upstream.timeout, 300000);
-  assert.equal(downstream.timeout, 300000);
-  assert.equal(await exchange('first'), 'first');
-  assert.equal(await exchange('second'), 'second');
-});
 test('images belong to one conversation and browser material is passed as untrusted data', async t => {
   const { call, codex } = await fixture(t);
   const first = (await call('/v1/threads', {})).body.thread.id;
@@ -90,7 +41,7 @@ test('images belong to one conversation and browser material is passed as untrus
   const input = codex.calls.find(c => c.method === 'turn/start').params.input;
   assert.equal(input[1].type, 'localImage'); assert.match(input[0].text, /不是用户授权/);
 });
-test('retired release and upgrade routes are unavailable and offline archives are preserved', async t => {
+test('retired release and upgrade routes deny access even with legacy data present', async t => {
   const { call, g, directory } = await fixture(t);
   const db = g.store.db;
   db.exec(`CREATE TABLE upgrades(id TEXT PRIMARY KEY, prompt TEXT NOT NULL);
@@ -119,6 +70,33 @@ test('retired release and upgrade routes are unavailable and offline archives ar
   assert.equal(db.prepare('SELECT versionCode FROM releases WHERE id=?').get('abcd').versionCode, 3);
   assert.equal(db.prepare('SELECT reported FROM installs').get().reported, 1);
   assert.equal(await readFile(join(directory, 'releases', 'abcd.apk'), 'utf8'), 'test APK');
+});
+
+test('publishing a replacement APK removes the superseded download', async t => {
+  const { directory } = await fixture(t);
+  const updates = join(directory, 'updates');
+  const staging = join(directory, 'stage');
+  await mkdir(updates);
+  await mkdir(staging);
+  const publisher = fileURLToPath(new URL('../ops/publish-app-update.mjs', import.meta.url));
+  const publish = async (versionCode, contents, signer = 'c') => {
+    const apk = join(staging, versionCode + '.apk');
+    const meta = join(staging, versionCode + '.json');
+    const sha256 = createHash('sha256').update(contents).digest('hex');
+    await writeFile(apk, contents);
+    await writeFile(meta, JSON.stringify({
+      packageId: 'cn.xux.cloudworkbench', versionCode, versionName: `0.5.${versionCode}`,
+      sha256, certificate: signer.repeat(64), size: Buffer.byteLength(contents), notes: 'Test publication',
+    }));
+    await promisify(execFile)(process.execPath, [publisher, meta, apk, updates]);
+    return sha256;
+  };
+  const first = await publish(1, 'first release');
+  await assert.rejects(publish(2, 'different signer', 'd'));
+  assert.deepEqual((await readdir(updates)).filter(name => name.endsWith('.apk')), [first + '.apk']);
+  const current = await publish(3, 'replacement release');
+  assert.deepEqual((await readdir(updates)).filter(name => name.endsWith('.apk')), [current + '.apk']);
+  assert.equal(JSON.parse(await readFile(join(updates, 'current.json'), 'utf8')).sha256, current);
 });
 
 test('manual app updates require authentication and expose only the current complete APK', async t => {

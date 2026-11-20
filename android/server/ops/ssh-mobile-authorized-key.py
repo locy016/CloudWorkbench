@@ -10,7 +10,7 @@ import sys
 import tempfile
 
 FINGERPRINT = "SHA256:MJw5Wm63bBOjKnkb2rYSS7AOz7XKSqVDxB/tJuPKKU4"
-OPTIONS = b'restrict,port-forwarding,permitopen="127.0.0.1:8766",permitopen="127.0.0.1:8768",command='
+OPTIONS = b'restrict,port-forwarding,permitopen="127.0.0.1:8766",command='
 DISABLED = b'"/bin/false"'
 ENABLED = b'"/usr/bin/env -u NODE_OPTIONS -u NODE_PATH /usr/local/bin/node /home/xux/.local/lib/cloud-workbench/ops/ssh-mobile-token.mjs"'
 

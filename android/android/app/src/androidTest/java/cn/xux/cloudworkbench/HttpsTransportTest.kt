@@ -72,8 +72,6 @@ class HttpsTransportTest {
         try {
             runBlocking {
                 browser.connect(binding)
-                val image = browser.browserImage("http://fixture.test/fixture-image", "", "Workbench USB acceptance")
-                assertEquals("WORKBENCH", image.toString(Charsets.US_ASCII))
                 val expected = "workbench APK resume fixture"
                 val release = AppRelease(33, "0.4.20", "b".repeat(64), "c".repeat(64), expected.length.toLong(), "")
                 val context = InstrumentationRegistry.getInstrumentation().targetContext
@@ -168,14 +166,6 @@ class HttpsTransportTest {
             val switched = fixtureCall("/fixture/append", post = true)
             onMain { it.defaultNetworkChanged(101) }
             await("default network recovery catches up") { online() && activeFeeds() == 1 && hasThread("fixture-thread-$switched") }
-            var proxyPort = 0
-            onMain { proxyPort = it.browserPort }
-            Socket("127.0.0.1", proxyPort).use { unauthenticated ->
-                unauthenticated.soTimeout = 4000
-                unauthenticated.getOutputStream().write("CONNECT example.com:443 HTTP/1.1\r\nHost: example.com\r\n\r\n".toByteArray())
-                assertTrue(unauthenticated.getInputStream().bufferedReader().readLine().contains("407"))
-                assertEquals(0, JSONObject(fixtureCall("/fixture/stats")).getInt("activeTunnels"))
-            }
         } finally {
             onMain { it.foreground(false); it.disconnect() }
             client.dispatcher.cancelAll()

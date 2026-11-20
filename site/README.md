@@ -78,12 +78,6 @@ python3 tests/live_smoke.py
 
 本目录从栖物里维护源码导入 CloudWorkbench 仓库。服务器上的旧源码校验清单属于历史迁移基线。本次验证与发布状态见 `SERVER-README.md`。
 
-## 工作台下载页
+## 工作台入口
 
-工作台下载页独立于栖物里主站。模板和样式见 [windows/portal](../windows/portal/)。由 [构建脚本](../windows/tools/portal/build-portal.mjs) 读取 Windows 发行清单和 ZIP 并校验 SHA-256，再生成页面及公开版本清单。
-
-```bash
-node windows/tools/portal/build-portal.mjs <windows-release.json> <Windows-ZIP> <输出目录>
-```
-
-Windows 发行与发布核对见 [Windows 交接](../windows/docs/handoffs/rust-0.4.md)。
+工作台说明页由独立的 [Nginx 配置](../android/server/ops/workbench-https.conf) 提供。Windows 便携包按 [Windows 发行说明](../windows/README.md) 通过授权渠道交付。

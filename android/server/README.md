@@ -1,30 +1,14 @@
-# 云端工作台服务端网关
+# 云端工作台网关
 
-| 组件 | 源码和职责 |
-| --- | --- |
-| Android 网关 | [src](src/) 包含 SSH 会话鉴权、Codex 请求与事件、工作区和会话存储、浏览代理与附件、Android 更新、Windows 授权管理及订阅签发。 |
-| Windows 接入与登记 | [windows/server](../../windows/server/) 包含 HTTPS 接入与转发、设备登记及续期、出口探测和用量记账。服务配置放在其 ops 目录。 |
-| 共享契约 | [public-routes.json](src/public-routes.json) 与 [device-policy.mjs](src/device-policy.mjs) 由客户端或接入服务引用。修改后同步核对客户端和反向代理配置。 |
+`cloud-workbench.service` 在 `127.0.0.1:8766` 提供工作台 API。Android 使用只授予固定业务端口访问权的 SSH 密钥和短期令牌。Nginx 将 Windows HTTPS 请求交给固定业务入口。Windows 必须证明持有其设备私钥，配对码只通过受信任的手机授权端签发。
 
-## 本地检查
+Windows 允许使用项目、会话、任务、审批、图片附件和服务状态接口。发布、重启和 SSH 运维由管理员使用独立授权入口。`workspace-write` 是日常 Codex 模式。共享可写目录由 `codex-writable-roots.json` 管理。
 
-使用 Node.js 22.13 或以上版本。在本目录运行：
+## 数据与发布
 
-```bash
-npm ci
-npm test
-```
+- 程序目录为 `~/.local/lib/cloud-workbench`。业务数据位于 `~/.local/share/cloud-workbench`，其中 `workbench.db` 保存会话，`workstation-access.db` 保存设备、公钥和审计，`app-updates/` 保存已签名 APK。
+- 部署前确认活动任务已完成，对 SQLite 数据库做一致性备份，并检查附件目录和已签名版本。通过既有 `cloud-workbench-ops restart-workbench` 运维入口在空闲时重启。回退使用工作台版本及其配置。
+- Nginx 虚拟主机入口见 [生产 HTTPS 配置](ops/workbench-https.conf)。生产工作区由数据目录的 `projects.json` 配置，当前入口为栖物里网站和服务器运维。
+- 手机密钥的绑定规则见 [SSH 业务连接](ops/ssh-mobile.md)。
 
-Windows 接入与登记的隔离测试从仓库的 windows 目录运行：
-
-```bash
-node --test tests/Server/authorization-policy.test.mjs tests/Server/enrollment.test.mjs
-```
-
-接入传输测试另需固定版本的 Linux sing-box，使用 WORKBENCH_TEST_CORE 指定可执行文件。真实 Nginx 路由验收在具备 Nginx 的隔离环境运行。
-
-## 部署入口
-
-- Android 网关的服务单元为 cloud-workbench.service。部署和版本切换工具见 [ops](ops/)，SSH 会话、设备配对操作见 [SSH 会话](ops/ssh-mobile.md) 和 [Windows 配对](ops/windows-pairing.md)。
-- Windows 接入和登记使用独立服务单元。现行路径、启动顺序及验证见 [接入交接](../../windows/docs/handoffs/server.md) 和 [登记交接](../../windows/docs/handoffs/server-enrollment-0.4.md)。
-- 业务数据库、设备授权数据库、用量数据库、安装包和签名文件由生产环境单独管理。发布前核对服务身份、数据目录和活动任务。生产配置或运行中数据的备份应保存在受控位置。
+使用 Node.js 22.13 或更高版本运行 `npm test`。生产部署后验证两端鉴权、会话恢复、图片附件、APK 分段更新和撤销行为。

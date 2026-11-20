@@ -4,6 +4,11 @@ import { Metrics } from './metrics.mjs';
 import { MessageChanges } from './message-changes.mjs';
 import { decodeCursor, encodeCursor, requireInteger } from './cursors.mjs';
 
+const emptyThreadConditions = `WHERE COALESCE(projectId, ?) = ?
+  AND status NOT IN ('starting', 'running', 'approval')
+  AND NOT EXISTS (SELECT 1 FROM messages WHERE threadId = threads.id)
+  AND NOT EXISTS (SELECT 1 FROM attachments WHERE threadId = threads.id)`;
+
 export class Store {
   statements = new Map(); pending = new Map(); pendingChars = 0; timer = null;
   changes = new MessageChanges();
@@ -39,21 +44,16 @@ export class Store {
   project(id, projectId) { this.prepare('UPDATE threads SET projectId=? WHERE id=?').run(projectId, id); }
   attachment(id, threadId, path, mime) { this.prepare('INSERT INTO attachments VALUES(?,?,?,?,?)').run(id, threadId, path, mime, Date.now()); }
   getAttachment(id) { return this.prepare('SELECT * FROM attachments WHERE id=?').get(id); }
+  listAttachments(id) { return this.prepare('SELECT id,mime FROM attachments WHERE threadId=? ORDER BY created').all(id); }
   local(codexId) { return this.prepare('SELECT id FROM threads WHERE codexId=? OR id=?').get(codexId, codexId)?.id; }
   thread(id) { return this.prepare('SELECT * FROM threads WHERE id=?').get(id); }
   list() { return this.prepare('SELECT * FROM threads ORDER BY updated DESC LIMIT 100').all(); }
   emptyThreads(projectId, defaultProjectId) {
-    return this.prepare(`SELECT id FROM threads WHERE COALESCE(projectId, ?) = ?
-      AND status NOT IN ('starting', 'running', 'approval')
-      AND NOT EXISTS (SELECT 1 FROM messages WHERE threadId = threads.id)
-      AND NOT EXISTS (SELECT 1 FROM attachments WHERE threadId = threads.id)`)
+    return this.prepare(`SELECT id FROM threads ${emptyThreadConditions}`)
       .all(defaultProjectId, projectId).map(row => row.id);
   }
   hasEmptyThreads(projectId, defaultProjectId) {
-    return Boolean(this.prepare(`SELECT 1 FROM threads WHERE COALESCE(projectId, ?) = ?
-      AND status NOT IN ('starting', 'running', 'approval')
-      AND NOT EXISTS (SELECT 1 FROM messages WHERE threadId = threads.id)
-      AND NOT EXISTS (SELECT 1 FROM attachments WHERE threadId = threads.id) LIMIT 1`).get(defaultProjectId, projectId));
+    return Boolean(this.prepare(`SELECT 1 FROM threads ${emptyThreadConditions} LIMIT 1`).get(defaultProjectId, projectId));
   }
   deleteThreads(ids) {
     this.db.exec('BEGIN IMMEDIATE');

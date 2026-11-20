@@ -1,35 +1,54 @@
 package cn.xux.cloudworkbench
 
+import android.content.Intent
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.WebView
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.*
-import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import java.util.concurrent.atomic.AtomicReference
+import org.junit.After
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class BrowserAcceptanceTest {
-    @get:Rule val compose = createAndroidComposeRule<MainActivity>()
+    @get:Rule val compose = createEmptyComposeRule()
+    private lateinit var activity: MainActivity
+
+    @Before fun launchActivity() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        activity = instrumentation.startActivitySync(
+            Intent(instrumentation.targetContext, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        ) as MainActivity
+        compose.runOnUiThread {
+            activity.window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
+
+    @After fun finishActivity() {
+        if (::activity.isInitialized) compose.runOnUiThread { activity.finish() }
+    }
     private fun web(v: View): WebView? { if (v is WebView) return v; if (v is ViewGroup) for (i in 0 until v.childCount) web(v.getChildAt(i))?.let { return it }; return null }
     private fun browser() {
-        compose.activity.runOnUiThread { compose.activity.window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
+        activity.runOnUiThread { activity.window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
         compose.waitUntil(45000) { runCatching { compose.onAllNodesWithText("已连接").fetchSemanticsNodes().isNotEmpty() }.getOrDefault(false) }
         compose.openWorkbenchTab("浏览")
         compose.onNodeWithTag("browserAddress").performTextReplacement("https://example.com")
         compose.waitUntil(20000) { compose.onAllNodes(hasTestTag("browserGo") and isEnabled()).fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("browserGo").performClick()
-        compose.activity.runOnUiThread {
-            (compose.activity.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager).hideSoftInputFromWindow(compose.activity.window.decorView.windowToken, 0)
-            compose.activity.currentFocus?.clearFocus()
+        activity.runOnUiThread {
+            (activity.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager).hideSoftInputFromWindow(activity.window.decorView.windowToken, 0)
+            activity.currentFocus?.clearFocus()
         }
         val body = AtomicReference("")
         compose.waitUntil(45000) {
-            compose.activity.runOnUiThread { web(compose.activity.window.decorView)?.evaluateJavascript("document.body?.innerText?.length > 20 ? document.title : ''") { body.set(it) } }
+            activity.runOnUiThread { web(activity.window.decorView)?.evaluateJavascript("document.body?.innerText?.length > 20 ? document.title : ''") { body.set(it) } }
             body.get().contains("Example Domain")
         }
     }
@@ -46,7 +65,7 @@ class BrowserAcceptanceTest {
         compose.onNodeWithTag("browserAddress").performImeAction()
         val selected = AtomicReference(false)
         compose.waitUntil(30000) {
-            compose.activity.runOnUiThread { web(compose.activity.window.decorView)?.evaluateJavascript("(()=>{if(!location.search.includes('workbench=selection') || !document.querySelector('p'))return false;let r=document.createRange();r.selectNodeContents(document.querySelector('p'));let s=getSelection();s.removeAllRanges();s.addRange(r);return s.toString().length>10;})()") { selected.set(it == "true") } }
+            activity.runOnUiThread { web(activity.window.decorView)?.evaluateJavascript("(()=>{if(!location.search.includes('workbench=selection') || !document.querySelector('p'))return false;let r=document.createRange();r.selectNodeContents(document.querySelector('p'));let s=getSelection();s.removeAllRanges();s.addRange(r);return s.toString().length>10;})()") { selected.set(it == "true") } }
             selected.get()
         }
         compose.onNodeWithTag("browserAddress").assertIsNotFocused()
@@ -64,7 +83,7 @@ class BrowserAcceptanceTest {
     }
 
     @Test fun defaultHomeAndNavigationHistory() {
-        compose.activity.runOnUiThread { compose.activity.window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
+        activity.runOnUiThread { activity.window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
         compose.waitUntil(45000) { compose.onAllNodesWithText("已连接").fetchSemanticsNodes().isNotEmpty() }
         compose.openWorkbenchTab("浏览")
         compose.onNodeWithTag("browserStart").assertIsDisplayed()
@@ -76,8 +95,8 @@ class BrowserAcceptanceTest {
         compose.onNodeWithTag("browserAddress").assertTextContains("https://qiwuli.com/")
         val homeRendered = AtomicReference(false)
         compose.waitUntil(30000) {
-            compose.activity.runOnUiThread {
-                web(compose.activity.window.decorView)?.evaluateJavascript(
+            activity.runOnUiThread {
+                web(activity.window.decorView)?.evaluateJavascript(
                     "Boolean(document.querySelector('#app')?.innerText?.trim())"
                 ) { homeRendered.set(it == "true") }
             }
@@ -109,7 +128,7 @@ class BrowserAcceptanceTest {
         }
         val document = AtomicReference("")
         compose.runOnIdle {
-            web(compose.activity.window.decorView)?.evaluateJavascript(
+            web(activity.window.decorView)?.evaluateJavascript(
                 "window.__workbenchReturnTest = 'same-document'"
             ) { document.set(it) }
         }
@@ -121,7 +140,7 @@ class BrowserAcceptanceTest {
         compose.onNodeWithTag("browserCapture").assertIsEnabled()
         document.set("")
         compose.runOnIdle {
-            web(compose.activity.window.decorView)?.evaluateJavascript("window.__workbenchReturnTest") { document.set(it) }
+            web(activity.window.decorView)?.evaluateJavascript("window.__workbenchReturnTest") { document.set(it) }
         }
         compose.waitUntil(5000) { document.get().contains("same-document") }
         compose.onNodeWithTag("browserCapture").performClick()
@@ -147,7 +166,7 @@ class BrowserAcceptanceTest {
             compose.onAllNodes(hasTestTag("bookmarkCurrentPage") and isEnabled()).fetchSemanticsNodes().isNotEmpty() &&
                 compose.onAllNodes(hasTestTag("browserAddress") and hasText(fixtureUrl)).fetchSemanticsNodes().isNotEmpty()
         }
-        val bookmarks = androidx.lifecycle.ViewModelProvider(compose.activity)[WorkbenchModel::class.java].browserBookmarks
+        val bookmarks = androidx.lifecycle.ViewModelProvider(activity)[WorkbenchModel::class.java].browserBookmarks
         try {
             compose.onNodeWithContentDescription("收藏当前网页").performClick()
             compose.onNodeWithContentDescription("编辑当前网页书签").assertExists().performClick()
@@ -166,7 +185,6 @@ class BrowserAcceptanceTest {
     }
     @Test fun sshReconnectKeepsTheOpenDocument() {
         browser()
-        val activity = compose.activity
         val model = androidx.lifecycle.ViewModelProvider(activity)[WorkbenchModel::class.java]
         val document = AtomicReference("")
         compose.runOnIdle {
@@ -175,7 +193,6 @@ class BrowserAcceptanceTest {
             }
         }
         compose.waitUntil(5000) { document.get().contains("same-document") }
-        val originalPort = compose.runOnIdle { model.browserPort }
         compose.runOnIdle { model.disconnect() }
         compose.onNodeWithTag("browserReconnect").assertIsDisplayed()
         compose.onNodeWithTag("browserText").assertIsNotEnabled()
@@ -183,7 +200,6 @@ class BrowserAcceptanceTest {
         compose.waitUntil(45000) {
             compose.onAllNodes(hasTestTag("browserText") and isEnabled()).fetchSemanticsNodes().isNotEmpty()
         }
-        compose.runOnIdle { org.junit.Assert.assertNotEquals(originalPort, model.browserPort) }
         document.set("")
         compose.runOnIdle {
             web(activity.window.decorView)?.evaluateJavascript("window.__workbenchReconnect") { document.set(it) }
@@ -202,14 +218,10 @@ class BrowserAcceptanceTest {
             refreshed.get() == "200"
         }
     }
-    @Test fun qiwuliWorksInBothBrowserModesWithSshRecovery() {
-        val activity = compose.activity
+    @Test fun qiwuliLoadsDirectlyWithWorkbenchDisconnected() {
         activity.runOnUiThread { activity.window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
         val model = androidx.lifecycle.ViewModelProvider(activity)[WorkbenchModel::class.java]
-        compose.connectWorkbenchIfNeeded()
-        compose.waitUntil(15000) { compose.onNodeWithTag("browserModeCard").isDisplayed() }
-        compose.onNodeWithTag("browserMode-Cloud").assertIsSelected()
-        compose.waitUntil(15000) { compose.onAllNodesWithText("代理已就绪").fetchSemanticsNodes().isNotEmpty() }
+        val wasConnected = compose.runOnIdle { model.connected }
         val rendered = AtomicReference(false)
         fun openQiwuli() {
             rendered.set(false)
@@ -226,48 +238,19 @@ class BrowserAcceptanceTest {
             }
         }
         try {
-            compose.openWorkbenchTab("浏览")
-            openQiwuli()
-            compose.onNodeWithTag("browserModeIndicator").assertIsEnabled().performTouchInput { click() }
-            compose.waitUntil(15000) {
-                compose.onNodeWithContentDescription("平板直连 · 直连已就绪，点击切换为云端代理").isDisplayed()
-            }
             compose.runOnIdle { model.disconnect() }
-            openQiwuli()
-            compose.openWorkbenchTab("云端")
-            compose.onNodeWithTag("browserMode-Direct").assertIsSelected()
-            compose.onNode(hasText("直连已就绪") and hasAnyAncestor(hasTestTag("browserModeCard"))).assertIsDisplayed()
             compose.openWorkbenchTab("浏览")
-            compose.onNodeWithTag("browserModeIndicator").performTouchInput { click() }
-            compose.onNodeWithContentDescription("云端代理 · 等待云端连接，点击切换为平板直连").assertIsDisplayed()
-            compose.onNodeWithTag("browserGo").assertIsNotEnabled()
-            val offlineResult = AtomicReference("")
-            compose.runOnIdle {
-                web(activity.window.decorView)?.evaluateJavascript(
-                    "window.__modeProbe = 'pending'; fetch('/?offline=' + Date.now(), {cache:'no-store'}).then(() => window.__modeProbe = 'sent', () => window.__modeProbe = 'blocked')"
-                ) {}
-            }
-            compose.waitUntil(5000) {
-                activity.runOnUiThread {
-                    web(activity.window.decorView)?.evaluateJavascript("window.__modeProbe") { offlineResult.set(it) }
-                }
-                offlineResult.get().contains("blocked")
-            }
-            compose.runOnIdle { model.connect() }
-            compose.waitUntil(45000) {
-                compose.onAllNodes(hasTestTag("browserGo") and isEnabled()).fetchSemanticsNodes().isNotEmpty()
-            }
             openQiwuli()
+            compose.onNodeWithTag("browserModeIndicator").assertDoesNotExist()
         } finally {
             compose.runOnIdle {
-                model.browserNetwork.select(BrowserMode.Cloud)
-                if (!model.connected && !model.connecting) model.connect()
+                if (wasConnected && !model.connected && !model.connecting) model.connect()
             }
         }
     }
 
     @Test fun loadingAndPageFailureLeaveBrowserControlsUsable() {
-        compose.activity.runOnUiThread { compose.activity.window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
+        activity.runOnUiThread { activity.window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
         compose.connectWorkbenchIfNeeded()
         compose.openWorkbenchTab("浏览")
         val missing = "https://qiwuli.com/assets/workbench-missing.js"
@@ -281,9 +264,8 @@ class BrowserAcceptanceTest {
             compose.waitUntil(30000) { compose.onNodeWithTag("browserPageError").isDisplayed() }
             compose.onNodeWithTag("browserPageError").assertTextEquals("服务器返回 HTTP 404")
             compose.onNodeWithTag("browserAddress").assertIsDisplayed().assertIsEnabled()
-            compose.onNodeWithTag("browserModeIndicator").assertIsDisplayed().assertIsEnabled()
             compose.runOnIdle {
-                check(web(compose.activity.window.decorView)?.visibility == View.INVISIBLE)
+                check(web(activity.window.decorView)?.visibility == View.INVISIBLE)
             }
         }
         navigate(home)
@@ -296,13 +278,8 @@ class BrowserAcceptanceTest {
         waitForError()
         compose.onNodeWithText("重试").performTouchInput { click() }
         waitForError()
-        compose.onNodeWithTag("browserModeIndicator").performTouchInput { click() }
-        compose.waitUntil(15000) {
-            compose.onNodeWithContentDescription("平板直连 · 直连已就绪，点击切换为云端代理").isDisplayed()
-        }
         navigate(home)
         compose.waitUntil(30000) { compose.onNode(hasTestTag("browserText") and isEnabled()).isDisplayed() }
-        compose.onNodeWithTag("browserModeIndicator").performTouchInput { click() }
         compose.onNodeWithContentDescription("主页").performTouchInput { click() }
         compose.onNodeWithTag("browserStart").assertIsDisplayed()
     }
@@ -318,20 +295,20 @@ class BrowserAcceptanceTest {
     }
     @Test fun originalImageCanBeSelected() {
         browser()
-        compose.activity.runOnUiThread { web(compose.activity.window.decorView)?.loadUrl("https://httpbin.org/image/png") }
+        activity.runOnUiThread { web(activity.window.decorView)?.loadUrl("https://httpbin.org/image/png") }
         val loaded = AtomicReference(false)
         compose.waitUntil(45000) {
-            compose.activity.runOnUiThread { web(compose.activity.window.decorView)?.evaluateJavascript("!!document.images[0]?.complete && document.images[0]?.naturalWidth > 0") { loaded.set(it == "true") } }
+            activity.runOnUiThread { web(activity.window.decorView)?.evaluateJavascript("!!document.images[0]?.complete && document.images[0]?.naturalWidth > 0") { loaded.set(it == "true") } }
             loaded.get()
         }
         val center = AtomicReference<Offset?>(null)
-        compose.activity.runOnUiThread { web(compose.activity.window.decorView)?.let { w -> w.evaluateJavascript("(()=>{let r=document.images[0].getBoundingClientRect();return [r.x+r.width/2,r.y+r.height/2,innerWidth]})()") {
+        activity.runOnUiThread { web(activity.window.decorView)?.let { w -> w.evaluateJavascript("(()=>{let r=document.images[0].getBoundingClientRect();return [r.x+r.width/2,r.y+r.height/2,innerWidth]})()") {
             val a = org.json.JSONArray(it); val scale = w.width / a.getDouble(2); center.set(Offset((a.getDouble(0)*scale).toFloat(), (a.getDouble(1)*scale).toFloat()))
         }
         } }
         compose.waitUntil(10000) { center.get() != null }
         val location = IntArray(2)
-        compose.runOnIdle { web(compose.activity.window.decorView)!!.getLocationOnScreen(location) }
+        compose.runOnIdle { web(activity.window.decorView)!!.getLocationOnScreen(location) }
         val point = center.get()!!
         val instrumentation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
         val down = android.os.SystemClock.uptimeMillis()

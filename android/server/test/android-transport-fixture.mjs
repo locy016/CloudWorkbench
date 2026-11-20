@@ -2,14 +2,11 @@
 import { readFileSync } from 'node:fs';
 import { EventEmitter } from 'node:events';
 import { createServer as createHttpsServer } from 'node:https';
-import { createServer, request as httpRequest } from 'node:http';
-import net from 'node:net';
+import { request as httpRequest } from 'node:http';
 import { once } from 'node:events';
 import { Gateway } from '../src/gateway.mjs';
 import { Store } from '../src/store.mjs';
 import { Events } from '../src/events.mjs';
-import { browserProxy } from '../src/browser-proxy.mjs';
-import { browserTunnel } from '../src/browser-tunnel.mjs';
 
 const [pfx, passphrase] = process.argv.slice(2);
 if (!pfx || !passphrase) throw new Error('Pass a test PKCS#12 path and its password');
@@ -25,21 +22,8 @@ const store = new Store(':memory:');
 const events = new Events({ heartbeatMs: 1500 });
 const gateway = new Gateway({ codex, store, token, events, sshMobile, cwd: '.' });
 gateway.collectStatus = async () => ({ running: 0, version: 'fixture' });
-const originPort = await listen(createServer((req, res) => {
-  if (req.url !== '/fixture-image' || req.headers.authorization || req.headers['proxy-authorization']) {
-    res.writeHead(403).end();
-    return;
-  }
-  res.writeHead(200, { 'Content-Type': 'image/png' }).end(Buffer.from('WORKBENCH', 'ascii'));
-}));
-const proxy = browserProxy({
-  lookup: async () => [{ address: '1.1.1.1' }],
-  request: (options, callback) => httpRequest({ ...options, host: '127.0.0.1', port: originPort }, callback)
-});
-const proxyPort = await listen(proxy);
-browserTunnel(gateway.http, { authorize: gateway.authorizeRequest.bind(gateway), port: proxyPort });
 const gatewayPort = await listen(gateway.http);
-const stats = { activeFeeds: 0, newFeeds: 0, activeTunnels: 0 };
+const stats = { activeFeeds: 0, newFeeds: 0 };
 const updateFixture = Buffer.from('workbench APK resume fixture');
 const updateDigest = 'b'.repeat(64);
 const parallelDigest = 'd'.repeat(64);
@@ -122,18 +106,6 @@ const ingress = createHttpsServer(tlsOptions, (req, res) => {
   upstream.on('error', () => res.destroy());
   res.once('close', () => upstream.destroy());
   req.pipe(upstream);
-});
-ingress.on('upgrade', (req, socket, head) => {
-  const upstream = net.connect(gatewayPort, '127.0.0.1');
-  stats.activeTunnels++;
-  socket.once('close', () => { stats.activeTunnels--; upstream.destroy(); });
-  socket.on('error', () => upstream.destroy());
-  upstream.on('error', () => socket.destroy());
-  upstream.write(`GET ${req.url} HTTP/1.1\r\n` +
-    Object.entries(req.headers).map(([key, value]) => `${key}: ${value}\r\n`).join('') + '\r\n');
-  if (head.length) upstream.write(head);
-  upstream.pipe(socket);
-  socket.pipe(upstream);
 });
 await listen(ingress, 18443);
 console.log('USB TLS fixture ready on 127.0.0.1:18443');

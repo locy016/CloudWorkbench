@@ -32,12 +32,10 @@ class UpdateUiTest {
             .put("versionName", info.versionName).put("size", data.size).put("notes", "界面验收安装包")
             .put("sha256", digest(data)).put("certificate", digest(info.signingInfo!!.apkContentsSigners.single().toByteArray()))
         val connection = object : WorkbenchConnection {
-            override val browserPort = 0
             override val connected = true
             override suspend fun connect(c: Credentials) {}
             override fun disconnect() {}
             override suspend fun request(path: String, body: JSONObject?, delete: Boolean) = JSONObject().put("update", manifest)
-            override suspend fun browserImage(url: String, cookie: String, agent: String) = byteArrayOf()
             override suspend fun downloadUpdate(release: AppRelease, file: File, progress: (Long) -> Unit) {
                 var position = file.length().toInt()
                 file.outputStream().use { output ->
