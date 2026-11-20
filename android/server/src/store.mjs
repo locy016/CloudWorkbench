@@ -44,7 +44,6 @@ export class Store {
   project(id, projectId) { this.prepare('UPDATE threads SET projectId=? WHERE id=?').run(projectId, id); }
   attachment(id, threadId, path, mime) { this.prepare('INSERT INTO attachments VALUES(?,?,?,?,?)').run(id, threadId, path, mime, Date.now()); }
   getAttachment(id) { return this.prepare('SELECT * FROM attachments WHERE id=?').get(id); }
-  listAttachments(id) { return this.prepare('SELECT id,mime FROM attachments WHERE threadId=? ORDER BY created').all(id); }
   local(codexId) { return this.prepare('SELECT id FROM threads WHERE codexId=? OR id=?').get(codexId, codexId)?.id; }
   thread(id) { return this.prepare('SELECT * FROM threads WHERE id=?').get(id); }
   list() { return this.prepare('SELECT * FROM threads ORDER BY updated DESC LIMIT 100').all(); }

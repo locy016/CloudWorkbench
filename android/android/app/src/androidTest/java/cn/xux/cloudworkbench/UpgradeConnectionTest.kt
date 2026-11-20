@@ -18,7 +18,7 @@ import java.io.File
 class UpgradeConnectionTest {
     @get:Rule val compose = createEmptyComposeRule()
 
-    @Test fun retainsSshKeyAndAutomaticallyOpensComputerManagement() {
+    @Test fun retainsSshKeyAndReconnectsAfterUpgrade() {
         val instrument = InstrumentationRegistry.getInstrumentation()
         val app = instrument.startActivitySync(Intent(instrument.targetContext, MainActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as MainActivity
@@ -34,11 +34,6 @@ class UpgradeConnectionTest {
             File(app.filesDir, "upgrade-state.txt").writeText("connected=${model.connected}, hostOnline=${model.hostOnline}, reconnecting=${model.reconnecting}, configured=${model.configured}, error=${model.error}")
             throw error
         }
-        compose.openWorkbenchTab("授权")
-        compose.waitUntil(15_000) { compose.onAllNodesWithText("授权列表").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithTag("issueAuthorization").assertIsEnabled()
-        compose.onNodeWithTag("windowsAdminToken").assertDoesNotExist()
-        compose.onNodeWithText("配对码记录").assertDoesNotExist()
         compose.openWorkbenchTab("设置")
         compose.onNodeWithText("状态：已连接").assertIsDisplayed()
         compose.onNodeWithTag("connectionHelp").assertDoesNotExist()

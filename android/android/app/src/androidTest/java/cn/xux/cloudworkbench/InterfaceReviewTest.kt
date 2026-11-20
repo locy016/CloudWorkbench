@@ -49,7 +49,7 @@ class InterfaceReviewTest {
     @Test fun navigationAndCredentialConfirmation() {
         compose.onNodeWithTag("nav-云端").assertDoesNotExist()
         compose.onNodeWithTag("menuToggle").assertIsDisplayed().performClick()
-        listOf("云端", "会话", "浏览", "授权", "设置").forEach { name ->
+        listOf("云端", "会话", "浏览", "设置").forEach { name ->
             compose.onNodeWithTag("nav-$name").assertIsDisplayed().assertTextEquals(name)
         }
         screenshot("menu")
@@ -87,9 +87,6 @@ class InterfaceReviewTest {
         screenshot("tasks")
         compose.onNodeWithTag("project-升级").assertDoesNotExist()
         tab("浏览")
-        tab("授权")
-        compose.onNodeWithText("授权列表").assertExists()
-        compose.onNodeWithTag("windowsAdminToken").assertDoesNotExist()
         tab("设置")
         compose.onNodeWithText("查看应用升级").assertDoesNotExist()
         compose.onNodeWithTag("appUpdatePanel").assertExists()
@@ -194,13 +191,6 @@ class InterfaceReviewTest {
 
     @Test fun fixedServerDisclosesRecoveryOnlyOnDemand() {
         compose.connectWorkbenchIfNeeded()
-        tab("授权")
-        compose.waitUntil(45000) {
-            compose.onAllNodesWithText("授权").fetchSemanticsNodes().isNotEmpty()
-        }
-        compose.onNodeWithTag("issueAuthorization").assertExists()
-        compose.onNodeWithTag("windowsAdminToken").assertDoesNotExist()
-        compose.onNodeWithText("连接问题").assertDoesNotExist()
         tab("设置")
         compose.onNodeWithText(WORKBENCH_DOMAIN).assertIsDisplayed()
         compose.onNodeWithText("状态：已连接").assertIsDisplayed()

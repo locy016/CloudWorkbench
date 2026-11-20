@@ -1,11 +1,10 @@
 # 云端工作台
 
-云端工作台用于私有 Codex 开发和服务器运维。Android 通过专用 SSH 密钥连接固定业务网关。Windows 通过 HTTPS 和本机设备密钥访问指定的工作台接口。管理员通过独立 SSH 入口维护服务器。栖物里由 Nginx 提供静态站点服务。
+云端工作台用于私有 Codex 开发和服务器运维。Android 通过专用 SSH 密钥连接固定业务网关。管理员使用独立 SSH 密钥维护服务器。栖物里由 Nginx 提供静态站点服务。
 
 | 项目 | 入口 |
 | --- | --- |
 | Android 工作台 | [构建、签名和部署](android/README.md) |
-| Windows 工作台 | [绑定、构建和私下交付](windows/README.md) |
 | 服务端 | [业务网关、数据和运维](android/server/README.md) |
 | 栖物里 | [站点发布](site/README.md) |
 

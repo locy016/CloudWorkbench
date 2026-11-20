@@ -1,0 +1,812 @@
+package cn.xux.cloudworkbench
+
+import android.app.Application
+import android.content.SharedPreferences
+import android.net.Uri
+import android.os.SystemClock
+import android.util.Base64
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import org.json.JSONException
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.File
+import java.io.IOException
+import java.util.UUID
+
+fun JSONArray.objects(): List<JSONObject> = (0 until length()).map { getJSONObject(it) }
+internal val activeTaskStates = setOf("starting", "running", "approval")
+internal const val MAX_DRAFT_LENGTH = 12000
+internal enum class SshConnectionBlock(val message: String) {
+    CREDENTIALS("SSH 密钥验证失败，请确认公钥已在服务器授权"),
+    HOST_IDENTITY("服务器身份校验失败，请联系管理员核对 SSH 主机密钥")
+}
+
+enum class WorkbenchPage(val title: String) {
+    Cloud("云端"),
+    Sessions("会话"),
+    Browse("浏览"),
+    Settings("设置")
+}
+
+class WorkbenchModel internal constructor(
+    app: Application,
+    private val newConnection: () -> WorkbenchConnection,
+    initialCredentials: Credentials? = null,
+    private val prefs: SharedPreferences = app.getSharedPreferences("ui", 0)
+) : AndroidViewModel(app) {
+    constructor(app: Application) : this(app, { Connection() })
+
+    private val vault = Vault(app)
+    private val persistBinding = initialCredentials == null
+    private var connection = newConnection()
+    internal val appUpdates = AppUpdates(app, viewModelScope) { connection }
+    internal var transfers by mutableStateOf<ConnectionTransfers?>(null); private set
+    private var credentials by mutableStateOf(initialCredentials ?: vault.load())
+    private var connectionMonitor: Job? = null
+    private var foreground = false
+    private var reconnectAutomatically = prefs.getBoolean("reconnectAutomatically", true)
+    internal var connectionBlock by mutableStateOf<SshConnectionBlock?>(null); private set
+    private var observedNetwork = false
+    private var defaultNetwork: Long? = null
+    private var routeChanged = false
+    private val networkUnavailable get() = observedNetwork && defaultNetwork == null
+    var connected by mutableStateOf(false); private set
+    var connecting by mutableStateOf(false); private set
+    var reconnecting by mutableStateOf(false); private set
+    var busy by mutableStateOf(false); private set
+    var error by mutableStateOf<String?>(null); private set
+    var status by mutableStateOf<JSONObject?>(null); private set
+    var threads by mutableStateOf<List<JSONObject>>(emptyList()); private set
+    var historyThreads by mutableStateOf<List<JSONObject>>(emptyList()); private set
+    private var historyThreadsBefore by mutableStateOf<String?>(null)
+    val canLoadMoreConversations get() = historyThreadsBefore != null
+    private var historyBefore by mutableStateOf<String?>(null)
+    val canLoadOlderMessages get() = historyBefore != null
+    private var updateCursor: String? = null
+    private var lastOverview = 0L
+    private var lastProjects = 0L
+    var projects by mutableStateOf<List<JSONObject>>(emptyList()); private set
+    private var projectsWithEmptyThreads by mutableStateOf(emptySet<String>())
+    var projectId by mutableStateOf(prefs.getString("project", "default") ?: "default"); private set
+    var hostOnline by mutableStateOf(false); private set
+    val hostName = "阿里云 · Ubuntu"
+    var currentId by mutableStateOf(prefs.getString("thread-cloud", prefs.getString("thread", null))); private set
+    var current by mutableStateOf<JSONObject?>(null); private set
+    var messages by mutableStateOf<List<JSONObject>>(emptyList()); private set
+    var loadingConversation by mutableStateOf<String?>(null); private set
+    var approvals by mutableStateOf<List<JSONObject>>(emptyList()); private set
+    private var otherApprovals by mutableStateOf<List<JSONObject>>(emptyList())
+    var tab by mutableStateOf(WorkbenchPage.Cloud)
+    var projectSection by mutableStateOf("对话")
+    internal val browserReady get() =
+        androidx.webkit.WebViewFeature.isFeatureSupported(androidx.webkit.WebViewFeature.DOCUMENT_START_SCRIPT)
+    internal val browserStatus get() = if (browserReady) "设备直连" else "请更新 Android WebView"
+    var browserUrl by mutableStateOf("")
+    var browserSaved: android.os.Bundle? = null
+    internal val browserBookmarks = BrowserBookmarks(prefs)
+    private val drafts = mutableStateMapOf<String, String>()
+    private val failedRequests = mutableMapOf<String, MessageAttempt>()
+    private val browserSubmissions = mutableMapOf<String, BrowserSubmission>()
+    private val imagesByDraft = mutableStateMapOf<String, List<DraftImage>>()
+    private val attachmentErrors = mutableStateMapOf<String, String>()
+    private var importingKey by mutableStateOf<String?>(null)
+    internal val draftKey get() = currentId ?: "new:$projectId"
+    internal val dictation = OfflineDictation(app, viewModelScope)
+    internal val draftImages get() = imagesByDraft[draftKey].orEmpty()
+    internal val imageSlots get() = MAX_MESSAGE_IMAGES - draftImages.size - if (browserSubmissions[currentId]?.image != null) 1 else 0
+    internal val importingAttachment get() = importingKey == draftKey
+    internal val attachmentError get() = attachmentErrors[draftKey]
+    var draft: String
+        get() = drafts[draftKey].orEmpty()
+        set(value) { if (value.isEmpty()) drafts.remove(draftKey) else drafts[draftKey] = value }
+
+    internal fun reportAttachmentError(key: String, message: String?) {
+        if (message == null) attachmentErrors.remove(key) else attachmentErrors[key] = message
+    }
+
+    internal fun removeDraftImage(image: DraftImage) {
+        if (busy || importingAttachment) return
+        val remaining = draftImages - image
+        if (remaining.isEmpty()) imagesByDraft.remove(draftKey) else imagesByDraft[draftKey] = remaining
+        reportAttachmentError(draftKey, null)
+    }
+
+    internal fun importImages(key: String, uris: List<Uri>, photo: File? = null) {
+        if (uris.isEmpty() || importingKey != null || busy) {
+            photo?.delete()
+            return
+        }
+        val existing = imagesByDraft[key].orEmpty()
+        val remaining = MAX_MESSAGE_IMAGES - existing.size - if (browserSubmissions[key]?.image != null) 1 else 0
+        val selected = uris.distinct()
+        importAttachment(key, onComplete = { photo?.delete() }) {
+            if (remaining <= 0) {
+                reportAttachmentError(key, "每条消息最多附 4 张图片")
+                return@importAttachment
+            }
+            val resolver = getApplication<Application>().contentResolver
+            var unreadable = 0
+            for (uri in selected.take(remaining)) {
+                try {
+                    val image = withContext(Dispatchers.IO) { resolver.readDraftImage(uri, photo?.let { "拍摄的照片" }) }
+                    imagesByDraft[key] = imagesByDraft[key].orEmpty() + image
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    unreadable++
+                }
+            }
+            val notices = listOfNotNull(
+                "每条消息最多附 4 张图片".takeIf { selected.size > remaining },
+                "有 ${unreadable} 张图片无法读取".takeIf { unreadable > 0 }
+            )
+            reportAttachmentError(key, notices.joinToString("。").ifEmpty { null })
+        }
+    }
+
+    internal fun importText(key: String, uri: Uri) {
+        if (importingKey != null || busy) return
+        importAttachment(key) {
+            val resolver = getApplication<Application>().contentResolver
+            val text = withContext(Dispatchers.IO) { resolver.readDraftText(uri) }
+            require(appendDraft(key, text)) { "导入后超过 12000 字的草稿上限" }
+        }
+    }
+
+    private fun importAttachment(key: String, onComplete: () -> Unit = {}, block: suspend () -> Unit) {
+        importingKey = key
+        reportAttachmentError(key, null)
+        viewModelScope.launch {
+            try {
+                block()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: IllegalArgumentException) {
+                reportAttachmentError(key, e.message ?: "无法读取附件")
+            } catch (_: Exception) {
+                reportAttachmentError(key, "无法读取附件")
+            } finally {
+                importingKey = null
+                onComplete()
+            }
+        }
+    }
+
+    internal fun startDictation(key: String) {
+        if (!foreground || tab != WorkbenchPage.Sessions || projectSection != "对话" || key != draftKey || busy || importingAttachment) return
+        dictation.start(key) { appendDraft(key, it) }
+    }
+
+    private fun appendDraft(key: String, text: String): Boolean {
+        val existing = drafts[key].orEmpty()
+        val combined = if (existing.isBlank()) text else "$existing\n$text"
+        if (combined.length > MAX_DRAFT_LENGTH) return false
+        drafts[key] = combined
+        return true
+    }
+    val configured get() = credentials.configured
+    val activeProjects get() = projects.filterNot { it.optBoolean("archived") }
+    val selectedConversationArchived get() = currentId != null &&
+        projects.any { it.optString("id") == threadProjectId(current) && it.optBoolean("archived") }
+    val canCleanEmptyThreads get() = projectId in projectsWithEmptyThreads
+    val activeThread get() = current?.takeIf { it.optString("status") in activeTaskStates }
+        ?: threads.firstOrNull { it.optString("id") != currentId && it.optString("status") in activeTaskStates }
+    val pendingApprovals get() = approvals + otherApprovals.filter { it.optString("threadId") != currentId }
+
+    private class BrowserSubmission(val context: JSONObject, val image: MessageImage?)
+    private data class MessageAttempt(
+        val text: String,
+        val imageIds: List<UUID>,
+        val requestId: String,
+        val draftAtSend: String?
+    )
+
+    val running get() = current?.optString("status") in activeTaskStates
+    fun clearError() { error = null }
+    fun foreground(value: Boolean) {
+        if (foreground == value) return
+        foreground = value
+        if (!value) {
+            dictation.stop()
+            stopMonitoring()
+        } else {
+            hostOnline = false
+            lastOverview = 0L
+            lastProjects = 0L
+            monitorConnection()
+        }
+    }
+
+    internal fun defaultNetworkChanged(handle: Long?) {
+        if (observedNetwork && defaultNetwork == handle) return
+        routeChanged = observedNetwork || handle == null
+        observedNetwork = true
+        defaultNetwork = handle
+        if (routeChanged && foreground && reconnectAutomatically && connectionBlock == null && configured) {
+            hostOnline = false
+            if (!busy && !connecting) {
+                stopMonitoring()
+                monitorConnection()
+            }
+        }
+    }
+
+    fun connect(privateKey: String? = null, onSuccess: () -> Unit = {}) {
+        if (connecting || busy) return
+        if (networkUnavailable) {
+            error = "请先连接网络，再连接服务器"
+            return
+        }
+        val updated = privateKey?.let(::Credentials) ?: credentials
+        if (!updated.configured) {
+            error = "请先导入已授权的工作台 SSH 私钥"
+            return
+        }
+        stopMonitoring()
+        viewModelScope.launch {
+            connecting = true
+            error = null
+            var resumeMonitoring = true
+            try {
+                routeChanged = false
+                establishConnection(updated)
+                connectionBlock = null
+                reconnectAutomatically = true
+                prefs.edit().putBoolean("reconnectAutomatically", true).apply()
+                onSuccess()
+            } catch (e: CancellationException) {
+                resumeMonitoring = false
+                throw e
+            } catch (e: Exception) {
+                error = friendly(e)
+                val block = sshConnectionBlock(e)
+                if (!hostOnline && updated == credentials && block != null) {
+                    resetTransport()
+                    connectionBlock = block
+                    resumeMonitoring = false
+                }
+            } finally {
+                connecting = false
+                if (resumeMonitoring) monitorConnection()
+            }
+        }
+    }
+
+    private suspend fun establishConnection(updated: Credentials) {
+        val candidate = newConnection()
+        var installed = false
+        try {
+            candidate.connect(updated)
+            if (persistBinding) withContext(Dispatchers.IO) { vault.saveVerified(updated) }
+            connection.disconnect()
+            connection = candidate
+            transfers = candidate.transfers
+            installed = true
+            credentials = updated
+            connected = true
+            hostOnline = false
+            lastOverview = 0L
+            lastProjects = 0L
+        } finally {
+            if (!installed) candidate.disconnect()
+        }
+    }
+
+    fun disconnect() {
+        if (connecting || busy) return
+        reconnectAutomatically = false
+        prefs.edit().putBoolean("reconnectAutomatically", false).apply()
+        stopMonitoring()
+        resetTransport()
+        error = null
+    }
+
+    private fun stopMonitoring() {
+        connectionMonitor?.cancel()
+        connectionMonitor = null
+        reconnecting = false
+    }
+
+    private fun resetTransport() {
+        connection.disconnect()
+        connected = false
+        hostOnline = false
+    }
+
+    private fun sshConnectionBlock(e: Exception): SshConnectionBlock? {
+        if (e !is com.jcraft.jsch.JSchException) return null
+        val message = e.message.orEmpty()
+        return when {
+            message.contains("HostKey", true) || message.contains("host key", true) -> SshConnectionBlock.HOST_IDENTITY
+            message.contains("Auth fail", true) -> SshConnectionBlock.CREDENTIALS
+            else -> null
+        }
+    }
+
+    private fun friendly(e: Exception): String {
+        return sshConnectionBlock(e)?.message ?: (e.message ?: "连接失败").take(240)
+    }
+    private fun monitorConnection() {
+        if (!foreground || busy || connecting || connectionMonitor?.isActive == true ||
+            !reconnectAutomatically || connectionBlock != null || (!connected && !configured)) return
+        if (routeChanged) {
+            routeChanged = false
+            if (connected) resetTransport()
+        }
+        if (networkUnavailable) {
+            reconnecting = true
+            return
+        }
+        connectionMonitor = viewModelScope.launch {
+            var failures = 0
+            var retryDelay = 1000L
+            while (foreground && reconnectAutomatically) {
+                try {
+                    if (!connected) {
+                        reconnecting = true
+                        establishConnection(credentials)
+                    }
+                    val transport = connection
+                    coroutineScope {
+                        val syncLock = Mutex()
+                        var syncPending = false
+                        val syncFailure = "SSH 已连接，会话数据暂不可用，正在重试"
+                        suspend fun synchronize(notice: ChangeNotice) = syncLock.withLock {
+                            try {
+                                val request = if (syncPending) ChangeNotice(catchUp = true) else notice
+                                refresh(request)
+                                syncPending = false
+                                if (error == syncFailure) error = null
+                            } catch (e: Exception) {
+                                if (e !is JSONException && e !is GatewayPayloadException &&
+                                    (e !is GatewayException || e.status == 401)
+                                ) throw e
+                                syncPending = true
+                                hostOnline = false
+                                error = syncFailure
+                            }
+                        }
+                        val overview = launch {
+                            var lastStatus = SystemClock.elapsedRealtime()
+                            while (isActive) {
+                                delay(5_000)
+                                if (syncPending) {
+                                    synchronize(ChangeNotice(catchUp = true))
+                                } else if (tab == WorkbenchPage.Cloud && hostOnline &&
+                                    SystemClock.elapsedRealtime() - lastStatus >= 60_000
+                                ) {
+                                    lastStatus = SystemClock.elapsedRealtime()
+                                    synchronize(ChangeNotice(overview = true))
+                                }
+                            }
+                        }
+                        try {
+                            transport.changes().collect { notice ->
+                                synchronize(notice)
+                                reconnecting = false
+                                failures = 0
+                                retryDelay = 1000L
+                            }
+                            throw IOException("事件连接已断开")
+                        } finally {
+                            overview.cancel()
+                        }
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    if (e is GatewayException && e.status == 401 && connected) {
+                        // The gateway may have restarted. Open and verify a new SSH session.
+                        resetTransport()
+                        reconnecting = true
+                        delay(retryDelay)
+                        retryDelay = (retryDelay * 2).coerceAtMost(15000L)
+                        continue
+                    }
+                    val block = sshConnectionBlock(e)
+                    if (block != null) {
+                        resetTransport()
+                        connectionBlock = block
+                        reconnecting = false
+                        error = friendly(e)
+                        break
+                    }
+                    if (connected && (e is GatewayException || e is JSONException)) {
+                        hostOnline = false
+                        reconnecting = false
+                        error = "SSH 已连接，会话数据暂不可用，正在重试"
+                        delay(retryDelay)
+                        retryDelay = (retryDelay * 2).coerceAtMost(15000L)
+                        continue
+                    }
+                    failures++
+                    hostOnline = false
+                    reconnecting = true
+                    if (connected && (!connection.connected || failures >= 2)) resetTransport()
+                    delay(retryDelay)
+                    retryDelay = (retryDelay * 2).coerceAtMost(15000L)
+                }
+            }
+        }
+    }
+    private suspend fun refresh(notice: ChangeNotice) {
+        val selectedId = currentId
+        val now = SystemClock.elapsedRealtime()
+        if (lastProjects == 0L || now - lastProjects >= PROJECTS_INTERVAL_MS) {
+            val availableProjects = connection.sync("/v1/projects").getJSONArray("projects").objects()
+            if (busy || selectedId != currentId) return
+            projects = availableProjects
+            lastProjects = now
+            if (activeProjects.none { it.optString("id") == projectId }) {
+                activeProjects.firstOrNull()?.let { setProject(it.getString("id")) }
+            }
+        }
+        val overviewInterval = if (selectedId == null || projectSection == "任务") ACTIVE_OVERVIEW_INTERVAL_MS else OVERVIEW_INTERVAL_MS
+        if (notice.overview || notice.catchUp) {
+            val refreshStatus = lastOverview == 0L || now - lastOverview >= overviewInterval
+            val serverStatus = if (refreshStatus) connection.sync("/v1/status") else status
+            val summary = connection.sync("/v1/threads")
+            val recent = summary.getJSONArray("threads").objects()
+            val emptyProjects = summary.getJSONArray("projectsWithEmptyThreads")
+            val pending = summary.getJSONArray("approvals").objects()
+                .filter { it.optString("threadId") != selectedId }
+            if (busy || selectedId != currentId) return
+            status = serverStatus
+            threads = recent
+            projectsWithEmptyThreads = (0 until emptyProjects.length()).mapTo(mutableSetOf(), emptyProjects::getString)
+            otherApprovals = pending
+            if (refreshStatus) lastOverview = now
+        }
+        if (selectedId != null && (notice.catchUp || notice.overview || selectedId in notice.threads)) {
+            var hasMore: Boolean
+            do {
+                val update = try {
+                    readUpdates(selectedId, updateCursor)
+                } catch (e: GatewayException) {
+                    if (e.status != 404) throw e
+                    if (!busy && selectedId == currentId) {
+                        openDraft()
+                        hostOnline = true
+                    }
+                    return
+                }
+                if (busy || selectedId != currentId) return
+                applyThreadProject(update.thread)
+                applyUpdates(update)
+                hasMore = update.hasMore
+            } while (hasMore)
+        }
+        hostOnline = true
+    }
+
+    private suspend fun readUpdates(id: String, cursor: String? = null, foregroundRequest: Boolean = false): ConversationUpdates {
+        // A larger bootstrap window makes the uncertain send receipt visible after a restart.
+        val limit = if (id in failedRequests) 160 else 40
+        suspend fun load(from: String?): ConversationUpdates {
+            val path = updatesPath(id, from, limit)
+            return ConversationUpdates(if (foregroundRequest) request(path) else connection.sync(path))
+        }
+        return try {
+            load(cursor)
+        } catch (e: GatewayException) {
+            if (e.status != 400 || cursor == null) throw e
+            load(null)
+        }
+    }
+
+    private fun applyUpdates(update: ConversationUpdates) {
+        updateCursor = update.cursor
+        if (update.reset) historyBefore = update.historyBefore
+        val window = if (update.reset) update.messages else mergeMessages(messages, update.messages)
+        applyConversation(update.thread, window, update.approvals)
+    }
+    fun selectProject(id: String) {
+        if (busy || activeProjects.none { it.optString("id") == id } ||
+            (projectId == id && !selectedConversationArchived)) return
+        setProject(id)
+        openDraft()
+    }
+    private fun setProject(id: String) {
+        projectId = id
+        prefs.edit().putString("project", id).apply()
+    }
+    fun projectName(id: String): String =
+        projects.find { it.optString("id") == id }?.optString("name")
+            ?: id.takeUnless { it.isBlank() || it == "null" }
+            ?: projects.firstOrNull()?.optString("name")
+            ?: "默认项目"
+    fun threadProjectId(thread: JSONObject?): String =
+        thread?.optString("projectId").orEmpty().takeUnless { it.isBlank() || it == "null" }
+            ?: projects.firstOrNull()?.optString("id").orEmpty()
+    val conversationTitle: String
+        get() {
+            val id = currentId ?: return "新对话"
+            val thread = current ?: threads.firstOrNull { it.optString("id") == id }
+            return thread?.let(::threadTitle) ?: "历史会话"
+        }
+    internal fun threadTitle(thread: JSONObject): String {
+        val title = thread.optString("title").trim()
+        if (title.isNotEmpty() && title !in setOf("新的对话", "新对话", "null")) return title
+        if (thread.optString("id") == current?.optString("id")) {
+            val first = messages.firstOrNull { it.optString("role") == "user" }?.optString("text").orEmpty()
+            if (first.isNotBlank()) return first.trim().replace(Regex("\\s+"), " ").take(36)
+        }
+        return "未命名会话"
+    }
+    fun openProject(section: String = "对话") { tab = WorkbenchPage.Sessions; projectSection = section }
+    private suspend fun request(path: String, body: JSONObject? = null) = connection.request(path, body)
+    suspend fun browserImage(url: String, cookie: String, agent: String): ByteArray {
+        check(browserReady) { browserStatus }
+        return downloadDirectBrowserImage(url, cookie, agent)
+    }
+    fun sendBrowser(text: String, title: String, url: String, material: String, image: ByteArray? = null) {
+        if (busy || connecting || !connected || !hostOnline || activeThread != null) return
+        action {
+            val created = request("/v1/threads", JSONObject().put("title", "浏览：" + title.take(30)).put("projectId", projectId))
+            val id = selectSnapshot(created)
+            draft = text
+            openProject()
+            browserSubmissions[id] = BrowserSubmission(
+                JSONObject().put("title", title).put("url", url).put("text", material.take(30000)),
+                image?.let { MessageImage("image/png", it) }
+            )
+            submitMessage(id, text)
+        }
+    }
+    private fun snapshot(j: JSONObject) {
+        applyConversation(j.getJSONObject("thread"), mergeMessages(messages, j.getJSONArray("messages").objects()),
+            j.getJSONArray("approvals").objects())
+    }
+
+    private fun applyConversation(thread: JSONObject, window: List<JSONObject>, pending: List<JSONObject>) {
+        current = thread
+        messages = window
+        approvals = pending
+        val id = thread.getString("id")
+        threads = (listOf(thread) + threads.filter { it.optString("id") != id }).sortedByDescending { it.optLong("updated") }
+        val attempt = failedRequests[id] ?: return
+        val threadStatus = thread.optString("status")
+        if (threadStatus != "failed" && threadStatus != "starting" &&
+            window.any { it.optString("id") == "u-${attempt.requestId}" }) {
+            completeSubmission(id, attempt)
+        }
+    }
+    private fun action(onFailure: (String) -> Unit = { error = it }, block: suspend () -> Unit) {
+        if (busy || connecting || !connected || !hostOnline) return
+        stopMonitoring()
+        viewModelScope.launch {
+            busy = true; error = null
+            try {
+                block()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (e is IOException || e is GatewayException && (e.status >= 500 || e.status == 401)) {
+                    hostOnline = false
+                }
+                onFailure(friendly(e))
+            } finally {
+                busy = false
+                monitorConnection()
+            }
+        }
+    }
+    fun select(id: String, onSuccess: () -> Unit = {}, onFailure: (String) -> Unit = { error = it }) {
+        if (id == currentId && current != null) {
+            openProject()
+            onSuccess()
+            return
+        }
+        action(onFailure) {
+            loadingConversation = id
+            try {
+                val update = readUpdates(id, foregroundRequest = true)
+                selectConversation(update.thread)
+                applyUpdates(update)
+                openProject()
+                onSuccess()
+            } finally {
+                loadingConversation = null
+            }
+        }
+    }
+    fun loadConversations(firstPage: Boolean, onFailure: (String) -> Unit) {
+        val before = if (firstPage) null else historyThreadsBefore ?: return
+        action(onFailure) {
+            var replace = firstPage
+            val page = try {
+                ConversationPage.parse(request(threadPagePath(before)), "threads")
+            } catch (e: GatewayException) {
+                if (e.status != 400 || before == null) throw e
+                replace = true
+                ConversationPage.parse(request(threadPagePath()), "threads")
+            }
+            val previous = if (replace) emptyList() else historyThreads
+            historyThreads = (previous + page.entries).associateBy { it.getString("id") }.values
+                .sortedWith(compareByDescending<JSONObject> { it.optLong("updated") }.thenByDescending { it.getString("id") })
+            historyThreadsBefore = page.nextBefore
+        }
+    }
+
+    fun loadOlderMessages() {
+        val id = currentId ?: return
+        val before = historyBefore ?: return
+        action {
+            val page = try {
+                ConversationPage.parse(request(historyPagePath(id, before)), "messages")
+            } catch (e: GatewayException) {
+                if (e.status != 400 && e.status != 404) throw e
+                lastOverview = 0L
+                updateCursor = null
+                historyBefore = null
+                throw e
+            }
+            messages = mergeMessages(page.entries, messages)
+            historyBefore = page.nextBefore
+        }
+    }
+
+    fun removeConversations(id: String?, onSuccess: (Int) -> Unit, onFailure: (String) -> Unit) {
+        action(onFailure) {
+            val result = if (id == null) request("/v1/threads/cleanup", JSONObject().put("projectId", projectId))
+                else connection.request("/v1/threads/$id", delete = true)
+            val deleted = result.getJSONArray("deleted")
+            val ids = (0 until deleted.length()).mapTo(mutableSetOf()) { deleted.getString(it) }
+            if (id == null) projectsWithEmptyThreads = projectsWithEmptyThreads - projectId
+            if (currentId in ids) openDraft()
+            threads = threads.filterNot { it.optString("id") in ids }
+            historyThreads = historyThreads.filterNot { it.optString("id") in ids }
+            otherApprovals = otherApprovals.filterNot { it.optString("threadId") in ids }
+            ids.forEach { key ->
+                drafts.remove(key)
+                imagesByDraft.remove(key)
+                attachmentErrors.remove(key)
+                failedRequests.remove(key)
+                browserSubmissions.remove(key)
+            }
+            onSuccess(ids.size)
+        }
+    }
+    private fun selectSnapshot(result: JSONObject): String {
+        val id = selectConversation(result.getJSONObject("thread"))
+        snapshot(result)
+        return id
+    }
+
+    private fun selectConversation(thread: JSONObject): String {
+        val id = thread.getString("id")
+        if (currentId != id) {
+            keepPendingApprovals()
+            messages = emptyList()
+            historyBefore = null
+            updateCursor = null
+            lastOverview = 0L
+        }
+        currentId = id
+        prefs.edit().putString("thread-cloud", id).apply()
+        applyThreadProject(thread)
+        return id
+    }
+    private fun applyThreadProject(thread: JSONObject) {
+        val id = threadProjectId(thread)
+        if (id != projectId && activeProjects.any { it.optString("id") == id }) setProject(id)
+    }
+    fun newThread() {
+        if (!busy) {
+            openDraft()
+            openProject()
+        }
+    }
+    private fun openDraft() {
+        keepPendingApprovals()
+        currentId = null
+        prefs.edit().putString("thread-cloud", null).remove("thread").apply()
+        current = null
+        messages = emptyList()
+        historyBefore = null
+        updateCursor = null
+        lastOverview = 0L
+        approvals = emptyList()
+    }
+    private fun keepPendingApprovals() {
+        if (approvals.isNotEmpty()) otherApprovals = approvals
+    }
+    fun send() {
+        if (selectedConversationArchived || activeThread != null || importingAttachment || dictation.stage != null) return
+        val text = draft.trim().ifEmpty { if (draftImages.isNotEmpty()) "请分析附图。" else return }
+        action {
+            val id = currentId ?: run {
+                val key = draftKey
+                val new = selectSnapshot(request("/v1/threads", JSONObject().put("title", "新的对话").put("projectId", projectId)))
+                drafts.remove(key)?.let { draft = it }
+                imagesByDraft.remove(key)?.let { imagesByDraft[new] = it }
+                attachmentErrors.remove(key)
+                new
+            }
+            submitMessage(id, text)
+        }
+    }
+    private suspend fun submitMessage(id: String, text: String) {
+        val localImages = imagesByDraft[id].orEmpty()
+        val browser = browserSubmissions[id]
+        val images = listOfNotNull(browser?.image) + localImages.map { it.upload }
+        val localIds = images.map { it.localId }
+        val requestId = failedRequests[id]?.takeIf { it.text == text && it.imageIds == localIds }?.requestId
+            ?: UUID.randomUUID().toString()
+        val attempt = MessageAttempt(text, localIds, requestId, drafts[id])
+        failedRequests[id] = attempt
+        val body = JSONObject().put("text", text).put("requestId", requestId)
+        browser?.let { body.put("browserContext", it.context) }
+        if (images.isNotEmpty()) {
+            val ids = JSONArray()
+            for (image in images) ids.put(uploadImage(id, image))
+            body.put("attachmentIds", ids)
+        }
+        try {
+            snapshot(request("/v1/threads/$id/messages", body))
+        } catch (e: IOException) {
+            throw IOException(SUBMISSION_UNCONFIRMED, e)
+        }
+        if (failedRequests[id] == attempt) completeSubmission(id, attempt)
+    }
+
+    private fun completeSubmission(id: String, attempt: MessageAttempt) {
+        if (drafts[id] == attempt.draftAtSend) drafts.remove(id)
+        imagesByDraft[id] = imagesByDraft[id].orEmpty().filterNot { it.upload.localId in attempt.imageIds }
+        if (imagesByDraft[id].isNullOrEmpty()) {
+            imagesByDraft.remove(id)
+            attachmentErrors.remove(id)
+        }
+        failedRequests.remove(id)
+        browserSubmissions.remove(id)
+        if (error == SUBMISSION_UNCONFIRMED) error = null
+    }
+    private suspend fun uploadImage(id: String, image: MessageImage): String {
+        image.uploadedId?.let { return it }
+        val data = withContext(Dispatchers.Default) { Base64.encodeToString(image.bytes, Base64.NO_WRAP) }
+        return request("/v1/attachments", JSONObject().put("threadId", id).put("mime", image.mime).put("data", data))
+            .getString("id").also { image.uploadedId = it }
+    }
+    fun cancel(id: String) = action { applyActionSnapshot(request("/v1/threads/$id/cancel", JSONObject())) }
+    fun answer(a: JSONObject, decision: String) = action {
+        applyActionSnapshot(request("/v1/approvals/${a.getString("id")}", JSONObject().put("decision", decision)))
+    }
+    fun answers(a: JSONObject, answers: Map<String, String>) = action {
+        applyActionSnapshot(request("/v1/approvals/${a.getString("id")}", JSONObject().put("answers", JSONObject(answers))))
+    }
+    private fun applyActionSnapshot(result: JSONObject) {
+        val thread = result.getJSONObject("thread")
+        val id = thread.getString("id")
+        if (id == currentId) snapshot(result)
+        else {
+            threads = threads.map { if (it.optString("id") == id) thread else it }
+            otherApprovals = result.getJSONArray("approvals").objects()
+        }
+    }
+    override fun onCleared() {
+        connection.disconnect()
+        super.onCleared()
+    }
+
+    private companion object {
+        const val ACTIVE_OVERVIEW_INTERVAL_MS = 4000L
+        const val OVERVIEW_INTERVAL_MS = 10000L
+        const val PROJECTS_INTERVAL_MS = 30000L
+        const val SUBMISSION_UNCONFIRMED = "发送结果待确认。连接恢复后会核对会话，如未收到可手动重试。"
+    }
+}

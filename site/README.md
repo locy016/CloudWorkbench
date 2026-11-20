@@ -80,4 +80,4 @@ python3 tests/live_smoke.py
 
 ## 工作台入口
 
-工作台说明页由独立的 [Nginx 配置](../android/server/ops/workbench-https.conf) 提供。Windows 便携包按 [Windows 发行说明](../windows/README.md) 通过授权渠道交付。
+工作台通过 [专用 SSH 入口](../android/server/ops/ssh-mobile.md) 提供业务连接。
