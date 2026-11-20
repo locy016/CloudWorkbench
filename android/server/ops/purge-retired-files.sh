@@ -51,4 +51,3 @@ nginx -t
 [[ $(sysctl -n net.ipv6.conf.all.forwarding) == 0 ]]
 if nft list table inet cloud_workbench_v3 >/dev/null 2>&1; then exit 1; fi
 printf '退役规则、账号及管理员归档清理完成\n'
-certbot renew --cert-name workbench.qiwuli.com --dry-run --non-interactive
