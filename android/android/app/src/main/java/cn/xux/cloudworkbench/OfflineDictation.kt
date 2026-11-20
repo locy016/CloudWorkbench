@@ -32,6 +32,7 @@ internal class OfflineDictation(private val context: Context, private val scope:
     var owner by mutableStateOf<String?>(null)
         private set
     private val stopping = AtomicBoolean()
+    private var discarding = false
 
     fun clearError() { error = null }
 
@@ -40,20 +41,27 @@ internal class OfflineDictation(private val context: Context, private val scope:
         error = null
         partial = ""
         stopping.set(false)
+        discarding = false
         owner = draftKey
         stage = Stage.Preparing
         scope.launch {
-            var heardSpeech = false
+            val segments = mutableListOf<String>()
+            var characters = 0
+            var shouldCommit = true
             try {
                 withContext(Dispatchers.IO) {
                     StreamingSpeech(context.assets).use { engine ->
                         coroutineContext.ensureActive()
                         if (stopping.get()) return@use
                         engine.stream().use { stream ->
-                            record(stream, onPartial = { partial = it }, onSegment = { text ->
-                                partial = ""
-                                heardSpeech = true
-                                if (!append(text)) {
+                            record(stream, onPartial = { text ->
+                                if (!discarding) partial = text.ifBlank { segments.lastOrNull().orEmpty() }
+                            }, onSegment = { text ->
+                                if (!discarding && characters + text.length <= MAX_DRAFT_LENGTH) {
+                                    segments.add(text)
+                                    characters += text.length
+                                    partial = text
+                                } else if (!discarding) {
                                     error = "草稿已达到长度上限"
                                     stop()
                                 }
@@ -61,20 +69,39 @@ internal class OfflineDictation(private val context: Context, private val scope:
                         }
                     }
                 }
-                if (!heardSpeech && error == null && stage != Stage.Preparing) error = "没有识别到语音，请重试"
+                if (!discarding && segments.isEmpty() && error == null && stage != Stage.Preparing) {
+                    error = "没有识别到语音，请重试"
+                }
             } catch (e: CancellationException) {
+                shouldCommit = false
                 throw e
             } catch (_: SecurityException) {
-                error = "请允许使用麦克风后重试"
+                if (!discarding) error = "请允许使用麦克风后重试"
             } catch (e: Exception) {
                 Log.w("OfflineDictation", "Local dictation failed", e)
-                error = if (stage == Stage.Preparing) "语音识别启动失败，请重试" else "录音中断，请重试"
+                if (!discarding) error = if (stage == Stage.Preparing) "语音识别启动失败，请重试" else "录音中断，请重试"
             } finally {
+                if (shouldCommit && !discarding) {
+                    for (segment in segments) {
+                        if (!append(segment)) {
+                            error = "草稿已达到长度上限"
+                            break
+                        }
+                    }
+                }
                 stage = null
                 partial = ""
                 owner = null
             }
         }
+    }
+
+    fun discard(draftKey: String) {
+        if (stage == null || owner != draftKey) return
+        discarding = true
+        partial = ""
+        error = null
+        stop(draftKey)
     }
 
     fun stop(draftKey: String? = null) {

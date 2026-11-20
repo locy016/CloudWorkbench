@@ -41,13 +41,16 @@ internal fun BrowserStartPage(
             item {
                 Row(Modifier.widthIn(max = 640.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text("常用地址", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
-                    TextButton(onClick = onManage) { Text("管理书签") }
+                    TextButton(onClick = onManage) { Text("管理书签", maxLines = 1) }
                 }
             }
             if (message != null) item {
-                Column(Modifier.widthIn(max = 640.dp).fillMaxWidth()) {
-                    Text(message, color = Muted, style = MaterialTheme.typography.bodyMedium)
-                    onConnectionAction?.let { TextButton(onClick = it) { Text(connectionAction) } }
+                Surface(Modifier.widthIn(max = 640.dp).fillMaxWidth(), color = AccentSurface,
+                    shape = MaterialTheme.shapes.medium) {
+                    Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                        Text(message, color = Muted, style = MaterialTheme.typography.bodyMedium)
+                        onConnectionAction?.let { TextButton(onClick = it) { Text(connectionAction, maxLines = 1) } }
+                    }
                 }
             }
             item {
@@ -59,8 +62,9 @@ internal fun BrowserStartPage(
                     FlowRow(Modifier.widthIn(max = 640.dp).fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         shortcuts.forEach { entry ->
-                            Column(Modifier.width(82.dp).clip(RoundedCornerShape(12.dp))
-                                .clickable(onClick = { onOpen(entry) }).padding(vertical = 8.dp, horizontal = 4.dp),
+                            Column(Modifier.width(92.dp).clip(RoundedCornerShape(12.dp))
+                                .background(MaterialTheme.colorScheme.surface).clickable(onClick = { onOpen(entry) })
+                                .padding(vertical = 10.dp, horizontal = 6.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 BookmarkIcon(entry, compact = false)
                                 Text(entry.title, style = MaterialTheme.typography.labelMedium,
@@ -238,10 +242,10 @@ internal fun BrowserBookmarkManager(
 @Composable
 private fun BookmarkIcon(entry: BrowserBookmark, compact: Boolean) {
     val size = if (compact) 32.dp else 44.dp
-    Box(Modifier.size(size).background(if (entry.isFolder) WarmSurface else SoftGreen, CircleShape),
+    Box(Modifier.size(size).background(if (entry.isFolder) WarmSurface else AccentSurface, CircleShape),
         contentAlignment = Alignment.Center) {
         if (entry.isFolder) Icon(Icons.Outlined.FolderOpen, null, Modifier.size(20.dp), tint = Amber)
-        else Text(entry.host.removePrefix("www.").take(1).uppercase().ifEmpty { "·" }, color = Green,
+        else Text(entry.host.removePrefix("www.").take(1).uppercase().ifEmpty { "·" }, color = Accent,
             style = MaterialTheme.typography.titleMedium)
     }
 }

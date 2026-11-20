@@ -66,7 +66,7 @@ private enum class OperationFilter(val title: String) {
                     verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text("传输详情", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleLarge)
-                        Text(connection, color = if (connection == "已连接") Green else Muted,
+                        Text(connection, color = if (connection == "已连接") Accent else Muted,
                             style = MaterialTheme.typography.bodySmall)
                     }
                     IconButton(onClick = onClose) { Icon(Icons.Outlined.Close, "关闭") }
@@ -86,10 +86,10 @@ private enum class OperationFilter(val title: String) {
                                         tween(200), label = "附件上传"
                                     )
                                     LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth(),
-                                        color = Green, trackColor = SoftGreen)
+                                        color = Accent, trackColor = AccentSurface)
                                 }
                             }
-                            task?.let { Text(it, color = Green, style = MaterialTheme.typography.bodyMedium) }
+                            task?.let { Text(it, color = Accent, style = MaterialTheme.typography.bodyMedium) }
                         }
                     }
                     item("sync") { SyncSummary(summary) }
@@ -125,7 +125,7 @@ private enum class OperationFilter(val title: String) {
         Text("本次连接累计", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium)
         Row(Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 10.dp).testTag("transferTotals"),
             horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TotalTile("↑ 发送", summary.sent, Green, SoftGreen, Modifier.weight(1f))
+            TotalTile("↑ 发送", summary.sent, Accent, AccentSurface, Modifier.weight(1f))
             TotalTile("↓ 接收", summary.received, ReceiveBlue, ReceiveSurface, Modifier.weight(1f))
         }
         Text("近 1 分钟收发", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleSmall)
@@ -154,7 +154,7 @@ private enum class OperationFilter(val title: String) {
     val description = "近 1 分钟，每 2 秒一组，峰值 $peakLabel"
     Column(Modifier.fillMaxWidth().testTag("transferChart").semantics { contentDescription = description }) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            ChartLegend("发送", Green)
+            ChartLegend("发送", Accent)
             ChartLegend("接收", ReceiveBlue)
             Spacer(Modifier.weight(1f))
             Text("峰值 $peakLabel", color = Muted, style = MaterialTheme.typography.bodySmall)
@@ -175,7 +175,7 @@ private enum class OperationFilter(val title: String) {
             buckets.forEachIndexed { index, bucket ->
                 val x = index * slot + slot * .12f
                 val last = index == buckets.lastIndex
-                drawBar(if (last) latestSent else bucket.sent.toFloat(), x, Green)
+                drawBar(if (last) latestSent else bucket.sent.toFloat(), x, Accent)
                 drawBar(if (last) latestReceived else bucket.received.toFloat(), x + bar + slot * .04f, ReceiveBlue)
             }
         }
@@ -200,7 +200,7 @@ private enum class OperationFilter(val title: String) {
             Text("后台同步", Modifier.weight(1f).semantics { heading() }, style = MaterialTheme.typography.titleMedium)
             if (summary.syncing > 0) {
                 CircularProgressIndicator(Modifier.size(12.dp), strokeWidth = 2.dp)
-                Text("同步中", color = Green, style = MaterialTheme.typography.bodySmall)
+                Text("同步中", color = Accent, style = MaterialTheme.typography.bodySmall)
             }
         }
         Text("发送 ${transferSize(summary.syncSent)} · 接收 ${transferSize(summary.syncReceived)}",
@@ -220,7 +220,7 @@ private enum class OperationFilter(val title: String) {
         Text(result, style = MaterialTheme.typography.bodySmall, color = when {
             result.startsWith("失败") -> MaterialTheme.colorScheme.error
             result == "已取消" -> Muted
-            else -> Green
+            else -> Accent
         })
         Text("发送 ${transferSize(entry.sent)} · 接收 ${transferSize(entry.received)} · $elapsed",
             style = MaterialTheme.typography.bodySmall, color = Muted)

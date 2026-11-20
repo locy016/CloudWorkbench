@@ -8,8 +8,10 @@ import android.media.AudioManager
 import android.media.AudioTrack
 import android.provider.Settings
 import android.view.WindowManager
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.lifecycle.ViewModelProvider
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
 import org.junit.Rule
@@ -23,25 +25,28 @@ class VoiceAcceptanceTest {
         val context = instrumentation.targetContext
         assertEquals(1, Settings.Global.getInt(context.contentResolver, Settings.Global.AIRPLANE_MODE_ON))
         assertEquals(0, Settings.Global.getInt(context.contentResolver, Settings.Global.WIFI_ON))
+        microphoneWritesEditableDraft()
+    }
+
+    @Test fun microphoneWritesEditableDraft() {
         compose.openWorkbenchTab("会话")
-        compose.onNodeWithTag("messageInput").assertDoesNotExist()
+        compose.onNodeWithTag("messageInput").assertIsDisplayed()
         val result = recordSample()
         android.util.Log.i("VoiceAcceptance", "TB322FC speaker-to-microphone draft: $result")
         org.junit.Assert.assertTrue(result.contains(Regex("[\\u4e00-\\u9fff]")))
         org.junit.Assert.assertTrue(result.contains(Regex("[a-zA-Z]{3,}")))
         compose.onNodeWithTag("send").assertIsNotEnabled()
-        compose.onNodeWithTag("keyboardToggle").performClick()
         compose.onNodeWithTag("messageInput").assertTextContains(result)
         val edited = "$result\n平板语音验收"
         compose.onNodeWithTag("messageInput").performTextReplacement(edited)
-        compose.onNodeWithTag("keyboardToggle").performClick()
-        compose.onNodeWithTag("voiceDraft").assertTextContains(edited)
         compose.onNodeWithTag("voiceToggle").performClick()
-        compose.waitUntil(12000) { compose.onAllNodesWithContentDescription("正在听 · 点击结束").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("voiceDraft").assertTextContains(edited)
+        compose.onNodeWithTag("voiceHold").performSemanticsAction(SemanticsActions.OnClick)
+        compose.waitUntil(12000) { compose.runOnIdle { dictation.stage == OfflineDictation.Stage.Listening } }
         compose.onNodeWithTag("project-任务").performClick()
         compose.onNodeWithTag("project-对话").performClick()
-        compose.waitUntil(10000) { compose.onAllNodesWithContentDescription("点击说话").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithTag("voiceDraft").assertTextContains(edited)
+        compose.waitUntil(10000) { compose.onAllNodesWithTag("messageInput").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("messageInput").assertTextContains(edited)
     }
 
     @Test fun editedVoiceDraftRequiresManualSend() {
@@ -50,7 +55,7 @@ class VoiceAcceptanceTest {
         compose.onNodeWithTag("newChat").performClick()
         val result = recordSample(capture = true)
         compose.onNodeWithTag("messages").assertDoesNotExist()
-        compose.onNodeWithTag("voiceDraft").performClick()
+        compose.onNodeWithTag("messageInput").performClick()
         compose.onNodeWithTag("messageInput").assertTextContains(result)
         val marker = "语音验收通过"
         val edited = "请只回复「$marker」。\n$result"
@@ -67,15 +72,13 @@ class VoiceAcceptanceTest {
             ?.getInsets(androidx.core.view.WindowInsetsCompat.Type.ime())?.bottom ?: 0
         if (imeBottom > 0) org.junit.Assert.assertTrue(input.fetchSemanticsNode().boundsInWindow.bottom <= window.height - imeBottom + 1)
         captureReviewScreen("voice-edit")
-        compose.onNodeWithTag("keyboardToggle").performClick()
-        compose.onNodeWithTag("voiceDraft").assertTextContains(edited)
         compose.onNodeWithTag("messages").assertDoesNotExist()
         compose.onNodeWithTag("send").assertIsEnabled().performClick()
         compose.waitUntil(90000) {
             compose.onAllNodes(hasTestTag("message-assistant") and hasAnyDescendant(hasText(marker, substring = true)),
                 useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
         }
-        compose.onNodeWithTag("voiceDraft").assertDoesNotExist()
+        compose.onNodeWithTag("send").assertDoesNotExist()
         captureReviewScreen("voice-sent")
     }
 
@@ -84,9 +87,11 @@ class VoiceAcceptanceTest {
         val context = instrumentation.targetContext
         instrumentation.uiAutomation.grantRuntimePermission(context.packageName, Manifest.permission.RECORD_AUDIO)
         compose.activity.runOnUiThread { compose.activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
-        compose.onNodeWithTag("voiceToggle").assertContentDescriptionEquals("点击说话")
+        compose.onNodeWithTag("voiceToggle").assertContentDescriptionEquals("切换到语音输入")
         compose.onNodeWithTag("voiceToggle").performClick()
-        compose.waitUntil(12000) { compose.onAllNodesWithContentDescription("正在听 · 点击结束").fetchSemanticsNodes().isNotEmpty() }
+        val hold = compose.onNodeWithTag("voiceHold")
+        hold.performTouchInput { down(center) }
+        compose.waitUntil(12000) { compose.runOnIdle { dictation.stage == OfflineDictation.Stage.Listening } }
         val audio = instrumentation.context.assets.open("voice-sample.wav").use { it.readBytes() }
         check(String(audio, 36, 4, Charsets.US_ASCII) == "data")
         val pcmBytes = audio.size - 44
@@ -103,7 +108,7 @@ class VoiceAcceptanceTest {
             audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC) / 2, 0)
             assertEquals(pcmBytes, track.write(audio, 44, pcmBytes))
             track.play()
-            compose.waitUntil(7000) { compose.onAllNodesWithTag("voicePartial").fetchSemanticsNodes().isNotEmpty() }
+            compose.waitUntil(7000) { compose.runOnIdle { dictation.partial.isNotBlank() } }
             org.junit.Assert.assertTrue(track.playbackHeadPosition < pcmBytes / 2)
             if (capture) captureReviewScreen("voice-recording")
             compose.waitUntil(14000) { track.playbackHeadPosition >= pcmBytes / 2 }
@@ -111,13 +116,15 @@ class VoiceAcceptanceTest {
             track.release()
             audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, originalVolume, 0)
         }
-        compose.onNodeWithTag("voiceToggle").performClick()
+        hold.performTouchInput { up() }
         compose.waitUntil(10000) {
-            compose.onAllNodesWithContentDescription("点击说话").fetchSemanticsNodes().isNotEmpty() &&
-                compose.onAllNodesWithTag("voiceDraft").fetchSemanticsNodes().isNotEmpty()
+            compose.onAllNodesWithTag("messageInput").fetchSemanticsNodes().isNotEmpty()
         }
         if (capture) captureReviewScreen("voice-draft")
-        return compose.onNodeWithTag("voiceDraft").fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsProperties.Text]
-            .joinToString("") { it.text }
+        return compose.onNodeWithTag("messageInput").fetchSemanticsNode()
+            .config[androidx.compose.ui.semantics.SemanticsProperties.EditableText].text
     }
+
+    private val dictation
+        get() = ViewModelProvider(compose.activity)[WorkbenchModel::class.java].dictation
 }

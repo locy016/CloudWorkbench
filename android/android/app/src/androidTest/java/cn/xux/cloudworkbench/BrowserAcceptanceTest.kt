@@ -155,7 +155,6 @@ class BrowserAcceptanceTest {
             compose.onNodeWithTag("bookmarkName").performTextReplacement("书签验收")
             compose.onNodeWithText("保存").performClick()
             compose.runOnIdle { org.junit.Assert.assertEquals("书签验收", bookmarks.forUrl(fixtureUrl)?.title) }
-            compose.onNodeWithTag("bookmarkBar").assertIsDisplayed()
             compose.onNodeWithContentDescription("书签").performClick()
             compose.onNodeWithTag("bookmarkSearch").performTextReplacement("书签验收")
             compose.onNode(hasText("书签验收") and hasAnyAncestor(hasTestTag("bookmarkList"))).assertIsDisplayed()

@@ -4,6 +4,8 @@ import android.text.format.Formatter
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.CloudOff
+import androidx.compose.material.icons.outlined.CloudQueue
 import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -15,7 +17,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
-@Composable internal fun ConnectionStatus(vm: WorkbenchModel) {
+@Composable internal fun ConnectionStatus(vm: WorkbenchModel, compact: Boolean = false) {
     val label = when {
         vm.connecting -> "连接中"
         vm.reconnecting -> "正在重连"
@@ -37,11 +39,17 @@ import androidx.compose.ui.unit.dp
     var details by rememberSaveable { mutableStateOf(false) }
     Surface(onClick = { details = true }, modifier = Modifier.testTag("connectionDetails"),
         enabled = tracker != null, shape = RoundedCornerShape(14.dp),
-        color = if (online) SoftGreen else MaterialTheme.colorScheme.surfaceContainerHigh) {
-        Row(Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+        color = if (online) AccentSurface else MaterialTheme.colorScheme.surfaceContainerHigh) {
+        if (compact) {
+            Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {
+                Icon(if (online) Icons.Outlined.CloudQueue else Icons.Outlined.CloudOff,
+                    contentDescription = listOfNotNull(label, activity, "传输详情".takeIf { tracker != null }).joinToString(" · "),
+                    tint = if (online) Accent else Muted)
+            }
+        } else Row(Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             Column(Modifier.widthIn(max = 142.dp)) {
-                Text(label, style = MaterialTheme.typography.labelMedium, color = if (online) Green else Muted, maxLines = 1)
+                Text(label, style = MaterialTheme.typography.labelMedium, color = if (online) Accent else Muted, maxLines = 1)
                 activity?.let {
                     Text(it, style = MaterialTheme.typography.labelSmall, color = Muted,
                         maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.testTag("connectionActivity"))

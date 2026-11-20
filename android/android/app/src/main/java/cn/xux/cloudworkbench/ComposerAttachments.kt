@@ -16,7 +16,6 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.CameraAlt
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Description
@@ -31,6 +30,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.Dispatchers
@@ -38,10 +38,12 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 @Composable
-internal fun AttachmentButton(vm: WorkbenchModel, enabled: Boolean, onOpen: () -> Unit) {
+internal fun ConversationAttachments(
+    vm: WorkbenchModel, expanded: Boolean, enabled: Boolean, onClose: () -> Unit,
+    content: @Composable () -> Unit
+) {
     val context = LocalContext.current
     val key = vm.draftKey
-    var menu by remember { mutableStateOf(false) }
     var captureName by rememberSaveable { mutableStateOf<String?>(null) }
     val cameraDir = File(context.cacheDir, "camera")
     val takePicture = remember {
@@ -74,7 +76,7 @@ internal fun AttachmentButton(vm: WorkbenchModel, enabled: Boolean, onOpen: () -
     }
 
     fun launch(error: String, action: () -> Unit) {
-        menu = false
+        onClose()
         vm.reportAttachmentError(key, null)
         try {
             action()
@@ -85,43 +87,51 @@ internal fun AttachmentButton(vm: WorkbenchModel, enabled: Boolean, onOpen: () -
         }
     }
 
-    Box {
-        FilledTonalIconButton(
-            onClick = { onOpen(); menu = true }, enabled = enabled,
-            modifier = Modifier.testTag("attachmentMenu"),
-            colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = Background, contentColor = Ink)
-        ) { Icon(Icons.Outlined.Add, "添加附件", Modifier.size(21.dp)) }
-        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-            DropdownMenuItem(
-                text = { Text("拍照") }, leadingIcon = { Icon(Icons.Outlined.CameraAlt, null) }, enabled = vm.imageSlots > 0,
-                onClick = {
-                    launch("此设备没有可用的相机应用") {
-                        try {
-                            cameraDir.mkdirs()
-                            val photo = File.createTempFile("capture-", ".jpg", cameraDir)
-                            captureName = photo.name
-                            camera.launch(FileProvider.getUriForFile(context, "${context.packageName}.camera", photo))
-                        } catch (e: Exception) {
-                            captureName?.let { File(cameraDir, it).delete() }
-                            captureName = null
-                            if (e is ActivityNotFoundException) throw e
-                            vm.reportAttachmentError(key, "无法启动相机")
-                        }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        content()
+        if (expanded) Row(
+            Modifier.fillMaxWidth().testTag("attachmentPanel"),
+            horizontalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            val canAddImage = enabled && vm.imageSlots > 0
+            AttachmentAction(Icons.Outlined.CameraAlt, "拍照", canAddImage) {
+                launch("此设备没有可用的相机应用") {
+                    try {
+                        cameraDir.mkdirs()
+                        val photo = File.createTempFile("capture-", ".jpg", cameraDir)
+                        captureName = photo.name
+                        camera.launch(FileProvider.getUriForFile(context, "${context.packageName}.camera", photo))
+                    } catch (e: Exception) {
+                        captureName?.let { File(cameraDir, it).delete() }
+                        captureName = null
+                        if (e is ActivityNotFoundException) throw e
+                        vm.reportAttachmentError(key, "无法启动相机")
                     }
                 }
-            )
-            DropdownMenuItem(
-                text = { Text("从相册选择") }, leadingIcon = { Icon(Icons.Outlined.PhotoLibrary, null) }, enabled = vm.imageSlots > 0,
-                onClick = { launch("无法打开相册") { gallery.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) } }
-            )
-            DropdownMenuItem(
-                text = { Text("从文件选图片") }, leadingIcon = { Icon(Icons.Outlined.FolderOpen, null) }, enabled = vm.imageSlots > 0,
-                onClick = { launch("无法打开文件选择器") { imageFiles.launch(arrayOf("image/*")) } }
-            )
-            DropdownMenuItem(
-                text = { Text("导入文本到草稿") }, leadingIcon = { Icon(Icons.Outlined.Description, null) },
-                onClick = { launch("无法打开文件选择器") { textFile.launch(arrayOf("text/*", "application/json", "application/xml")) } }
-            )
+            }
+            AttachmentAction(Icons.Outlined.PhotoLibrary, "相册", canAddImage) {
+                launch("无法打开相册") { gallery.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
+            }
+            AttachmentAction(Icons.Outlined.FolderOpen, "图片文件", canAddImage) {
+                launch("无法打开文件选择器") { imageFiles.launch(arrayOf("image/*")) }
+            }
+            AttachmentAction(Icons.Outlined.Description, "导入文本", enabled) {
+                launch("无法打开文件选择器") { textFile.launch(arrayOf("text/*", "application/json", "application/xml")) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RowScope.AttachmentAction(icon: ImageVector, label: String, enabled: Boolean, onClick: () -> Unit) {
+    Surface(onClick = onClick, enabled = enabled, modifier = Modifier.weight(1f),
+        color = MaterialTheme.colorScheme.surface, shape = MaterialTheme.shapes.small) {
+        Row(Modifier.heightIn(min = 48.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp, Alignment.CenterHorizontally)) {
+            Icon(icon, null, Modifier.size(18.dp), tint = if (enabled) Accent else Muted)
+            Text(label, maxLines = 1, softWrap = false, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.labelSmall,
+                color = if (enabled) Ink else Muted)
         }
     }
 }

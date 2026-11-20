@@ -45,7 +45,7 @@ internal class BrowserBookmarks(private val prefs: SharedPreferences) {
         private set
     var compact by mutableStateOf(prefs.getBoolean("bookmarkCompact", false))
         private set
-    var barVisible by mutableStateOf(prefs.getBoolean("bookmarkBarVisible", true))
+    var barVisible by mutableStateOf(prefs.getBoolean("bookmarkBarVisible", false))
         private set
     var lastFolder by mutableStateOf(prefs.getString("bookmarkLastFolder", null))
         private set

@@ -15,7 +15,6 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -41,11 +40,14 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.paneTitle
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -92,6 +94,17 @@ private fun limited(bitmap: Bitmap): Bitmap {
     return if (factor == 1f) bitmap else Bitmap.createScaledBitmap(bitmap, (bitmap.width * factor).toInt(), (bitmap.height * factor).toInt(), true)
 }
 private fun png(bitmap: Bitmap): ByteArray = ByteArrayOutputStream().use { out -> limited(bitmap).compress(Bitmap.CompressFormat.PNG, 100, out); out.toByteArray().also { require(it.size <= 5 * 1024 * 1024) { "图片过大，请截取更小区域" } } }
+
+// The Google mobile homepage can keep the pixel height it measured before the keyboard closed.
+private val googleHomepageViewport = """
+    (() => {
+        if (location.protocol !== "https:" || !["www.google.com", "google.com"].includes(location.hostname) ||
+            location.pathname !== "/" || new URLSearchParams(location.search).has("q")) return;
+        const page = document.querySelector("body > #gb-main");
+        const height = CSS.supports("min-height", "100dvh") ? "100dvh" : "100vh";
+        page?.style.setProperty("min-height", height, "important");
+    })();
+""".trimIndent()
 
 private suspend fun WebView.hasPageContent(): Boolean = suspendCancellableCoroutine { continuation ->
     evaluateJavascript("""
@@ -146,6 +159,8 @@ private suspend fun WebView.hasPageContent(): Boolean = suspendCancellableCorout
     val canCollect = !startPage && online && pageReady && !loading && screenshot == null
     val screenWidth = LocalConfiguration.current.screenWidthDp
     val starInToolbar = screenWidth >= 440
+    val forwardInToolbar = screenWidth >= 480
+    val reloadInToolbar = screenWidth >= 340
     val bookmarks = vm.browserBookmarks
     val currentBookmark = bookmarks.forUrl(vm.browserUrl).takeIf { !startPage && pageReady }
     val snackbar = remember { SnackbarHostState() }
@@ -252,47 +267,61 @@ private suspend fun WebView.hasPageContent(): Boolean = suspendCancellableCorout
             view?.goBack()
         } else goHome()
     }
+    fun goForward() {
+        if (!online || !canGoForward) return
+        finishAddressEdit()
+        startNavigation()
+        view?.goForward()
+    }
+    val inProgress = pageLoading || (pageReady && progress in 1..99)
+    fun reloadOrStop() {
+        finishAddressEdit()
+        if (inProgress) {
+            if (!pageReady) failPage("已停止加载")
+            pageLoading = false
+            view?.stopLoading()
+            progress = 100
+        } else retryPage()
+    }
     BackHandler(enabled = visible && (screenshot != null || (!startPage && !addressFocused))) {
         if (screenshot != null) screenshot = null else goBack()
     }
-    Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface)
-            .padding(start = if (menuButton == null) LocalPagePadding.current else 6.dp,
-            end = LocalPagePadding.current, top = 4.dp), verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            if (menuButton != null) {
-                menuButton()
-                PageTitle(WorkbenchPage.Browse, Modifier.padding(end = 4.dp))
-            }
-            TextField(
-                value = address,
-                onValueChange = { address = it; error = null },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go, keyboardType = KeyboardType.Uri),
-                keyboardActions = KeyboardActions(onGo = { navigate(address.text) }),
-                modifier = Modifier.weight(1f).onFocusChanged { state ->
-                    if (state.isFocused && !addressFocused) address = address.copy(selection = TextRange(0, address.text.length))
-                    addressFocused = state.isFocused
-                }.testTag("browserAddress"),
-                placeholder = { Text("网址或搜索词") },
-                shape = RoundedCornerShape(28.dp),
-                colors = TextFieldDefaults.colors(
-                    focusedContainerColor = SoftGreen, unfocusedContainerColor = Background,
-                    focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent
-                ),
-                leadingIcon = { BrowserModeIcon(vm, beforeSwitch = ::finishAddressEdit) },
-                trailingIcon = {
-                    IconButton(onClick = { navigate(address.text) }, enabled = online && address.text.isNotBlank(), modifier = Modifier.testTag("browserGo")) {
-                        Icon(Icons.Outlined.ArrowForward, "打开网页")
-                    }
+    val inlineActions = screenWidth >= 1040 && menuButton != null
+    val canOpen = online && address.text.isNotBlank()
+    val addressBar: @Composable (Modifier) -> Unit = { modifier ->
+        TextField(
+            value = address,
+            onValueChange = { address = it; error = null },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go, keyboardType = KeyboardType.Uri),
+            keyboardActions = KeyboardActions(onGo = { navigate(address.text) }),
+            modifier = modifier.onFocusChanged { state ->
+                if (state.isFocused && !addressFocused) address = address.copy(selection = TextRange(0, address.text.length))
+                addressFocused = state.isFocused
+            }.testTag("browserAddress"),
+            placeholder = { Text("网址或搜索", maxLines = 1) },
+            shape = RoundedCornerShape(16.dp),
+            colors = TextFieldDefaults.colors(
+                focusedContainerColor = AccentSurface, unfocusedContainerColor = Background,
+                focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent
+            ),
+            leadingIcon = { BrowserModeIcon(vm, beforeSwitch = ::finishAddressEdit) },
+            trailingIcon = {
+                FilledIconButton(onClick = { navigate(address.text) }, enabled = canOpen,
+                    modifier = Modifier.size(44.dp).testTag("browserGo")) {
+                    Icon(Icons.Outlined.ArrowForward, "打开网页")
                 }
-            )
-            if (menuButton != null) ConnectionStatus(vm)
-        }
-        Row(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface)
-            .padding(horizontal = if (starInToolbar) LocalPagePadding.current else 4.dp),
-            verticalAlignment = Alignment.CenterVertically) {
+            }
+        )
+    }
+    val tools: @Composable (Modifier, Boolean) -> Unit = { modifier, fillWidth ->
+        Row(modifier.testTag("browserToolbar"), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { finishAddressEdit(); goBack() }, enabled = !startPage && screenshot == null) { Icon(Icons.Outlined.ArrowBack, "后退") }
+            if (forwardInToolbar) {
+                IconButton(onClick = ::goForward, enabled = online && canGoForward && screenshot == null) {
+                    Icon(Icons.Outlined.ArrowForward, "前进")
+                }
+            }
             if (screenWidth >= 350) {
                 IconButton(onClick = { goHome() }, enabled = !startPage && screenshot == null) { Icon(Icons.Outlined.Home, "主页") }
             }
@@ -305,26 +334,19 @@ private suspend fun WebView.hasPageContent(): Boolean = suspendCancellableCorout
                     if (currentBookmark == null) "收藏当前网页" else "编辑当前网页书签",
                     tint = if (currentBookmark == null) LocalContentColor.current else Amber)
             }
-            val inProgress = pageLoading || (pageReady && progress in 1..99)
-            IconButton(onClick = {
-                finishAddressEdit()
-                if (inProgress) {
-                    if (!pageReady) failPage("已停止加载")
-                    pageLoading = false
-                    view?.stopLoading()
-                    progress = 100
-                } else retryPage()
-            }, enabled = !startPage && (online || inProgress) && screenshot == null) {
-                Icon(if (inProgress) Icons.Outlined.Close else Icons.Outlined.Refresh, if (inProgress) "停止加载" else "刷新")
+            if (reloadInToolbar) {
+                IconButton(onClick = ::reloadOrStop, enabled = !startPage && (online || inProgress) && screenshot == null) {
+                    Icon(if (inProgress) Icons.Outlined.Close else Icons.Outlined.Refresh, if (inProgress) "停止加载" else "刷新")
+                }
             }
-            Spacer(Modifier.weight(1f))
-            FilledTonalIconButton(onClick = {
+            Spacer(if (fillWidth) Modifier.weight(1f) else Modifier.width(4.dp))
+            IconButton(onClick = {
                 error = null
                 readMaterial(false) { result ->
                     if (result == null) error = "没有提取到页面文字" else material = result
                 }
             }, enabled = canCollect, modifier = Modifier.testTag("browserText")) { Icon(Icons.Outlined.Article, "页面文字") }
-            FilledTonalIconButton(onClick = {
+            IconButton(onClick = {
                 view?.let { w ->
                     if (w.width > 0 && w.height > 0) {
                         val scale = min(1f, 2048f / max(w.width, w.height))
@@ -345,7 +367,7 @@ private suspend fun WebView.hasPageContent(): Boolean = suspendCancellableCorout
                     } else {
                         toolsOpen = true
                     }
-                }, enabled = !startPage && screenshot == null) { Icon(Icons.Outlined.MoreHoriz, "更多浏览操作") }
+                }, enabled = screenshot == null) { Icon(Icons.Outlined.MoreHoriz, "更多浏览操作") }
                 DropdownMenu(expanded = toolsOpen, onDismissRequest = { toolsOpen = false }) {
                     if (screenWidth < 350) DropdownMenuItem(text = { Text("主页") },
                         leadingIcon = { Icon(Icons.Outlined.Home, null) }, onClick = { toolsOpen = false; goHome() })
@@ -353,7 +375,12 @@ private suspend fun WebView.hasPageContent(): Boolean = suspendCancellableCorout
                         text = { Text(if (currentBookmark == null) "收藏当前网页" else "编辑当前网页书签") },
                         leadingIcon = { Icon(if (currentBookmark == null) Icons.Outlined.StarBorder else Icons.Outlined.Star, null) },
                         enabled = pageReady, onClick = { toolsOpen = false; bookmarkCurrentPage() })
-                    DropdownMenuItem(text = { Text("前进") }, enabled = online && canGoForward, leadingIcon = { Icon(Icons.Outlined.ArrowForward, null) }, onClick = { toolsOpen = false; finishAddressEdit(); startNavigation(); view?.goForward() })
+                    if (!reloadInToolbar) DropdownMenuItem(text = { Text(if (inProgress) "停止加载" else "刷新", maxLines = 1) },
+                        enabled = !startPage && (online || inProgress),
+                        leadingIcon = { Icon(if (inProgress) Icons.Outlined.Close else Icons.Outlined.Refresh, null) },
+                        onClick = { toolsOpen = false; reloadOrStop() })
+                    DropdownMenuItem(text = { Text("前进", maxLines = 1) }, enabled = online && canGoForward,
+                        leadingIcon = { Icon(Icons.Outlined.ArrowForward, null) }, onClick = { toolsOpen = false; goForward() })
                     DropdownMenuItem(text = { Text("复制当前网址") }, enabled = pageReady, leadingIcon = { Icon(Icons.Outlined.ContentCopy, null) }, onClick = { toolsOpen = false; clipboard.setText(AnnotatedString(vm.browserUrl)) })
                     DropdownMenuItem(text = { Text("选中文本") }, enabled = canCollect, leadingIcon = { Icon(Icons.Outlined.TextFields, null) }, onClick = {
                         toolsOpen = false
@@ -369,6 +396,27 @@ private suspend fun WebView.hasPageContent(): Boolean = suspendCancellableCorout
                 }
             }
         }
+    }
+    val documentTitle = title.takeIf { pageReady && !startPage }
+    Column(Modifier.fillMaxSize().semantics { paneTitle = documentTitle ?: WorkbenchPage.Browse.title }) {
+        Row(
+            Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface)
+                .padding(start = 4.dp, end = if (screenWidth >= 600) LocalPagePadding.current else 8.dp, top = 2.dp, bottom = 2.dp)
+                .testTag("browserHeader"),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            menuButton?.invoke()
+            if (menuButton != null && screenWidth >= 480) {
+                if (documentTitle == null) PageTitle(WorkbenchPage.Browse)
+                else Text(documentTitle, Modifier.widthIn(max = 112.dp).testTag("browserDocumentTitle"),
+                    style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            addressBar(Modifier.weight(1f))
+            if (inlineActions) tools(Modifier, false)
+            if (menuButton != null) ConnectionStatus(vm, compact = screenWidth < 600)
+        }
+        if (!inlineActions) tools(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface)
+            .padding(horizontal = if (starInToolbar) LocalPagePadding.current else 4.dp), true)
         if (!startPage && screenshot == null && !addressFocused && bookmarks.barVisible) {
             BoxWithConstraints {
                 if (maxWidth >= 600.dp) BrowserBookmarkBar(bookmarks, onOpen = ::openBookmark)
@@ -376,7 +424,7 @@ private suspend fun WebView.hasPageContent(): Boolean = suspendCancellableCorout
         }
         HorizontalDivider(color = Outline)
         error?.let { Text(it, Modifier.padding(horizontal = 24.dp, vertical = 6.dp), color = Amber, fontSize = 12.sp) }
-        if (!startPage && (loading || (online && pageReady && progress in 1..99))) LinearProgressIndicator(Modifier.fillMaxWidth().height(2.dp))
+        if (!startPage && (loading || (online && pageLoading))) LinearProgressIndicator(Modifier.fillMaxWidth().height(2.dp))
         Box(Modifier.weight(1f).fillMaxWidth().clipToBounds().zIndex(-1f)) {
             val generation = rendererGeneration
             if (supported) key(generation) { AndroidView(modifier = Modifier.fillMaxSize().testTag("browserView"), factory = { ctx ->
@@ -433,6 +481,9 @@ private suspend fun WebView.hasPageContent(): Boolean = suspendCancellableCorout
                         }
                         override fun onPageFinished(v: WebView, url: String) {
                             if (startPage || v !== view || url != v.url) return
+                            if (url.startsWith("https://www.google.com/") || url.startsWith("https://google.com/")) {
+                                v.evaluateJavascript(googleHomepageViewport, null)
+                            }
                             title = v.title?.takeIf { it.isNotBlank() } ?: "网页"
                             if (pageLoading && (url.startsWith("https://") || url.startsWith("http://"))) pageFinished = true
                             updateHistory(v)
@@ -615,7 +666,12 @@ private suspend fun WebView.hasPageContent(): Boolean = suspendCancellableCorout
         var instruction by remember(m) { mutableStateOf(if (m.bitmap == null) "请总结这些内容，说明关键结论和需要核实的地方。" else "请分析这张图片，解释主要内容并给出建议。") }
         AlertDialog(onDismissRequest = { if (!vm.busy) material = null }, title = { Text("交给服务器 Codex") }, text = {
             Column(Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(m.title, fontSize = 14.sp); Text(m.url, fontSize = 12.sp, color = Muted)
+                Surface(color = AccentSurface, shape = MaterialTheme.shapes.small) {
+                    Column(Modifier.fillMaxWidth().padding(10.dp)) {
+                        Text(m.title, style = MaterialTheme.typography.titleSmall)
+                        Text(m.url, style = MaterialTheme.typography.bodySmall, color = Muted)
+                    }
+                }
                 m.bitmap?.let { Image(it.asImageBitmap(), "待发送图片", Modifier.fillMaxWidth().heightIn(max = 230.dp)) }
                 if (m.text.isNotBlank()) Text(m.text.take(1200) + if (m.text.length > 1200) "\n…共 ${m.text.length} 字" else "", fontSize = 12.sp)
                 OutlinedTextField(value = instruction, onValueChange = { instruction = it.take(4000) }, label = { Text("希望 Codex 怎样处理？") }, modifier = Modifier.fillMaxWidth().testTag("browserInstruction"))
@@ -634,19 +690,18 @@ private suspend fun WebView.hasPageContent(): Boolean = suspendCancellableCorout
     val (tint, background) = when {
         network.failed -> scheme.onErrorContainer to scheme.errorContainer
         !network.supported -> Muted to scheme.surface
-        vm.browserReady -> Green to scheme.surface
+        vm.browserReady -> Accent to AccentSurface
         else -> Amber to WarmSurface
     }
     val next = if (network.mode == BrowserMode.Cloud) BrowserMode.Direct else BrowserMode.Cloud
     val status = "${network.mode.title} · ${vm.browserStatus}"
-    IconButton(onClick = { beforeSwitch(); vm.selectBrowserMode(next) }, enabled = network.supported,
-        modifier = Modifier.testTag("browserModeIndicator")) {
-        Surface(Modifier.size(30.dp), shape = CircleShape, color = background, shadowElevation = 2.dp) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(if (network.mode == BrowserMode.Cloud) Icons.Outlined.CloudQueue else Icons.Outlined.TabletAndroid,
-                    if (network.supported) "$status，点击切换为${next.title}" else status,
-                    modifier = Modifier.size(17.dp), tint = tint)
-            }
+    Surface(onClick = { beforeSwitch(); vm.selectBrowserMode(next) }, enabled = network.supported,
+        modifier = Modifier.padding(start = 4.dp).testTag("browserModeIndicator"),
+        shape = MaterialTheme.shapes.small, color = background) {
+        Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {
+            Icon(if (network.mode == BrowserMode.Cloud) Icons.Outlined.CloudQueue else Icons.Outlined.TabletAndroid,
+                if (network.supported) "$status，点击切换为${next.title}" else status,
+                modifier = Modifier.size(20.dp), tint = tint)
         }
     }
 }

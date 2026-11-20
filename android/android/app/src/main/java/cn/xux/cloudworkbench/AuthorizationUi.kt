@@ -5,14 +5,12 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.ExpandLess
 import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.HelpOutline
@@ -21,6 +19,7 @@ import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -51,9 +50,25 @@ internal fun AuthorizationHeader(
     retryConnection: (() -> Unit)?,
     onBind: (() -> Unit)?,
     canIssue: Boolean,
+    refreshing: Boolean,
     issueMessage: String,
-    onIssue: () -> Unit
+    onIssue: () -> Unit,
+    onRefresh: () -> Unit
 ) {
+    if (connected) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("授权列表", Modifier.weight(1f).semantics { heading() }, style = MaterialTheme.typography.titleLarge)
+            Button(enabled = canIssue, onClick = onIssue, modifier = Modifier.testTag("issueAuthorization")) {
+                Text("新增授权", maxLines = 1)
+            }
+            IconButton(enabled = !refreshing, onClick = onRefresh, modifier = Modifier.testTag("refreshAuthorization")) {
+                Icon(Icons.Outlined.Refresh, "刷新列表", tint = if (refreshing) Muted else Accent)
+            }
+        }
+        AuthorizationNotice(issueMessage)
+        return
+    }
     Surface(
         modifier = Modifier.fillMaxWidth(),
         color = MaterialTheme.colorScheme.primaryContainer,
@@ -62,20 +77,14 @@ internal fun AuthorizationHeader(
         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Surface(color = MaterialTheme.colorScheme.surface, shape = MaterialTheme.shapes.small) {
-                    Icon(Icons.Outlined.Key, null, Modifier.padding(10.dp).size(24.dp), tint = Green)
+                    Icon(Icons.Outlined.Key, null, Modifier.padding(10.dp).size(24.dp), tint = Accent)
                 }
                 Text("设备授权", Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineSmall)
             }
-            if (connected) {
-                Button(enabled = canIssue, onClick = onIssue, modifier = Modifier.testTag("issueAuthorization")) {
-                    AuthorizationButtonLabel(Icons.Outlined.Add, "新增授权")
-                }
-            } else {
-                Text(connectionStatus, style = MaterialTheme.typography.bodyMedium)
-                ActionRow {
-                    retryConnection?.let { OutlinedButton(onClick = it) { Text("重试连接") } }
-                    onBind?.let { OutlinedButton(onClick = it) { Text("连接问题") } }
-                }
+            Text(connectionStatus, style = MaterialTheme.typography.bodyMedium)
+            ActionRow {
+                retryConnection?.let { OutlinedButton(onClick = it) { Text("重试连接") } }
+                onBind?.let { OutlinedButton(onClick = it) { Text("连接问题") } }
             }
             AuthorizationNotice(issueMessage)
         }
@@ -96,7 +105,7 @@ internal fun AuthorizationHelp(hasSubscriptions: Boolean) {
     ) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Icon(Icons.Outlined.HelpOutline, null, tint = Green)
+                Icon(Icons.Outlined.HelpOutline, null, tint = Accent)
                 Text("功能说明", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
                 Icon(if (expanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore, null, tint = Muted)
             }
@@ -121,18 +130,14 @@ internal fun AuthorizationListHeader(
     count: Int?,
     busy: Boolean,
     message: String,
-    onRefresh: () -> Unit
+    updatedAt: String?,
+    stale: Boolean
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Column(Modifier.weight(1f)) {
-                Text("授权列表", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleLarge)
-                if (count != null) Text("共 $count 条记录", style = MaterialTheme.typography.bodyMedium, color = Muted)
-            }
-            OutlinedButton(enabled = !busy, onClick = onRefresh) {
-                AuthorizationButtonLabel(Icons.Outlined.Refresh, "刷新列表")
-            }
+        if (count != null) Text("共 $count 条记录", style = MaterialTheme.typography.bodyMedium, color = Muted)
+        if (updatedAt != null) {
+            val suffix = if (stale) " · 数据可能过时" else ""
+            Text("列表更新时间 $updatedAt$suffix", style = MaterialTheme.typography.bodySmall, color = Muted)
         }
         if (busy) {
             LinearProgressIndicator(Modifier.fillMaxWidth().height(3.dp))
@@ -153,11 +158,6 @@ private fun AuthorizationNotice(message: String) {
     }
 }
 
-@Composable
-internal fun AuthorizationSection(title: String) {
-    Text(title, Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium, color = Muted)
-}
-
 internal enum class AuthorizationStatusStyle { Active, Attention, Inactive }
 
 @Composable
@@ -174,14 +174,20 @@ internal fun AuthorizationRecord(
     onRevoke: (() -> Unit)? = null,
     onRemove: (() -> Unit)? = null
 ) {
-    Panel(Modifier.fillMaxWidth()) {
-        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    var expanded by rememberSaveable(title, fields.firstOrNull()?.second) { mutableStateOf(false) }
+    val (primaryFields, details) = fields.partition { (label, _) ->
+        label in setOf("登记截止", "授权截止", "有效期至", "授权时长", "流量限额", "已计入额度", "配置下载", "领取截止",
+            "剩余领取次数", "领取关闭原因", "剩余流量", "隧道状态", "隧道采样时间")
+    }
+    Surface(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surface,
+        shape = MaterialTheme.shapes.medium, border = BorderStroke(1.dp, Outline)) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Icon(icon, null, Modifier.size(22.dp), tint = Green)
+                Icon(icon, null, Modifier.size(22.dp), tint = Accent)
                 Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
                 val (container, foreground) = when (statusStyle) {
-                    AuthorizationStatusStyle.Active -> SoftGreen to Green
+                    AuthorizationStatusStyle.Active -> AccentSurface to Accent
                     AuthorizationStatusStyle.Attention -> WarmSurface to Amber
                     AuthorizationStatusStyle.Inactive -> Background to Muted
                 }
@@ -190,13 +196,17 @@ internal fun AuthorizationRecord(
                         color = foreground, style = MaterialTheme.typography.labelLarge)
                 }
             }
-            AuthorizationFields(fields)
-            if (usage.isNotEmpty()) {
-                Surface(Modifier.fillMaxWidth(), color = Background, shape = MaterialTheme.shapes.medium) {
-                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("登录与用量", style = MaterialTheme.typography.titleMedium)
-                        AuthorizationFields(usage)
-                    }
+            if (primaryFields.isNotEmpty()) AuthorizationFields(primaryFields)
+            if (details.isNotEmpty() || usage.isNotEmpty()) {
+                TextButton(onClick = { expanded = !expanded }, modifier = Modifier.semantics {
+                    stateDescription = if (expanded) "已展开" else "已收起"
+                }) {
+                    Text(if (usage.isEmpty()) "授权详情" else "授权详情与登录记录", maxLines = 1)
+                    Icon(if (expanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore, null, Modifier.size(18.dp))
+                }
+                if (expanded) {
+                    if (details.isNotEmpty()) AuthorizationFields(details)
+                    if (usage.isNotEmpty()) AuthorizationFields(usage)
                 }
             }
             if (onView != null || onRename != null || onRevoke != null || onRemove != null) {
@@ -236,13 +246,6 @@ private fun AuthorizationFields(fields: List<Pair<String, String>>) {
             }
         }
     }
-}
-
-@Composable
-private fun AuthorizationButtonLabel(icon: ImageVector, label: String) {
-    Icon(icon, null, Modifier.size(18.dp))
-    Spacer(Modifier.width(8.dp))
-    Text(label)
 }
 
 @Composable

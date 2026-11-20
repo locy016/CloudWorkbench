@@ -11,7 +11,8 @@ import androidx.compose.ui.test.performClick
 internal fun ComposeTestRule.openWorkbenchTab(name: String) {
     onNodeWithTag("menuToggle").assertIsDisplayed().performClick()
     onNodeWithTag("nav-$name").assertIsDisplayed().performClick()
-    onNodeWithTag("pageTitle").assertIsDisplayed().assertTextEquals(name)
+    if (name == "浏览") onNodeWithTag("browserAddress").assertIsDisplayed()
+    else onNodeWithTag("pageTitle").assertIsDisplayed().assertTextEquals(name)
 }
 
 internal fun ComposeTestRule.connectWorkbenchIfNeeded() {

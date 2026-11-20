@@ -17,25 +17,25 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-internal val Ink = Color(0xFF203B34)
-internal val Green = Color(0xFF236653)
-internal val Muted = Color(0xFF5B6D65)
-internal val Background = Color(0xFFF4F7F4)
+internal val Ink = Color(0xFF172E4D)
+internal val Accent = Color(0xFF155CBE)
+internal val Muted = Color(0xFF4B6586)
+internal val Background = Color(0xFFF3F7FD)
 internal val Amber = Color(0xFF805015)
 internal val WarmSurface = Color(0xFFFFF1DA)
-internal val Outline = Color(0xFFDCE5DE)
-internal val SoftGreen = Color(0xFFE5F0E8)
+internal val Outline = Color(0xFFD7E3F4)
+internal val AccentSurface = Color(0xFFE8F2FF)
 internal val LocalPagePadding = compositionLocalOf { 16.dp }
 
 private val scheme = lightColorScheme(
-    primary = Green, onPrimary = Color.White,
-    primaryContainer = SoftGreen, onPrimaryContainer = Ink,
-    secondary = Green, onSecondary = Color.White,
-    secondaryContainer = SoftGreen, onSecondaryContainer = Ink,
+    primary = Accent, onPrimary = Color.White,
+    primaryContainer = AccentSurface, onPrimaryContainer = Ink,
+    secondary = Accent, onSecondary = Color.White,
+    secondaryContainer = AccentSurface, onSecondaryContainer = Ink,
     background = Background, onBackground = Ink,
     surface = Color.White, onSurface = Ink,
-    surfaceVariant = SoftGreen, onSurfaceVariant = Muted,
-    surfaceContainer = Background, surfaceContainerHigh = SoftGreen,
+    surfaceVariant = AccentSurface, onSurfaceVariant = Muted,
+    surfaceContainer = Background, surfaceContainerHigh = AccentSurface,
     outline = Muted, outlineVariant = Outline,
     error = Color(0xFFA83232), errorContainer = Color(0xFFFFEDEA),
     onErrorContainer = Color(0xFF842A2A)
@@ -78,8 +78,8 @@ private val scheme = lightColorScheme(
 @Composable internal fun EmptyState(icon: ImageVector, title: String, description: String, modifier: Modifier = Modifier) {
     Column(modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Surface(color = SoftGreen, shape = RoundedCornerShape(20.dp)) {
-            Icon(icon, null, Modifier.padding(16.dp).size(28.dp), tint = Green)
+        Surface(color = AccentSurface, shape = RoundedCornerShape(20.dp)) {
+            Icon(icon, null, Modifier.padding(16.dp).size(28.dp), tint = Accent)
         }
         Text(title, style = MaterialTheme.typography.titleMedium)
         Text(description, color = Muted, style = MaterialTheme.typography.bodyMedium,
