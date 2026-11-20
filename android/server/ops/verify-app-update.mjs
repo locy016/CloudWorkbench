@@ -14,7 +14,7 @@ const origin = 'http://127.0.0.1:8766';
 const headers = { Authorization: 'Bearer ' + token };
 const get = (path, extra = {}) => fetch(origin + path, { headers: { ...headers, ...extra }, signal: AbortSignal.timeout(60_000) });
 assert.equal((await fetch(origin + '/v1/app-update')).status, 401);
-assert.equal((await fetch('https://workbench.qiwuli.com/v1/app-update')).status, 404);
+assert.equal((await get('/v1/app-update', { 'X-Workbench-Ingress': 'web' })).status, 404);
 const manifest = await get('/v1/app-update');
 assert.equal(manifest.status, 200);
 const { update } = await manifest.json();
@@ -39,4 +39,4 @@ for (const [first, last] of [[0, 1048575], [update.size - 65536, update.size - 1
 }
 console.log(JSON.stringify({ versionName: update.versionName, versionCode: update.versionCode,
   sha256: expectedSha, size: received, authenticatedFullBodySha256: true, headAndTail206: true,
-  unauthorizedManifestAndApkRejected: true, publicManifestRejected: true }));
+  unauthorizedManifestAndApkRejected: true, webIngressRejected: true }));

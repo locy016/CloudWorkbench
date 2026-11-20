@@ -52,6 +52,7 @@ class InterfaceReviewTest {
         listOf("云端", "会话", "浏览", "设置").forEach { name ->
             compose.onNodeWithTag("nav-$name").assertIsDisplayed().assertTextEquals(name)
         }
+        compose.onNodeWithTag("nav-授权").assertDoesNotExist()
         screenshot("menu")
         compose.onNodeWithTag("menuClose").assertIsDisplayed().performClick()
         compose.onNodeWithTag("nav-云端").assertDoesNotExist()

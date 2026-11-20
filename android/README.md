@@ -20,4 +20,4 @@ cd android
 
 使用 `-PusbAcceptance` 构建独立验收包 `cn.xux.cloudworkbench.acceptance`。实体设备上可与正式版本并存。
 
-[网关与服务端数据](server/README.md)
+[开发计划与使用场景](ROADMAP.md) · [网关与服务端数据](server/README.md)

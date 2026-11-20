@@ -152,6 +152,7 @@ internal class EncryptedPreferences(private val context: Context, name: String, 
 
 internal class Vault(private val context: Context) {
     private val storage = EncryptedPreferences(context, "vault", "cloud-workbench-connection-v1")
+    // Read the Android SSH credential used by older installs until the new vault is verified.
     private val legacy = EncryptedPreferences(context, "windows-pairing-admin", "cloud-workbench-windows-pairing-admin-v1")
 
     fun saveVerified(c: Credentials) {
