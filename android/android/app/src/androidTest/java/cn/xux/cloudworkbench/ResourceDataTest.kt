@@ -22,6 +22,39 @@ import org.junit.runner.RunWith
 class ResourceDataTest {
     @get:Rule val compose = createEmptyComposeRule()
 
+    @Test fun opensTheHeadlineGroupAndLoadsItsFirstSourceFromTheCatalog() {
+        val instrument = InstrumentationRegistry.getInstrumentation()
+        val context = instrument.targetContext
+        val connection = object : WorkbenchConnection {
+            override val connected = true
+            override fun disconnect() = Unit
+            override suspend fun connect(c: Credentials) = Unit
+            override suspend fun request(path: String, body: JSONObject?, delete: Boolean): JSONObject {
+                if (path == "/v1/server-data/resources") return JSONObject("""{"sources":[
+                    {"id":"trade","title":"经贸动态","publisher":"贸易源","category":"trade","filters":[]},
+                    {"id":"headline","title":"国际要闻","publisher":"要闻源","category":"headlines","format":"rss","filters":[]}]}""")
+                assertEquals("/v1/server-data/resources/headline", path)
+                return JSONObject("""{"id":"headline","fetchedAt":"2026-11-23T04:00:00Z","updatedAt":null,
+                    "columns":[{"key":"headline","label":"标题"}],"rows":[{"headline":"新闻摘要验收"}]}""")
+            }
+        }
+        val activity = instrument.startActivitySync(Intent(context, ComponentActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as ComponentActivity
+        try {
+            val data = ResourceData { connection }
+            compose.runOnUiThread { activity.setContent { WorkbenchTheme { ResourceDataPage(data, connected = true, visible = true) } } }
+            compose.waitUntil(10000) { runCatching {
+                compose.onAllNodesWithTag("resourceResult").fetchSemanticsNodes().isNotEmpty()
+            }.getOrDefault(false) }
+            compose.onNodeWithTag("resourceCategory-headlines").assertIsSelected()
+            compose.onNodeWithTag("resourcePicker").assertTextContains("国际要闻", substring = true)
+            compose.onNodeWithTag("onDemandResources").performScrollToNode(hasTestTag("resourceHeadline"))
+            compose.onNodeWithTag("resourceHeadline").assertTextEquals("新闻摘要验收")
+        } finally {
+            compose.runOnUiThread { activity.finish() }
+        }
+    }
+
     @Test fun exportQuotesCsvCellsAndNeutralizesFormulas() {
         val input = JSONObject("""{"publisher":"NOAA","sourceUrl":"https://source.example","fetchedAt":"2026-11-23T04:00:00Z",
           "columns":[{"key":"name","label":"名称"},{"key":"amount","label":"量值"}],

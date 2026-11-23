@@ -1,6 +1,29 @@
 {
   "sources": [
     {
+      "id": "un-geneva-headlines",
+      "title": "联合国日内瓦要闻",
+      "publisher": "联合国日内瓦办事处（UN Geneva）",
+      "sourceUrl": "https://www.ungeneva.org/en/news-media/rss",
+      "endpoint": "https://www.ungeneva.org/en/news-media/press-items-list/rss.xml",
+      "format": "rss",
+      "category": "headlines",
+      "cacheSeconds": 120,
+      "limit": 30
+    },
+    {
+      "id": "eu-commission-briefings",
+      "title": "欧盟委员会时事通报",
+      "publisher": "欧盟委员会（European Commission）",
+      "sourceUrl": "https://ec.europa.eu/commission/presscorner/home/en",
+      "endpoint": "https://ec.europa.eu/commission/presscorner/api/rss",
+      "format": "rss",
+      "category": "current",
+      "query": { "language": "en" },
+      "cacheSeconds": 120,
+      "limit": 30
+    },
+    {
       "id": "usgs-earthquakes",
       "title": "全球地震动态",
       "publisher": "美国地质调查局（USGS）",
@@ -46,6 +69,7 @@
     },
     {
       "id": "wto-trade-news",
+      "category": "trade",
       "title": "WTO 国际贸易新闻",
       "publisher": "WTO news",
       "sourceUrl": "https://www.wto.org/english/res_e/webcas_e/rss_e.htm",
@@ -55,7 +79,20 @@
       "limit": 60
     },
     {
+      "id": "uk-business-trade",
+      "title": "英国商业与贸易动态",
+      "publisher": "GOV.UK",
+      "sourceUrl": "https://www.gov.uk/government/organisations/department-for-business-innovation-science-and-trade",
+      "endpoint": "https://www.gov.uk/search/news-and-communications.atom",
+      "format": "atom",
+      "category": "trade",
+      "query": { "organisations[]": "department-for-business-innovation-science-and-trade" },
+      "cacheSeconds": 120,
+      "limit": 30
+    },
+    {
       "id": "nws-marine-alerts",
+      "category": "logistics",
       "title": "海运气象警报",
       "publisher": "美国国家气象局（NWS）",
       "sourceUrl": "https://www.weather.gov/documentation/services-web-alerts",
@@ -74,6 +111,7 @@
     },
     {
       "id": "noaa-port-levels",
+      "category": "logistics",
       "title": "港口潮位实测（近 72 小时）",
       "publisher": "NOAA CO-OPS",
       "sourceUrl": "https://api.tidesandcurrents.noaa.gov/api/dev/",

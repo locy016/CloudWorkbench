@@ -30,7 +30,9 @@ export function sourceTime(value, format = 'timestamp') {
   if (typeof value !== 'number' && (typeof value !== 'string' || !value.trim())) return null;
   const utcMinute = format === 'utc-minute';
   if (utcMinute && (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(value))) return null;
-  const normalized = utcMinute ? value.replace(' ', 'T') + ':00Z' : value;
+  const input = typeof value === 'string' ? value.trim().replace(/\s(CET|CEST)$/, (_, zone) =>
+    zone === 'CEST' ? ' +0200' : ' +0100') : value;
+  const normalized = utcMinute ? input.replace(' ', 'T') + ':00Z' : input;
   const date = new Date(normalized);
   if (!Number.isFinite(+date)) return null;
   const iso = date.toISOString();

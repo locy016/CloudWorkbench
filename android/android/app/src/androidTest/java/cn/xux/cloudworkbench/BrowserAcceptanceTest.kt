@@ -138,7 +138,8 @@ class BrowserAcceptanceTest {
         awaitVisibleConnection()
         compose.openWorkbenchTab("浏览")
         compose.onNodeWithTag("openServerData").performClick()
-        compose.waitUntil(25000) { compose.onAllNodesWithTag("resourcePicker").fetchSemanticsNodes().isNotEmpty() }
+        awaitResourceCatalog()
+        compose.onNodeWithTag("resourceCategory-other").performClick()
         compose.onNodeWithTag("resourceInput-period").performClick()
         compose.onNodeWithText("过去 24 小时").performClick()
         compose.onNodeWithTag("fetchResource").performClick()
@@ -167,7 +168,7 @@ class BrowserAcceptanceTest {
         awaitVisibleConnection()
         compose.openWorkbenchTab("浏览")
         compose.onNodeWithTag("openServerData").performClick()
-        compose.waitUntil(25000) { compose.onAllNodesWithTag("resourcePicker").fetchSemanticsNodes().isNotEmpty() }
+        awaitResourceCatalog()
         fun source(name: String) {
             compose.onNodeWithTag("resourcePicker").performScrollTo().performClick()
             compose.onNodeWithText(name).performClick()
@@ -181,11 +182,14 @@ class BrowserAcceptanceTest {
             compose.onNodeWithTag("fetchResource").performScrollTo().performClick()
             compose.waitUntil(25000) { compose.onAllNodesWithTag("resourceResult").fetchSemanticsNodes().isNotEmpty() }
         }
+        compose.onNodeWithTag("resourceCategory-trade").performClick()
         source("WTO 国际贸易新闻")
+        compose.onNodeWithTag("toggleResourceFilters").performClick()
         compose.onNodeWithTag("resourceKeyword").performTextReplacement("WTO")
         fetch()
         compose.onNodeWithTag("resourceCounts").assertTextContains("匹配", substring = true)
         compose.onNodeWithText("WTO news · RSS", substring = true).assertExists()
+        compose.onNodeWithTag("resourceCategory-logistics").performClick()
         source("海运气象警报")
         fetch()
         compose.onNodeWithText("· ATOM", substring = true).assertExists()
@@ -203,6 +207,34 @@ class BrowserAcceptanceTest {
             org.junit.Assert.assertTrue(lines.drop(1).all { line ->
                 line.contains("NOAA CO-OPS") && line.split("\",\"").getOrNull(3)?.startsWith("${today}T") == true
             })
+        }
+    }
+
+    @Test fun opensHeadlinesFirstAndKeepsCurrentAffairsAndTradeEasyToFind() {
+        awaitVisibleConnection()
+        compose.openWorkbenchTab("浏览")
+        compose.onNodeWithTag("openServerData").performClick()
+        awaitResourceCatalog()
+        compose.onNodeWithTag("openServerNews").assertIsSelected()
+        compose.onNodeWithTag("resourceCategory-headlines").assertIsSelected()
+        compose.onNodeWithTag("resourcePicker").assertTextContains("联合国日内瓦要闻", substring = true)
+        compose.waitUntil(25000) { compose.onAllNodesWithTag("resourceResult").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("onDemandResources").performScrollToNode(hasTestTag("resourceHeadline"))
+        compose.onAllNodesWithTag("resourceHeadline").onFirst().assertIsDisplayed()
+        compose.onNodeWithTag("onDemandResources").performScrollToNode(hasTestTag("resourceCategory-current"))
+        compose.onNodeWithTag("resourceCategory-current").performClick()
+        compose.onNodeWithTag("resourcePicker").assertTextContains("欧盟委员会时事通报", substring = true)
+        compose.onNodeWithTag("fetchResource").performClick()
+        compose.waitUntil(25000) { compose.onAllNodesWithTag("resourceResult").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("resourceCategory-trade").performClick()
+        compose.onNodeWithTag("resourcePicker").assertTextContains("WTO 国际贸易新闻", substring = true)
+        compose.onNodeWithTag("openEcbRates").assertIsNotSelected()
+    }
+
+    private fun awaitResourceCatalog() {
+        compose.waitUntil(25000) {
+            compose.onAllNodesWithTag("resourcePicker").fetchSemanticsNodes().isNotEmpty() &&
+                compose.onAllNodes(hasTestTag("fetchResource") and isEnabled()).fetchSemanticsNodes().isNotEmpty()
         }
     }
 

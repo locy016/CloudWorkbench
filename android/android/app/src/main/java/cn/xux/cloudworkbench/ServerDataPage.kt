@@ -77,14 +77,14 @@ internal fun ServerDataPage(
         HorizontalDivider(color = Outline)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
             FilterChip(selected = section == ServerDataSection.Resources, onClick = { section = ServerDataSection.Resources },
-                label = { Text("按需获取") })
-            Spacer(Modifier.width(8.dp))
-            FilterChip(selected = section == ServerDataSection.Rates, onClick = { section = ServerDataSection.Rates },
-                label = { Text("欧元汇率") }, modifier = Modifier.testTag("openEcbRates"))
+                label = { Text("资讯") }, modifier = Modifier.testTag("openServerNews"))
             Spacer(Modifier.width(8.dp))
             FilterChip(selected = section == ServerDataSection.Trade, onClick = { section = ServerDataSection.Trade },
-                label = { Text("国际贸易") },
+                label = { Text("经贸指标") },
                 modifier = Modifier.testTag("openWorldBankTrade"))
+            Spacer(Modifier.width(8.dp))
+            FilterChip(selected = section == ServerDataSection.Rates, onClick = { section = ServerDataSection.Rates },
+                label = { Text("参考汇率") }, modifier = Modifier.testTag("openEcbRates"))
         }
         when (section) {
             ServerDataSection.Resources -> {

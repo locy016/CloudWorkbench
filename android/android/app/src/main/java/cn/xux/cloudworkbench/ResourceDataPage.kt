@@ -1,12 +1,16 @@
 package cn.xux.cloudworkbench
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -14,6 +18,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -23,12 +28,25 @@ import org.json.JSONObject
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 
 internal data class ResourceOption(val value: String, val label: String)
 internal data class ResourceFilter(val key: String, val label: String, val options: List<ResourceOption>, val maxLength: Int?)
+internal enum class ResourceCategory(val key: String, val label: String) {
+    Headlines("headlines", "要闻"), Current("current", "时事"), Trade("trade", "经贸"),
+    Logistics("logistics", "物流"), Other("other", "其他");
+
+    val isNews get() = this == Headlines || this == Current || this == Trade
+
+    companion object {
+        fun fromKey(key: String) = entries.firstOrNull { it.key == key } ?: Other
+    }
+}
+
 internal data class ResourceSource(val id: String, val title: String, val publisher: String, val filters: List<ResourceFilter>,
-    val format: String, val searchable: Boolean, val dateFilter: Boolean, val fullDownload: Boolean)
+    val format: String, val searchable: Boolean, val dateFilter: Boolean, val fullDownload: Boolean,
+    val category: ResourceCategory)
 internal data class ResourceResult(val source: String, val filters: Map<String, String>, val payload: JSONObject)
 internal enum class ResourceExportFormat(val extension: String) { Json("json"), Csv("csv") }
 
@@ -56,9 +74,16 @@ internal class ResourceData(private val connection: () -> WorkbenchConnection?) 
             }
             ResourceSource(id, source.getString("title"), source.getString("publisher"), filters,
                 source.optString("format", "json"), source.optBoolean("searchable"), source.optBoolean("dateFilter"),
-                source.optBoolean("fullDownload"))
+                source.optBoolean("fullDownload"), ResourceCategory.fromKey(source.optString("category")))
         }
         if (transport === connection()) sources = list
+    }
+
+    suspend fun loadDefaultHeadlines() {
+        val source = sources.firstOrNull { it.category == ResourceCategory.Headlines } ?: return
+        if (source.filters.isEmpty() && (result?.source != source.id || result?.filters?.isNotEmpty() == true)) {
+            download(source, emptyMap())
+        }
     }
 
     suspend fun download(source: ResourceSource, choices: Map<String, String>) =
@@ -112,9 +137,14 @@ internal class ResourceData(private val connection: () -> WorkbenchConnection?) 
 internal fun ResourceDataPage(data: ResourceData, connected: Boolean, visible: Boolean) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    var categoryKey by rememberSaveable { mutableStateOf(ResourceCategory.Headlines.key) }
     var sourceId by rememberSaveable { mutableStateOf("") }
     var exportStatus by rememberSaveable { mutableStateOf<String?>(null) }
-    val source = data.sources.find { it.id == sourceId } ?: data.sources.firstOrNull()
+    val categories = ResourceCategory.entries.filter { category -> data.sources.any { it.category == category } }
+    val category = categories.find { it.key == categoryKey } ?: categories.firstOrNull()
+    val sourcesInCategory = data.sources.filter { it.category == category }
+    val source = sourcesInCategory.find { it.id == sourceId } ?: sourcesInCategory.firstOrNull()
+    var filtersOpen by remember(source) { mutableStateOf(source?.category?.isNews != true) }
     val selections = remember(source) { mutableStateMapOf<String, String>() }
     var keyword by remember(source) { mutableStateOf("") }
     var fromText by remember(source) { mutableStateOf("") }
@@ -148,7 +178,10 @@ internal fun ResourceDataPage(data: ResourceData, connected: Boolean, visible: B
     val jsonDocument = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json"), completeExport)
     val csvDocument = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv"), completeExport)
     LaunchedEffect(visible, connected) {
-        if (visible && connected) data.refreshCatalog()
+        if (visible && connected) {
+            data.refreshCatalog()
+            if (categoryKey == ResourceCategory.Headlines.key && sourceId.isEmpty()) data.loadDefaultHeadlines()
+        }
     }
 
     LazyColumn(
@@ -158,14 +191,20 @@ internal fun ResourceDataPage(data: ResourceData, connected: Boolean, visible: B
     ) {
         item {
             Panel(Modifier.widthIn(max = 640.dp).fillMaxWidth()) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text("按需获取", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
-                    TextButton(onClick = { scope.launch { data.refreshCatalog() } }, enabled = connected && !data.loading) {
-                        Text("刷新目录")
+                if (categories.isNotEmpty()) {
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        categories.forEach { option ->
+                            FilterChip(selected = category == option, onClick = {
+                                categoryKey = option.key
+                                sourceId = ""
+                                exportStatus = null
+                            }, label = { Text(option.label) }, modifier = Modifier.testTag("resourceCategory-${option.key}"))
+                        }
                     }
                 }
                 if (source != null) {
-                    ResourcePicker("资源", source.title, data.sources.map { ResourceOption(it.id, it.title) },
+                    ResourcePicker("来源", source.title, sourcesInCategory.map { ResourceOption(it.id, it.title) },
                         Modifier.testTag("resourcePicker")) { sourceId = it }
                     Text("来源：${source.publisher} · ${source.format.uppercase()}", color = Muted)
                     source.filters.forEach { filter ->
@@ -179,12 +218,17 @@ internal fun ResourceDataPage(data: ResourceData, connected: Boolean, visible: B
                                 filter.options, Modifier.testTag("resourceInput-${filter.key}")) { selections[filter.key] = it }
                         }
                     }
-                    if (source.searchable) {
+                    if (source.category.isNews && (source.searchable || source.dateFilter)) {
+                        TextButton(onClick = { filtersOpen = !filtersOpen }, modifier = Modifier.testTag("toggleResourceFilters")) {
+                            Text(if (filtersOpen) "收起筛选" else "筛选条件")
+                        }
+                    }
+                    if (source.searchable && filtersOpen) {
                         OutlinedTextField(keyword, { keyword = it.take(100) },
                             modifier = Modifier.fillMaxWidth().testTag("resourceKeyword"),
                             label = { Text("关键词（可选）") }, singleLine = true)
                     }
-                    if (source.dateFilter) {
+                    if (source.dateFilter && filtersOpen) {
                         Text("日期范围（UTC，可选）", color = Muted, style = MaterialTheme.typography.bodySmall)
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             ResourceDateField(fromText, { fromText = it }, "开始日期", Modifier.weight(1f).testTag("resourceFrom"))
@@ -193,11 +237,20 @@ internal fun ResourceDataPage(data: ResourceData, connected: Boolean, visible: B
                         if (rangeError) Text("请输入有效的 YYYY-MM-DD，开始日期不得晚于结束日期",
                             color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                     }
-                    Button(onClick = {
-                        exportStatus = null
-                        scope.launch { data.download(source, choices) }
-                    }, enabled = connected && !data.loading && !rangeError && choices.values.none { it.isBlank() },
-                        modifier = Modifier.testTag("fetchResource")) { Text("获取数据") }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = {
+                            exportStatus = null
+                            scope.launch { data.download(source, choices) }
+                        }, enabled = connected && !data.loading && !rangeError && choices.values.none { it.isBlank() },
+                            modifier = Modifier.testTag("fetchResource")) { Text(if (source.category.isNews) "获取资讯" else "获取数据") }
+                        TextButton(onClick = { scope.launch { data.refreshCatalog() } }, enabled = connected && !data.loading) {
+                            Text("刷新目录")
+                        }
+                    }
+                } else {
+                    TextButton(onClick = { scope.launch { data.refreshCatalog() } }, enabled = connected && !data.loading) {
+                        Text("刷新目录")
+                    }
                 }
                 if (data.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
                 val status = when {
@@ -239,14 +292,38 @@ internal fun ResourceDataPage(data: ResourceData, connected: Boolean, visible: B
             val columns = payload.getJSONArray("columns").objects()
             items(previewRows) { row ->
                 Panel(Modifier.widthIn(max = 640.dp).fillMaxWidth()) {
-                    columns.forEach { column ->
-                        val key = column.getString("key")
-                        val cell = if (row.isNull(key)) "—" else row.getString(key)
-                        Text("${column.getString("label")}：$cell")
+                    if (source?.category?.isNews == true && source.format in listOf("rss", "atom")) {
+                        ResourceHeadline(row, source.publisher, context)
+                    } else {
+                        columns.forEach { column ->
+                            val key = column.getString("key")
+                            val cell = if (row.isNull(key)) "—" else row.getString(key)
+                            Text("${column.getString("label")}：$cell")
+                        }
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ResourceHeadline(row: JSONObject, publisher: String, context: Context) {
+    Text(row.optString("headline").ifBlank { "未提供标题" }, Modifier.testTag("resourceHeadline"),
+        style = MaterialTheme.typography.titleMedium)
+    val date = row.optString("published").takeUnless { row.isNull("published") }?.let { value ->
+        runCatching {
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").withZone(ZoneOffset.UTC).format(Instant.parse(value)) + " UTC"
+        }.getOrNull()
+    }
+    Text(listOfNotNull(publisher, date).joinToString(" · "), color = Muted, style = MaterialTheme.typography.bodySmall)
+    row.optString("summary").takeIf { !row.isNull("summary") && it.isNotBlank() }?.let {
+        Text(it, maxLines = 4, overflow = TextOverflow.Ellipsis)
+    }
+    row.optString("link").takeIf { !row.isNull("link") && it.isNotBlank() }?.let { link ->
+        TextButton(onClick = {
+            context.getSystemService(ClipboardManager::class.java)?.setPrimaryClip(ClipData.newPlainText("原文地址", link))
+        }) { Text("复制原文地址") }
     }
 }
 

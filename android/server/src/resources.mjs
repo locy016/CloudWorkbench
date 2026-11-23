@@ -9,6 +9,7 @@ const keyPattern = /^[a-z][a-z0-9-]{0,47}$/;
 const optionPattern = /^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)?$/;
 const pathPattern = /^(?:[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*)?$/;
 const refinements = new Set(['q', 'from', 'to', 'export']);
+const categories = ['headlines', 'current', 'trade', 'logistics', 'other'];
 const placeholder = /%7B([a-z][a-z0-9-]*)%7D|\{([a-z][a-z0-9-]*)\}/gi;
 const blocked = new BlockList();
 for (const [address, prefix] of [
@@ -29,13 +30,14 @@ function checkUrl(value, allowFragment = false) {
 
 function normalizeSource(spec) {
   const { id, title, publisher, sourceUrl, endpoint, rows, updated, format = 'json', filters = [], query = {}, limit = 50,
-    exportLimit = limit, cacheSeconds = 0 } = spec;
+    exportLimit = limit, cacheSeconds = 0, category = 'other' } = spec;
   const feed = format === 'rss' || format === 'atom';
   const fields = feed ? feedFields : spec.fields;
   const dateField = feed ? 'published' : spec.dateField;
   const searchable = spec.searchable ?? format !== 'json';
   const label = value => typeof value === 'string' && value.trim().length > 0 && value.length <= 100;
   if (!keyPattern.test(id ?? '') || !label(title) || !label(publisher) || !Object.hasOwn(resourceTypes, format) ||
+      !categories.includes(category) ||
       (format === 'json' && (typeof rows !== 'string' || !pathPattern.test(rows))) ||
       (updated !== undefined && !pathPattern.test(updated)) || typeof searchable !== 'boolean' ||
       !Number.isInteger(cacheSeconds) || cacheSeconds < 0 || cacheSeconds > 3600 ||
@@ -73,7 +75,7 @@ function normalizeSource(spec) {
   }
   if (query == null || Array.isArray(query) || typeof query !== 'object') throw new Error('Invalid resource query');
   for (const [name, value] of Object.entries(query)) {
-    if (!/^[a-zA-Z0-9_-]{1,50}$/.test(name) || typeof value !== 'string' || value.length > 200) throw new Error('Invalid resource query');
+    if (!/^[a-zA-Z0-9_-]{1,50}(?:\[\])?$/.test(name) || typeof value !== 'string' || value.length > 200) throw new Error('Invalid resource query');
     for (const token of value.matchAll(placeholder)) {
       if (!keys.has(token[1] || token[2])) throw new Error('Missing filter for query placeholder');
     }
@@ -91,7 +93,7 @@ function normalizeSource(spec) {
   return {
     id, title, publisher, sourceUrl, url, rows, updated, fields, filters, query, limit, exportLimit, format, dateField,
     searchable, cacheSeconds,
-    summary: { id, title, publisher, format, searchable, dateFilter: !!dateField, fullDownload: exportLimit > limit,
+    summary: { id, title, publisher, category, format, searchable, dateFilter: !!dateField, fullDownload: exportLimit > limit,
       filters: filters.map(({ key, label, type = 'choice', options, maxLength }) =>
       type === 'text' ? { key, label, type, maxLength } :
         { key, label, type, options: options.map(({ value, label }) => ({ value, label })) }) }
@@ -256,7 +258,10 @@ export function resourceCatalog({ configFile, getResource = getPayload, now = Da
     } catch { throw fail(503, '资源目录暂不可用，请联系管理员检查配置'); }
   }
   return {
-    async list() { return [...(await sources()).values()].map(({ summary }) => summary); },
+    async list() {
+      return [...(await sources()).values()].map(({ summary }) => summary)
+        .sort((first, second) => categories.indexOf(first.category) - categories.indexOf(second.category));
+    },
     async download(id, parameters) {
       const source = (await sources()).get(id);
       if (!source) throw fail(404, '资源已下线或不存在');

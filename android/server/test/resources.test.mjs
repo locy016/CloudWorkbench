@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { resourceCatalog } from '../src/resources.mjs';
-import { decodeResource, parseFeed } from '../src/resource-formats.mjs';
+import { decodeResource, parseFeed, sourceTime } from '../src/resource-formats.mjs';
 
 test('resource directory exposes filters, retrieves fresh data and projects the registered fields', async () => {
   const calls = [];
@@ -18,16 +18,18 @@ test('resource directory exposes filters, retrieves fresh data and projects the 
     }
   });
   const entries = await resources.list();
-  assert.equal(entries[0].id, 'usgs-earthquakes');
-  assert.equal(entries[0].endpoint, undefined);
+  assert.equal(entries[0].id, 'un-geneva-headlines');
+  assert.deepEqual([...new Set(entries.map(entry => entry.category))], ['headlines', 'current', 'trade', 'logistics', 'other']);
+  const quakes = entries.find(entry => entry.id === 'usgs-earthquakes');
+  assert.equal(quakes.endpoint, undefined);
   assert.equal(calls.length, 0);
-  const result = await resources.download(entries[0].id, new URLSearchParams('period=day'));
+  const result = await resources.download(quakes.id, new URLSearchParams('period=day'));
   assert.deepEqual(calls, ['https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_day.geojson']);
   assert.deepEqual(result.rows, [{ event: 'M 3.5', place: 'Pacific', magnitude: 3.5, time: '2026-07-25T17:20:00.000Z' }]);
   assert.equal(result.fetchedAt, '2026-11-23T00:00:00.000Z');
   assert.equal(result.updatedAt, result.rows[0].time);
   for (const invalid of ['period=..', 'period=day&period=week', 'url=https://example.test', 'period=ftp://example.test']) {
-    await assert.rejects(resources.download(entries[0].id, new URLSearchParams(invalid)), { status: 400 });
+    await assert.rejects(resources.download(quakes.id, new URLSearchParams(invalid)), { status: 400 });
   }
   assert.equal(calls.length, 1);
 });
@@ -58,6 +60,25 @@ test('a source file is read at runtime and a keyword is only passed as one confi
   await assert.rejects(resources.download(definition.id, new URLSearchParams({ keyword: 'a\nb' })), { status: 400 });
   await writeFile(configFile, JSON.stringify({ sources: [{ ...definition, endpoint: 'https://provider.example.org/{keyword}' }] }));
   await assert.rejects(resources.list(), { status: 503 });
+});
+
+test('trade bulletin sends the official organization parameter and keeps public attribution', async () => {
+  const feed = '<feed xmlns="http://www.w3.org/2005/Atom"><entry><title>Trade bulletin</title>' +
+    '<published>2026-11-23T05:00:00Z</published></entry></feed>';
+  const client = resourceCatalog({ getResource: async (url, format) => {
+    assert.equal(url.origin, 'https://www.gov.uk');
+    assert.equal(url.searchParams.get('organisations[]'), 'department-for-business-innovation-science-and-trade');
+    assert.equal(format, 'atom');
+    return feed;
+  } });
+  const result = await client.download('uk-business-trade', new URLSearchParams());
+  assert.equal(result.publisher, 'GOV.UK');
+  assert.equal(result.rows[0].headline, 'Trade bulletin');
+});
+
+test('UN Geneva publication timestamps retain their Central European offset', () => {
+  assert.equal(sourceTime('Thu, 19 Nov 2026 20:09:08 CET'), '2026-11-19T19:09:08.000Z');
+  assert.equal(sourceTime('Thu, 23 Jul 2026 20:09:08 CEST'), '2026-07-23T18:09:08.000Z');
 });
 
 test('RSS and Atom select dates and keywords before the preview limit and reuse the upstream response', async () => {
