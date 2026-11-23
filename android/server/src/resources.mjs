@@ -2,11 +2,13 @@ import { lookup } from 'node:dns';
 import { open } from 'node:fs/promises';
 import { get } from 'node:https';
 import { BlockList, isIP } from 'node:net';
+import { decodeResource, feedFields, parseCsv, parseFeed, resourceTypes, sourceTime } from './resource-formats.mjs';
 
 const defaults = new URL('./resource-sources.json', import.meta.url);
 const keyPattern = /^[a-z][a-z0-9-]{0,47}$/;
 const optionPattern = /^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)?$/;
 const pathPattern = /^(?:[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*)?$/;
+const refinements = new Set(['q', 'from', 'to', 'export']);
 const placeholder = /%7B([a-z][a-z0-9-]*)%7D|\{([a-z][a-z0-9-]*)\}/gi;
 const blocked = new BlockList();
 for (const [address, prefix] of [
@@ -26,11 +28,19 @@ function checkUrl(value, allowFragment = false) {
 }
 
 function normalizeSource(spec) {
-  const { id, title, publisher, sourceUrl, endpoint, rows, fields, updated, filters = [], query = {}, limit = 50 } = spec;
+  const { id, title, publisher, sourceUrl, endpoint, rows, updated, format = 'json', filters = [], query = {}, limit = 50,
+    exportLimit = limit, cacheSeconds = 0 } = spec;
+  const feed = format === 'rss' || format === 'atom';
+  const fields = feed ? feedFields : spec.fields;
+  const dateField = feed ? 'published' : spec.dateField;
+  const searchable = spec.searchable ?? format !== 'json';
   const label = value => typeof value === 'string' && value.trim().length > 0 && value.length <= 100;
-  if (!keyPattern.test(id ?? '') || !label(title) || !label(publisher) || typeof rows !== 'string' ||
-      !pathPattern.test(rows) || (updated !== undefined && !pathPattern.test(updated)) ||
-      !Number.isInteger(limit) || limit < 1 || limit > 100 || !Array.isArray(fields) || fields.length < 1 || fields.length > 8 ||
+  if (!keyPattern.test(id ?? '') || !label(title) || !label(publisher) || !Object.hasOwn(resourceTypes, format) ||
+      (format === 'json' && (typeof rows !== 'string' || !pathPattern.test(rows))) ||
+      (updated !== undefined && !pathPattern.test(updated)) || typeof searchable !== 'boolean' ||
+      !Number.isInteger(cacheSeconds) || cacheSeconds < 0 || cacheSeconds > 3600 ||
+      !Number.isInteger(limit) || limit < 1 || limit > 100 || !Number.isInteger(exportLimit) ||
+      exportLimit < limit || exportLimit > 1000 || !Array.isArray(fields) || fields.length < 1 || fields.length > 8 ||
       !Array.isArray(filters) || filters.length > 8) throw new Error('Invalid resource definition');
   checkUrl(sourceUrl, true);
   const url = checkUrl(endpoint);
@@ -38,7 +48,7 @@ function normalizeSource(spec) {
   const keys = new Map();
   for (const filter of filters) {
     const type = filter.type ?? 'choice';
-    if (!keyPattern.test(filter.key ?? '') || keys.has(filter.key) || !label(filter.label) ||
+    if (!keyPattern.test(filter.key ?? '') || keys.has(filter.key) || refinements.has(filter.key) || !label(filter.label) ||
         !['choice', 'text'].includes(type)) throw new Error('Invalid resource filter');
     keys.set(filter.key, type);
     if (type === 'text') {
@@ -71,13 +81,18 @@ function normalizeSource(spec) {
   const fieldKeys = new Set();
   for (const field of fields) {
     if (!keyPattern.test(field.key ?? '') || fieldKeys.has(field.key) || !label(field.label) ||
-        typeof field.path !== 'string' || !pathPattern.test(field.path) ||
-        (field.format !== undefined && field.format !== 'timestamp')) throw new Error('Invalid resource field');
+        typeof field.path !== 'string' || (format === 'csv' ? !label(field.path) : !pathPattern.test(field.path)) ||
+        (field.format !== undefined && !['timestamp', 'utc-minute'].includes(field.format))) throw new Error('Invalid resource field');
     fieldKeys.add(field.key);
   }
+  if (dateField !== undefined && !fields.some(field => field.key === dateField && field.format)) {
+    throw new Error('Date filters require a timestamp field');
+  }
   return {
-    id, title, publisher, sourceUrl, url, rows, updated, fields, filters, query, limit,
-    summary: { id, title, publisher, filters: filters.map(({ key, label, type = 'choice', options, maxLength }) =>
+    id, title, publisher, sourceUrl, url, rows, updated, fields, filters, query, limit, exportLimit, format, dateField,
+    searchable, cacheSeconds,
+    summary: { id, title, publisher, format, searchable, dateFilter: !!dateField, fullDownload: exportLimit > limit,
+      filters: filters.map(({ key, label, type = 'choice', options, maxLength }) =>
       type === 'text' ? { key, label, type, maxLength } :
         { key, label, type, options: options.map(({ value, label }) => ({ value, label })) }) }
   };
@@ -113,15 +128,17 @@ function publicLookup(host, options, done) {
   });
 }
 
-function getJson(url) {
+function getPayload(url, format) {
   return new Promise((resolve, reject) => {
     const request = get(url, {
       family: 4, lookup: publicLookup, autoSelectFamily: false, agent: false,
       signal: AbortSignal.timeout(8000),
-      headers: { Accept: 'application/json, application/geo+json', 'User-Agent': 'CloudWorkbench/1.0' }
+      headers: { Accept: resourceTypes[format].join(', '), 'Accept-Encoding': 'identity', 'User-Agent': 'CloudWorkbench/1.0' }
     }, response => {
-      if (response.statusCode !== 200 ||
-          !/^application\/(?:json|[a-z0-9.+-]+\+json)(?:\s*;|$)/i.test(response.headers['content-type'] || '')) {
+      const contentType = response.headers['content-type'] || '';
+      const mime = contentType.split(';')[0].trim().toLowerCase();
+      if (response.statusCode !== 200 || (!resourceTypes[format].includes(mime) &&
+          !(format === 'json' && /^application\/[a-z0-9.+-]+\+json$/.test(mime)))) {
         response.destroy();
         reject(new Error('Unexpected resource response'));
         return;
@@ -138,7 +155,7 @@ function getJson(url) {
       });
       response.on('error', reject);
       response.on('end', () => {
-        try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8'))); }
+        try { resolve(decodeResource(Buffer.concat(chunks), contentType, format)); }
         catch (error) { reject(error); }
       });
     });
@@ -151,25 +168,84 @@ function valueAt(value, path) {
     target && Object.hasOwn(target, part) ? target[part] : undefined, value) : value;
 }
 
-function sourceTime(value) {
-  if (typeof value !== 'number' && typeof value !== 'string') return null;
-  const date = new Date(value);
-  return Number.isFinite(+date) ? date.toISOString() : null;
+function refine(parameters, source) {
+  const selection = {};
+  if (new Set(parameters.keys()).size !== parameters.size) throw fail(400, '筛选条件不能重复');
+  const keys = new Set(source.filters.map(filter => filter.key));
+  for (const [key, value] of parameters) {
+    if (keys.has(key)) continue;
+    if (key === 'export' && value === '1' && source.exportLimit > source.limit) continue;
+    if (key === 'q' && source.searchable && value.trim() && value.length <= 100 && !/[\x00-\x1f\x7f]/.test(value)) {
+      selection.q = value.trim();
+    } else if (['from', 'to'].includes(key) && source.dateField && /^\d{4}-\d{2}-\d{2}$/.test(value) &&
+        sourceTime(value)?.slice(0, 10) === value) {
+      selection[key] = value;
+    } else throw fail(400, '请检查关键词和日期筛选条件');
+  }
+  if (selection.from && selection.to && selection.from > selection.to) throw fail(400, '开始日期不能晚于结束日期');
+  return selection;
 }
 
-function extractRows(payload, source) {
-  const rows = valueAt(payload, source.rows);
+function extractRows(payload, source, filters, endpoint, fullDownload) {
+  const { format, fields, dateField } = source;
+  const feed = ['rss', 'atom'].includes(format) ? parseFeed(payload, format, endpoint) : null;
+  const rows = feed?.rows ?? (format === 'csv' ? parseCsv(payload, fields) : valueAt(payload, source.rows));
   if (!Array.isArray(rows)) throw new Error('Configured data list not found');
-  return rows.slice(0, source.limit).map(row => Object.fromEntries(source.fields.map(field => {
-    const value = valueAt(row, field.path);
-    const cell = field.format === 'timestamp' ? sourceTime(value) :
-      typeof value === 'string' ? value.slice(0, 512) :
-        typeof value === 'number' || typeof value === 'boolean' ? value : null;
-    return [field.key, cell];
-  })));
+  const keywords = filters.q?.normalize('NFKC').toLowerCase().split(/\s+/) ?? [];
+  let latest = feed?.updatedAt ?? (source.updated ? sourceTime(valueAt(payload, source.updated)) : null);
+  const matches = [];
+  for (const row of rows) {
+    const record = Object.fromEntries(fields.map(field => {
+      const value = format === 'csv' ? row[field.path] : valueAt(row, field.path);
+      const cell = field.format ? sourceTime(value, field.format) :
+        typeof value === 'string' ? value.slice(0, 512) :
+          typeof value === 'number' || typeof value === 'boolean' ? value : null;
+      return [field.key, cell];
+    }));
+    const time = dateField ? record[dateField] : null;
+    if (!feed?.updatedAt && !source.updated && time && (!latest || time > latest)) latest = time;
+    const day = time?.slice(0, 10);
+    if ((filters.from && (!day || day < filters.from)) || (filters.to && (!day || day > filters.to))) continue;
+    if (keywords.length) {
+      const text = Object.values(record).join(' ').normalize('NFKC').toLowerCase();
+      if (!keywords.every(word => text.includes(word))) continue;
+    }
+    matches.push(record);
+  }
+  if (dateField) matches.sort((a, b) => (b[dateField] ?? '').localeCompare(a[dateField] ?? ''));
+  const exported = [];
+  let size = 0;
+  for (const record of matches.slice(0, fullDownload ? source.exportLimit : source.limit)) {
+    size += Buffer.byteLength(JSON.stringify(record)) + 1;
+    if (size > 512 * 1024) break;
+    exported.push(record);
+  }
+  return { rows: exported, matchedCount: matches.length, previewLimit: source.limit, updatedAt: latest };
 }
 
-export function resourceCatalog({ configFile, getResource = getJson, now = Date.now } = {}) {
+export function resourceCatalog({ configFile, getResource = getPayload, now = Date.now } = {}) {
+  const cache = new Map();
+  async function response(url, source) {
+    const load = async () => ({ data: await getResource(url, source.format), fetched: now() });
+    if (!source.cacheSeconds) return load();
+    const key = source.format + ':' + url.href;
+    const saved = cache.get(key);
+    if (saved && (saved.pending || now() - saved.fetched < source.cacheSeconds * 1000)) {
+      return saved.pending ?? saved;
+    }
+    const entry = {};
+    entry.pending = load().then(value => {
+      Object.assign(entry, value, { pending: null });
+      return entry;
+    }, error => {
+      if (cache.get(key) === entry) cache.delete(key);
+      throw error;
+    });
+    cache.delete(key);
+    cache.set(key, entry);
+    if (cache.size > 12) cache.delete(cache.keys().next().value);
+    return entry.pending;
+  }
   async function sources() {
     try {
       if (configFile) {
@@ -184,7 +260,7 @@ export function resourceCatalog({ configFile, getResource = getJson, now = Date.
     async download(id, parameters) {
       const source = (await sources()).get(id);
       if (!source) throw fail(404, '资源已下线或不存在');
-      if (parameters.size !== source.filters.length) throw fail(400, '请选择有效的资源筛选条件');
+      const refined = refine(parameters, source);
       const selected = {};
       for (const filter of source.filters) {
         const values = parameters.getAll(filter.key);
@@ -202,13 +278,12 @@ export function resourceCatalog({ configFile, getResource = getJson, now = Date.
         url.searchParams.set(name, template.replace(placeholder, (_, encoded, raw) => selected[encoded || raw]));
       }
       try {
-        const payload = await getResource(url);
+        const { data, fetched } = await response(url, source);
         return {
           id, title: source.title, publisher: source.publisher, sourceUrl: source.sourceUrl,
-          filters: selected, fetchedAt: new Date(now()).toISOString(),
-          updatedAt: source.updated ? sourceTime(valueAt(payload, source.updated)) : null,
+          format: source.format, filters: { ...selected, ...refined }, fetchedAt: new Date(fetched).toISOString(),
           columns: source.fields.map(({ key, label }) => ({ key, label })),
-          rows: extractRows(payload, source)
+          ...extractRows(data, source, refined, url, parameters.has('export'))
         };
       } catch { throw fail(503, '数据源暂不可达或响应格式已变更，请稍后重试'); }
     }

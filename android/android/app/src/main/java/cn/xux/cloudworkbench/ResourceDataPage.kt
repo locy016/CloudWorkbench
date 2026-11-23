@@ -21,13 +21,16 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 internal data class ResourceOption(val value: String, val label: String)
 internal data class ResourceFilter(val key: String, val label: String, val options: List<ResourceOption>, val maxLength: Int?)
-internal data class ResourceSource(val id: String, val title: String, val publisher: String, val filters: List<ResourceFilter>)
+internal data class ResourceSource(val id: String, val title: String, val publisher: String, val filters: List<ResourceFilter>,
+    val format: String, val searchable: Boolean, val dateFilter: Boolean, val fullDownload: Boolean)
 internal data class ResourceResult(val source: String, val filters: Map<String, String>, val payload: JSONObject)
+internal enum class ResourceExportFormat(val extension: String) { Json("json"), Csv("csv") }
 
 internal class ResourceData(private val connection: () -> WorkbenchConnection?) {
     var sources by mutableStateOf(emptyList<ResourceSource>()); private set
@@ -51,7 +54,9 @@ internal class ResourceData(private val connection: () -> WorkbenchConnection?) 
                     else -> error("Unsupported resource filter")
                 }
             }
-            ResourceSource(id, source.getString("title"), source.getString("publisher"), filters)
+            ResourceSource(id, source.getString("title"), source.getString("publisher"), filters,
+                source.optString("format", "json"), source.optBoolean("searchable"), source.optBoolean("dateFilter"),
+                source.optBoolean("fullDownload"))
         }
         if (transport === connection()) sources = list
     }
@@ -60,9 +65,10 @@ internal class ResourceData(private val connection: () -> WorkbenchConnection?) 
         operation("获取失败，请稍后重试") { transport ->
             val query = Uri.Builder()
             choices.forEach { (key, value) -> query.appendQueryParameter(key, value) }
+            if (source.fullDownload) query.appendQueryParameter("export", "1")
             val path = "/v1/server-data/resources/${source.id}" + query.build().encodedQuery?.let { "?$it" }.orEmpty()
             val payload = transport.sync(path)
-            require(payload.getString("id") == source.id && payload.getJSONArray("rows").length() <= 100)
+            require(payload.getString("id") == source.id && payload.getJSONArray("rows").length() <= 1000)
             payload.getJSONArray("columns").objects()
             if (transport === connection()) result = ResourceResult(source.id, choices, payload)
         }
@@ -83,8 +89,11 @@ internal class ResourceData(private val connection: () -> WorkbenchConnection?) 
         }
     }
 
-    fun prepareExport(result: ResourceResult) {
-        pendingExport = result.payload.toString(2)
+    fun prepareExport(result: ResourceResult, format: ResourceExportFormat = ResourceExportFormat.Json) {
+        pendingExport = when (format) {
+            ResourceExportFormat.Json -> result.payload.toString(2)
+            ResourceExportFormat.Csv -> resourceCsv(result.payload)
+        }
     }
 
     suspend fun saveExport(context: Context, destination: Uri?): Boolean {
@@ -107,14 +116,28 @@ internal fun ResourceDataPage(data: ResourceData, connected: Boolean, visible: B
     var exportStatus by rememberSaveable { mutableStateOf<String?>(null) }
     val source = data.sources.find { it.id == sourceId } ?: data.sources.firstOrNull()
     val selections = remember(source) { mutableStateMapOf<String, String>() }
-    val choices = source?.filters.orEmpty().associate {
-        it.key to (selections[it.key] ?: it.options.firstOrNull()?.value.orEmpty()).trim()
+    var keyword by remember(source) { mutableStateOf("") }
+    var fromText by remember(source) { mutableStateOf("") }
+    var toText by remember(source) { mutableStateOf("") }
+    val from = filterDate(fromText)
+    val to = filterDate(toText)
+    val rangeError = (fromText.isNotEmpty() && from == null) || (toText.isNotEmpty() && to == null) ||
+        (from != null && to != null && from > to)
+    val choices = buildMap {
+        source?.filters.orEmpty().forEach {
+            put(it.key, (selections[it.key] ?: it.options.firstOrNull()?.value.orEmpty()).trim())
+        }
+        if (source?.searchable == true && keyword.isNotBlank()) put("q", keyword.trim())
+        if (source?.dateFilter == true) {
+            from?.let { put("from", it.toString()) }
+            to?.let { put("to", it.toString()) }
+        }
     }
     val result = data.result?.takeIf { it.source == source?.id && it.filters == choices }
-    val document = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+    val completeExport: (Uri?) -> Unit = { uri ->
         scope.launch {
             try {
-                if (data.saveExport(context, uri)) exportStatus = "已保存 JSON"
+                if (data.saveExport(context, uri)) exportStatus = "已保存文件"
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
@@ -122,6 +145,8 @@ internal fun ResourceDataPage(data: ResourceData, connected: Boolean, visible: B
             }
         }
     }
+    val jsonDocument = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json"), completeExport)
+    val csvDocument = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv"), completeExport)
     LaunchedEffect(visible, connected) {
         if (visible && connected) data.refreshCatalog()
     }
@@ -142,7 +167,7 @@ internal fun ResourceDataPage(data: ResourceData, connected: Boolean, visible: B
                 if (source != null) {
                     ResourcePicker("资源", source.title, data.sources.map { ResourceOption(it.id, it.title) },
                         Modifier.testTag("resourcePicker")) { sourceId = it }
-                    Text("来源：${source.publisher}", color = Muted)
+                    Text("来源：${source.publisher} · ${source.format.uppercase()}", color = Muted)
                     source.filters.forEach { filter ->
                         val value = choices.getValue(filter.key)
                         if (filter.maxLength != null) {
@@ -154,10 +179,24 @@ internal fun ResourceDataPage(data: ResourceData, connected: Boolean, visible: B
                                 filter.options, Modifier.testTag("resourceInput-${filter.key}")) { selections[filter.key] = it }
                         }
                     }
+                    if (source.searchable) {
+                        OutlinedTextField(keyword, { keyword = it.take(100) },
+                            modifier = Modifier.fillMaxWidth().testTag("resourceKeyword"),
+                            label = { Text("关键词（可选）") }, singleLine = true)
+                    }
+                    if (source.dateFilter) {
+                        Text("日期范围（UTC，可选）", color = Muted, style = MaterialTheme.typography.bodySmall)
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            ResourceDateField(fromText, { fromText = it }, "开始日期", Modifier.weight(1f).testTag("resourceFrom"))
+                            ResourceDateField(toText, { toText = it }, "结束日期", Modifier.weight(1f).testTag("resourceTo"))
+                        }
+                        if (rangeError) Text("请输入有效的 YYYY-MM-DD，开始日期不得晚于结束日期",
+                            color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    }
                     Button(onClick = {
                         exportStatus = null
                         scope.launch { data.download(source, choices) }
-                    }, enabled = connected && !data.loading && choices.values.none { it.isBlank() },
+                    }, enabled = connected && !data.loading && !rangeError && choices.values.none { it.isBlank() },
                         modifier = Modifier.testTag("fetchResource")) { Text("获取数据") }
                 }
                 if (data.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -172,23 +211,33 @@ internal fun ResourceDataPage(data: ResourceData, connected: Boolean, visible: B
         }
         if (result != null) {
             val payload = result.payload
+            val rows = payload.getJSONArray("rows").objects()
+            val previewRows = rows.take(payload.optInt("previewLimit", 100).coerceIn(1, 100))
+            val matched = payload.optInt("matchedCount", rows.size)
             item {
                 Panel(Modifier.widthIn(max = 640.dp).fillMaxWidth().testTag("resourceResult")) {
                     Text("获取时间：${resourceTime(payload.getString("fetchedAt"))}", color = Muted)
                     if (!payload.isNull("updatedAt")) {
                         Text("来源更新时间：${resourceTime(payload.getString("updatedAt"))}", color = Muted)
                     }
-                    val count = payload.getJSONArray("rows").length()
-                    Text(if (count == 0) "该条件下暂无记录" else "本次返回 $count 条记录")
-                    OutlinedButton(onClick = {
-                        data.prepareExport(result)
-                        document.launch("${result.source}-${payload.getString("fetchedAt").take(10)}.json")
-                    }, modifier = Modifier.testTag("exportResource")) { Text("保存 JSON") }
+                    Text(if (matched == 0) "该条件下暂无记录" else "匹配 $matched 条 · 预览 ${previewRows.size} 条 · 可保存 ${rows.size} 条",
+                        Modifier.testTag("resourceCounts"))
+                    val base = "${result.source}-${payload.getString("fetchedAt").take(10)}"
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = {
+                            data.prepareExport(result)
+                            jsonDocument.launch("$base.json")
+                        }, modifier = Modifier.testTag("exportResource")) { Text("保存 JSON") }
+                        OutlinedButton(onClick = {
+                            data.prepareExport(result, ResourceExportFormat.Csv)
+                            csvDocument.launch("$base.csv")
+                        }, modifier = Modifier.testTag("exportResourceCsv")) { Text("保存 CSV") }
+                    }
                     exportStatus?.let { Text(it, color = Muted) }
                 }
             }
             val columns = payload.getJSONArray("columns").objects()
-            items(payload.getJSONArray("rows").objects()) { row ->
+            items(previewRows) { row ->
                 Panel(Modifier.widthIn(max = 640.dp).fillMaxWidth()) {
                     columns.forEach { column ->
                         val key = column.getString("key")
@@ -199,6 +248,40 @@ internal fun ResourceDataPage(data: ResourceData, connected: Boolean, visible: B
             }
         }
     }
+}
+
+@Composable
+private fun ResourceDateField(value: String, onChange: (String) -> Unit, label: String, modifier: Modifier) {
+    OutlinedTextField(value, { onChange(it.filter { ch -> ch in '0'..'9' || ch == '-' }.take(10)) },
+        modifier = modifier, label = { Text(label) }, placeholder = { Text("YYYY-MM-DD") }, singleLine = true)
+}
+
+private fun filterDate(value: String): LocalDate? = if (value.length == 10) {
+    runCatching { LocalDate.parse(value) }.getOrNull()
+} else null
+
+internal fun resourceCsv(payload: JSONObject): String {
+    val columns = payload.getJSONArray("columns").objects()
+    fun line(values: List<String>) = values.joinToString(",", transform = ::csvCell)
+    return buildString {
+        append('\uFEFF')
+        append(line(listOf("来源", "来源网址", "获取时间（UTC）") + columns.map { it.getString("label") }))
+        append("\r\n")
+        for (row in payload.getJSONArray("rows").objects()) {
+            append(line(listOf(payload.optString("publisher"), payload.optString("sourceUrl"), payload.getString("fetchedAt")) +
+                columns.map { val key = it.getString("key"); if (row.isNull(key)) "" else row.getString(key) }))
+            append("\r\n")
+        }
+    }
+}
+
+private val plainCsvNumber = Regex("""[-+]?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?""")
+
+private fun csvCell(value: String): String {
+    val trimmed = value.trimStart()
+    val formula = trimmed.firstOrNull() in listOf('=', '+', '-', '@') && !plainCsvNumber.matches(trimmed)
+    val prefix = if (formula) "'" else ""
+    return "\"" + prefix + value.replace("\"", "\"\"") + "\""
 }
 
 @Composable

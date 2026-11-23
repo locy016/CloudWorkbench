@@ -22,6 +22,16 @@ import org.junit.runner.RunWith
 class ResourceDataTest {
     @get:Rule val compose = createEmptyComposeRule()
 
+    @Test fun exportQuotesCsvCellsAndNeutralizesFormulas() {
+        val input = JSONObject("""{"publisher":"NOAA","sourceUrl":"https://source.example","fetchedAt":"2026-11-23T04:00:00Z",
+          "columns":[{"key":"name","label":"名称"},{"key":"amount","label":"量值"}],
+          "rows":[{"name":"=SUM(1,2)","amount":"-0.10"},{"name":"a\"b","amount":"@text"}]}""")
+        val csv = resourceCsv(input)
+        assertTrue(csv.startsWith("\uFEFF\"来源\""))
+        assertTrue(csv.contains("\"'=SUM(1,2)\",\"-0.10\"\r\n"))
+        assertTrue(csv.contains("\"a\"\"b\",\"'@text\"\r\n"))
+    }
+
     @Test fun resourceCatalogRendersAKeywordFieldAndExportsTheRequestedRows() {
         val instrument = InstrumentationRegistry.getInstrumentation()
         val context = instrument.targetContext

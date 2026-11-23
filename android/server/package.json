@@ -9,5 +9,9 @@
   "scripts": {
     "start": "node src/main.mjs",
     "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "csv-parse": "7.0.3",
+    "saxes": "6.0.0"
   }
 }

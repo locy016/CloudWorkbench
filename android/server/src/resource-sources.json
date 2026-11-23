@@ -45,6 +45,61 @@
       "limit": 10
     },
     {
+      "id": "wto-trade-news",
+      "title": "WTO 国际贸易新闻",
+      "publisher": "WTO news",
+      "sourceUrl": "https://www.wto.org/english/res_e/webcas_e/rss_e.htm",
+      "endpoint": "https://www.wto.org/library/rss/latest_news_e.xml",
+      "format": "rss",
+      "cacheSeconds": 60,
+      "limit": 60
+    },
+    {
+      "id": "nws-marine-alerts",
+      "title": "海运气象警报",
+      "publisher": "美国国家气象局（NWS）",
+      "sourceUrl": "https://www.weather.gov/documentation/services-web-alerts",
+      "endpoint": "https://api.weather.gov/alerts/active.atom",
+      "format": "atom",
+      "query": { "area": "{region}" },
+      "filters": [
+        { "key": "region", "label": "海域", "options": [
+          { "value": "AN", "label": "美国大西洋沿岸" },
+          { "value": "PZ", "label": "美国太平洋沿岸" },
+          { "value": "GM", "label": "墨西哥湾沿岸" }
+        ]}
+      ],
+      "cacheSeconds": 30,
+      "limit": 100
+    },
+    {
+      "id": "noaa-port-levels",
+      "title": "港口潮位实测（近 72 小时）",
+      "publisher": "NOAA CO-OPS",
+      "sourceUrl": "https://api.tidesandcurrents.noaa.gov/api/dev/",
+      "endpoint": "https://api.tidesandcurrents.noaa.gov/api/prod/datagetter",
+      "format": "csv",
+      "query": {
+        "date": "recent", "station": "{station}", "product": "water_level", "datum": "MLLW",
+        "time_zone": "gmt", "units": "metric", "format": "csv", "application": "CloudWorkbench"
+      },
+      "filters": [
+        { "key": "station", "label": "港口测站", "options": [
+          { "value": "8518750", "label": "纽约 Battery" },
+          { "value": "9410660", "label": "洛杉矶" }
+        ]}
+      ],
+      "dateField": "observed",
+      "fields": [
+        { "key": "observed", "label": "观测时间（UTC）", "path": "Date Time", "format": "utc-minute" },
+        { "key": "level", "label": "潮位（米，MLLW）", "path": "Water Level" },
+        { "key": "quality", "label": "质量标记", "path": "Quality" }
+      ],
+      "cacheSeconds": 60,
+      "limit": 100,
+      "exportLimit": 1000
+    },
+    {
       "id": "github-project-search",
       "title": "公开开源项目搜索",
       "publisher": "GitHub",

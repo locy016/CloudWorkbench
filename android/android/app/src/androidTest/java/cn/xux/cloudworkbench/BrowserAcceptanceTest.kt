@@ -155,24 +155,73 @@ class BrowserAcceptanceTest {
             org.junit.Assert.assertNull(web(activity.window.decorView))
         }
         compose.waitUntil(25000) { compose.onAllNodesWithTag("resourceResult").fetchSemanticsNodes().isNotEmpty() }
-        val file = java.io.File(activity.filesDir, "app-updates/resource-acceptance.json")
+        saveResource("exportResource", "application/json", "resource-acceptance.json") { file ->
+            val saved = org.json.JSONObject(file.readText())
+            org.junit.Assert.assertEquals("nodejs in:name", saved.getJSONObject("filters").getString("keyword"))
+            java.time.Instant.parse(saved.getString("fetchedAt"))
+            org.junit.Assert.assertTrue(saved.getJSONArray("rows").length() > 0)
+        }
+    }
+
+    @Test fun previewsOfficialFeedsAndExportsFilteredPortObservationsAsCsv() {
+        awaitVisibleConnection()
+        compose.openWorkbenchTab("浏览")
+        compose.onNodeWithTag("openServerData").performClick()
+        compose.waitUntil(25000) { compose.onAllNodesWithTag("resourcePicker").fetchSemanticsNodes().isNotEmpty() }
+        fun source(name: String) {
+            compose.onNodeWithTag("resourcePicker").performScrollTo().performClick()
+            compose.onNodeWithText(name).performClick()
+        }
+        fun fetch() {
+            compose.runOnUiThread {
+                val keyboard = activity.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+                keyboard.hideSoftInputFromWindow(activity.window.decorView.windowToken, 0)
+                activity.currentFocus?.clearFocus()
+            }
+            compose.onNodeWithTag("fetchResource").performScrollTo().performClick()
+            compose.waitUntil(25000) { compose.onAllNodesWithTag("resourceResult").fetchSemanticsNodes().isNotEmpty() }
+        }
+        source("WTO 国际贸易新闻")
+        compose.onNodeWithTag("resourceKeyword").performTextReplacement("WTO")
+        fetch()
+        compose.onNodeWithTag("resourceCounts").assertTextContains("匹配", substring = true)
+        compose.onNodeWithText("WTO news · RSS", substring = true).assertExists()
+        source("海运气象警报")
+        fetch()
+        compose.onNodeWithText("· ATOM", substring = true).assertExists()
+        source("港口潮位实测（近 72 小时）")
+        val today = java.time.LocalDate.now(java.time.ZoneOffset.UTC).toString()
+        compose.onNodeWithTag("resourceFrom").performTextReplacement(today)
+        compose.onNodeWithTag("resourceTo").performTextReplacement(today)
+        fetch()
+        compose.onNodeWithTag("resourceCounts").assertTextContains("匹配", substring = true)
+        compose.runOnIdle { org.junit.Assert.assertNull(web(activity.window.decorView)) }
+        saveResource("exportResourceCsv", "text/csv", "resource-acceptance.csv") { file ->
+            val lines = file.readLines()
+            org.junit.Assert.assertTrue(lines[0].contains("来源网址") && lines[0].contains("观测时间（UTC）"))
+            org.junit.Assert.assertTrue(lines.size > 1)
+            org.junit.Assert.assertTrue(lines.drop(1).all { line ->
+                line.contains("NOAA CO-OPS") && line.split("\",\"").getOrNull(3)?.startsWith("${today}T") == true
+            })
+        }
+    }
+
+    private fun saveResource(tag: String, mime: String, filename: String, verify: (java.io.File) -> Unit) {
+        val file = java.io.File(activity.filesDir, "app-updates/$filename")
         file.parentFile?.mkdirs()
         val uri = androidx.core.content.FileProvider.getUriForFile(activity, "${activity.packageName}.updates", file)
         val instrument = InstrumentationRegistry.getInstrumentation()
         val filter = android.content.IntentFilter(Intent.ACTION_CREATE_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
-            addDataType("application/json")
+            addDataType(mime)
         }
         val picker = instrument.addMonitor(filter,
             android.app.Instrumentation.ActivityResult(android.app.Activity.RESULT_OK, Intent().setData(uri)), true)
         try {
-            compose.onNodeWithTag("exportResource").assertIsEnabled().performClick()
+            compose.onNodeWithTag(tag).performScrollTo().assertIsEnabled().performClick()
             compose.waitUntil(10000) { file.isFile && file.length() > 0 }
-            compose.onNodeWithText("已保存 JSON").assertExists()
-            val saved = org.json.JSONObject(file.readText())
-            org.junit.Assert.assertEquals("nodejs in:name", saved.getJSONObject("filters").getString("keyword"))
-            java.time.Instant.parse(saved.getString("fetchedAt"))
-            org.junit.Assert.assertTrue(saved.getJSONArray("rows").length() > 0)
+            compose.onNodeWithText("已保存文件").assertExists()
+            verify(file)
         } finally {
             instrument.removeMonitor(picker)
             file.delete()
