@@ -23,6 +23,10 @@
 
 无需额外参数的要闻、时事和经贸 RSS 或 Atom 会自动加入「资讯」。现有 SSH 资讯接口支持组合传入 `category`（`headlines`、`current`、`trade`）、`q`、`source`、`from` 和 `to`。日期为 `YYYY-MM-DD`，按 UTC 比较并包含边界，可只填一端。设置日期时，仅比较来源明确提供的发布时间。网关先筛选，再按条目时间排序。去重比较原文地址（忽略跟踪参数）或 48 小时内相同的长标题，保留展示记录的原始链接。单个来源失败时仍返回其余来源，并标明暂不可用的来源。资讯最多返回 120 条。
 
+资讯源取数或解析失败后短暂退避。只读聚合接口可使用进程内 6 小时内成功解析的同源结果，并返回使用缓存的来源和采集时间。来源目录的单源导出继续要求有效的上游结果。
+
+英文资讯条目从目录的 `language: "en"` 获取语言标记。翻译接口仅接受 SSH 授权请求，将单条标题和摘要交给本地 CPU 模型。每次只运行一个翻译进程，缓存有长度上限。部署时用 Python 3.12 虚拟环境安装 `ctranslate2==4.6.0` 和 `sentencepiece==0.2.1`。`NEWS_TRANSLATION_DIR` 指向该虚拟环境，默认路径为 `/home/xux/.local/lib/cloud-workbench-translation`。从 Argos 官方分发目录获取 `en_zh 1.9`、`en_ja 1.1`、`en_ko 1.1`、`en_fr 1.9`、`en_de 1.3` 和 `en_es 1.0`，核对包内 `metadata.json` 的语言和版本。将每个包的 `sentencepiece.model` 和 `model/` 放入虚拟环境的 `models/<目标语言>/`。 [Argos 官方模型目录](https://data.argosopentech.com/argospm/v1/)
+
 每个来源配置固定的 HTTPS 接口和来源说明。JSON 或 GeoJSON 需要记录数组路径和导出字段，CSV 需要表头字段名。RSS 和 Atom 直接读取标题、条目时间、摘要和原文地址。`dateField` 指向归一化的时间字段，以 UTC 按天筛选。关键词和日期筛选在服务端本次取得的内容中执行。
 
 用 `limit` 和 `exportLimit` 配置预览数和最多下载条数。`cacheSeconds` 控制对同一上游地址的最短重新取数间隔。配置选项可以绑定固定路径占位符或查询参数，文本只绑定固定查询参数。接入前核对数据源允许的访问和使用方式。网关按公开 IPv4 地址连接，并限制取数时长和响应大小。

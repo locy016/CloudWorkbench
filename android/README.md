@@ -30,6 +30,8 @@ APP 短时切到后台时保留现有 SSH 连接和事件流。后台满 30 秒�
 
 经贸资讯包括 WTO、英国商业与贸易部、欧盟贸易总司、美国贸易代表办公室和英国贸易救济署。日期筛选作用于上游资讯流当前提供的条目。[WTO RSS](https://www.wto.org/english/res_e/webcas_e/rss_e.htm) · [英国商业与贸易部](https://www.gov.uk/government/organisations/department-for-business-innovation-science-and-trade) · [欧盟贸易总司](https://policy.trade.ec.europa.eu/news_en) · [美国贸易代表办公室](https://ustr.gov/about/policy-offices/press-office/news) · [英国贸易救济署](https://www.gov.uk/government/organisations/trade-remedies-authority)
 
+英文资讯卡的「翻译」可将标题和摘要译为简体中文、日语、韩语、法语、德语或西班牙语，译文可切回原文。请求经 SSH 发送到工作台，模型在服务器本地运行。上游暂时失败时显示仍可读取的资讯，并标明使用缓存或未响应的来源。
+
 在「来源目录」选择单个来源后，可按关键词和 UTC 日期范围查询。日期范围包含所选首尾日期。页面分别显示匹配数、预览数和可保存条数。「保存 CSV」和「保存 JSON」可下载筛选后的记录。
 
 内置示例支持按时段获取全球地震动态、按项目获取发布记录，以及按自填关键词查询公开项目。[USGS GeoJSON 实时数据](https://earthquake.usgs.gov/earthquakes/feed/v1.0/geojson.php) · [GitHub 发布 API](https://docs.github.com/en/rest/releases/releases#list-releases) · [GitHub 搜索 API](https://docs.github.com/en/rest/search/search#search-repositories)

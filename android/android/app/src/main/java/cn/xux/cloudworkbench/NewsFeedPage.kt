@@ -20,25 +20,28 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import org.json.JSONObject
 
 internal data class NewsQuery(val sourceId: String? = null, val keyword: String = "",
     val category: ResourceCategory? = null, val from: String? = null, val to: String? = null)
 internal data class NewsSource(val id: String, val title: String, val category: ResourceCategory)
 internal data class NewsArticle(val title: String, val publisher: String, val time: String?, val timeKind: String?,
-    val summary: String?, val link: String?)
+    val summary: String?, val link: String?, val language: String?)
 internal data class NewsSnapshot(val query: NewsQuery, val sources: List<NewsSource>, val articles: List<NewsArticle>,
-    val matchedCount: Int, val unavailable: Set<String>)
+    val matchedCount: Int, val unavailable: Set<String>, val cached: Map<String, String>, val requestedSources: Int)
+
+internal data class NewsTranslation(val title: String, val summary: String)
 
 internal class NewsFeed(private val connection: () -> WorkbenchConnection?) {
     var snapshot by mutableStateOf<NewsSnapshot?>(null); private set
     var loading by mutableStateOf(false); private set
-    var refreshFailed by mutableStateOf(false); private set
+    var refreshError by mutableStateOf<String?>(null); private set
 
     suspend fun refresh(query: NewsQuery) {
         val transport = connection() ?: return
         if (loading) return
         loading = true
-        refreshFailed = false
+        refreshError = null
         try {
             val builder = Uri.Builder()
             query.sourceId?.let { builder.appendQueryParameter("source", it) }
@@ -57,20 +60,42 @@ internal class NewsFeed(private val connection: () -> WorkbenchConnection?) {
                 require(query.sourceId == null || query.sourceId == it.getString("sourceId"))
                 fun optional(key: String) = it.optString(key).takeUnless { text -> it.isNull(key) || text.isBlank() }
                 NewsArticle(it.getString("title"), it.getString("publisher"), optional("time"), optional("timeKind"),
-                    optional("summary"), optional("link"))
+                    optional("summary"), optional("link"), optional("language"))
             }
             val unavailable = response.getJSONArray("unavailable")
+            val cached = response.optJSONArray("cached")?.objects()?.associate {
+                it.getString("id") to it.getString("fetchedAt")
+            }.orEmpty()
+            val requestedSources = response.optInt("requestedSourceCount", sources.count {
+                (query.sourceId == null || it.id == query.sourceId) && (query.category == null || it.category == query.category)
+            })
             if (transport === connection()) {
-                snapshot = NewsSnapshot(query, sources, articles, response.getInt("matchedCount"),
-                    (0 until unavailable.length()).map(unavailable::getString).toSet())
+                if (requestedSources > 0 && unavailable.length() == requestedSources && snapshot?.query == query) {
+                    refreshError = "本次查询的资讯源均未响应"
+                } else {
+                    snapshot = NewsSnapshot(query, sources, articles, response.getInt("matchedCount"),
+                        (0 until unavailable.length()).map(unavailable::getString).toSet(), cached, requestedSources)
+                }
             }
         } catch (e: CancellationException) {
             throw e
-        } catch (_: Exception) {
-            if (transport === connection()) refreshFailed = true
+        } catch (e: Exception) {
+            if (transport === connection()) refreshError = when ((e as? GatewayException)?.status) {
+                401, 403 -> "SSH 授权未通过，请重新连接"
+                else -> "服务器资讯请求失败"
+            }
         } finally {
             loading = false
         }
+    }
+
+    suspend fun translate(article: NewsArticle, target: String): NewsTranslation {
+        val transport = connection() ?: error("未连接")
+        val body = JSONObject().put("source", article.language).put("target", target)
+            .put("title", article.title).put("summary", article.summary.orEmpty())
+        val response = transport.request("/v1/server-data/news/translate", body)
+        check(transport === connection() && response.getString("target") == target)
+        return NewsTranslation(response.getString("title"), response.getString("summary"))
     }
 }
 
@@ -87,6 +112,8 @@ internal fun NewsFeedPage(feed: NewsFeed, connected: Boolean, visible: Boolean) 
     var to by rememberSaveable { mutableStateOf(snapshot?.query?.to) }
     var sourcesOpen by remember { mutableStateOf(false) }
     var datesOpen by rememberSaveable { mutableStateOf(false) }
+    var translatingArticle by remember { mutableStateOf<NewsArticle?>(null) }
+    var preferredLanguage by rememberSaveable { mutableStateOf("zh") }
     var appliedKeyword by rememberSaveable { mutableStateOf(snapshot?.query?.keyword.orEmpty()) }
     val query = NewsQuery(sourceId, appliedKeyword, category, from, to)
     val result = snapshot?.takeIf { it.query == query }
@@ -110,6 +137,11 @@ internal fun NewsFeedPage(feed: NewsFeed, connected: Boolean, visible: Boolean) 
         NewsDateDialog(from.orEmpty(), to.orEmpty(), canSearch, onDismiss = { datesOpen = false }) { start, end ->
             datesOpen = false
             search(query.copy(from = start, to = end))
+        }
+    }
+    translatingArticle?.let { article ->
+        NewsTranslationDialog(article, feed, connected, preferredLanguage, { preferredLanguage = it }) {
+            translatingArticle = null
         }
     }
     LazyColumn(
@@ -174,16 +206,25 @@ internal fun NewsFeedPage(feed: NewsFeed, connected: Boolean, visible: Boolean) 
                 val message = when {
                     !connected && result != null -> "SSH 未连接，显示上次资讯"
                     !connected -> "连接云端后可获取资讯"
-                    feed.refreshFailed && result != null -> "更新失败，显示上次资讯"
-                    feed.refreshFailed -> "暂时无法获取资讯，请重试"
-                    result != null && result.unavailable.isNotEmpty() -> {
-                        val names = result.sources.filter { it.id in result.unavailable }.joinToString("、") { it.title }
-                        "暂不可用：$names"
-                    }
-                    result?.articles?.isEmpty() == true -> "没有符合条件的资讯"
+                    feed.refreshError != null -> feed.refreshError + if (result?.articles?.isNotEmpty() == true) "，显示上次资讯" else ""
+                    result?.articles?.isEmpty() == true && result.unavailable.isEmpty() && result.cached.isEmpty() -> "没有符合条件的资讯"
                     else -> null
                 }
                 message?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Amber) }
+                if (connected && feed.refreshError == null && result != null) {
+                    if (result.unavailable.isNotEmpty()) {
+                        val names = result.sources.filter { it.id in result.unavailable }.joinToString("、") { it.title }
+                        val prefix = if (result.unavailable.size == result.requestedSources) "资讯源均未响应" else "部分资讯源未响应"
+                        Text("$prefix · $names", style = MaterialTheme.typography.bodySmall, color = Amber)
+                    }
+                    if (result.cached.isNotEmpty()) {
+                        val names = result.sources.filter { it.id in result.cached }.joinToString("、") { it.title }
+                        Text("显示服务器上次采集的资讯 · $names", style = MaterialTheme.typography.bodySmall, color = Amber)
+                    }
+                }
+                if (connected && (feed.refreshError != null || result?.unavailable?.isNotEmpty() == true || result?.cached?.isNotEmpty() == true)) {
+                    TextButton(onClick = { search() }, enabled = canSearch, modifier = Modifier.testTag("retryNews")) { Text("重试") }
+                }
                 if (result != null && result.articles.isNotEmpty()) {
                     val count = result.matchedCount
                     Text(if (count > result.articles.size) "显示 ${result.articles.size} / $count 条" else "$count 条资讯",
@@ -196,6 +237,10 @@ internal fun NewsFeedPage(feed: NewsFeed, connected: Boolean, visible: Boolean) 
                 FeedArticleCard(item.title, item.publisher, item.time, item.summary, item.link, context,
                     timeLabel = if (item.timeKind == "updated") "更新" else "发布",
                     titleTag = "newsHeadline")
+                if (item.language == "en") {
+                    TextButton(onClick = { translatingArticle = item }, enabled = connected,
+                        modifier = Modifier.testTag("translateNewsArticle")) { Text("翻译") }
+                }
             }
         }
     }

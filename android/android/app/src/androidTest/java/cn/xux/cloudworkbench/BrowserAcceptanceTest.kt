@@ -332,6 +332,40 @@ class BrowserAcceptanceTest {
         compose.onNodeWithText(headline).assertExists()
     }
 
+    @Test fun translatesNewsOnTheServerAndPreservesTheOriginal() {
+        awaitVisibleConnection()
+        compose.openWorkbenchTab("浏览")
+        compose.onNodeWithTag("openServerData").performClick()
+        compose.waitUntil(30000) { compose.onAllNodesWithTag("newsCount").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("aggregatedNews").performScrollToNode(hasTestTag("translateNewsArticle"))
+        compose.onAllNodesWithTag("translateNewsArticle").onFirst().performClick()
+        val title = compose.onNodeWithTag("newsTranslationTitle")
+        val original = title.fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsProperties.Text].single().text
+        fun translate() {
+            compose.onNodeWithTag("requestNewsTranslation").performClick()
+            compose.waitUntil(20000) {
+                compose.onAllNodesWithTag("toggleNewsOriginal").fetchSemanticsNodes().isNotEmpty()
+            }
+        }
+        compose.onNodeWithTag("newsLanguage").performClick()
+        compose.onNodeWithTag("newsLanguage-zh").performClick()
+        translate()
+        val chinese = title.fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsProperties.Text].single().text
+        org.junit.Assert.assertTrue(chinese != original && chinese.any { Character.UnicodeScript.of(it.code) == Character.UnicodeScript.HAN })
+        compose.onNodeWithTag("toggleNewsOriginal").performClick()
+        title.assertTextEquals(original)
+
+        compose.onNodeWithTag("newsLanguage").performClick()
+        compose.onNodeWithTag("newsLanguage-ja").performClick()
+        translate()
+        val japanese = title.fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsProperties.Text].single().text
+        org.junit.Assert.assertTrue(japanese != original && japanese != chinese)
+        compose.onNodeWithText("关闭").performClick()
+        compose.onAllNodesWithText(original).onFirst().assertExists()
+        compose.onAllNodesWithTag("newsHeadlineLink").onFirst().assertExists()
+        compose.runOnIdle { org.junit.Assert.assertNull(web(activity.window.decorView)) }
+    }
+
     private fun awaitResourceCatalog() {
         compose.onNodeWithTag("openSingleSource").performClick()
         compose.waitUntil(25000) {

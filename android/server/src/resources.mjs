@@ -12,6 +12,8 @@ const pathPattern = /^(?:[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*)?$/;
 const refinements = new Set(['q', 'from', 'to', 'export']);
 const categories = ['headlines', 'current', 'trade', 'logistics', 'other'];
 const placeholder = /%7B([a-z][a-z0-9-]*)%7D|\{([a-z][a-z0-9-]*)\}/gi;
+const feedCacheLimit = 6 * 60 * 60 * 1000;
+const feedRetryDelay = 15_000;
 const blocked = new BlockList();
 for (const [address, prefix] of [
   ['0.0.0.0', 8], ['10.0.0.0', 8], ['100.64.0.0', 10], ['127.0.0.0', 8], ['169.254.0.0', 16],
@@ -30,7 +32,7 @@ function checkUrl(value, allowFragment = false) {
 }
 
 function normalizeSource(spec) {
-  const { id, title, publisher, sourceUrl, endpoint, rows, updated, format = 'json', filters = [], query = {}, limit = 50,
+  const { id, title, publisher, sourceUrl, endpoint, rows, updated, language, format = 'json', filters = [], query = {}, limit = 50,
     exportLimit = limit, cacheSeconds = 0, category = 'other' } = spec;
   const feed = format === 'rss' || format === 'atom';
   const fields = feed ? feedFields : spec.fields;
@@ -38,7 +40,7 @@ function normalizeSource(spec) {
   const searchable = spec.searchable ?? format !== 'json';
   const label = value => typeof value === 'string' && value.trim().length > 0 && value.length <= 100;
   if (!keyPattern.test(id ?? '') || !label(title) || !label(publisher) || !Object.hasOwn(resourceTypes, format) ||
-      !categories.includes(category) ||
+      !categories.includes(category) || (language !== undefined && (!feed || !/^[a-z]{2,3}$/.test(language))) ||
       (format === 'json' && (typeof rows !== 'string' || !pathPattern.test(rows))) ||
       (updated !== undefined && !pathPattern.test(updated)) || typeof searchable !== 'boolean' ||
       !Number.isInteger(cacheSeconds) || cacheSeconds < 0 || cacheSeconds > 3600 ||
@@ -93,7 +95,7 @@ function normalizeSource(spec) {
   }
   return {
     id, title, publisher, sourceUrl, url, rows, updated, fields, filters, query, limit, exportLimit, format, dateField,
-    searchable, cacheSeconds,
+    searchable, cacheSeconds, language,
     summary: { id, title, publisher, category, format, searchable, dateFilter: !!dateField, fullDownload: exportLimit > limit,
       filters: filters.map(({ key, label, type = 'choice', options, maxLength }) =>
       type === 'text' ? { key, label, type, maxLength } :
@@ -197,9 +199,8 @@ function refine(parameters, source) {
   return selection;
 }
 
-function extractRows(payload, source, filters, endpoint, fullDownload) {
+function extractRows({ data: payload, feed }, source, filters, fullDownload) {
   const { format, fields, dateField } = source;
-  const feed = ['rss', 'atom'].includes(format) ? parseFeed(payload, format, endpoint) : null;
   const rows = feed?.rows ?? (format === 'csv' ? parseCsv(payload, fields) : valueAt(payload, source.rows));
   if (!Array.isArray(rows)) throw new Error('Configured data list not found');
   const keywords = filters.q?.normalize('NFKC').toLowerCase().split(/\s+/) ?? [];
@@ -236,26 +237,37 @@ function extractRows(payload, source, filters, endpoint, fullDownload) {
 
 export function resourceCatalog({ configFile, getResource = getPayload, now = Date.now } = {}) {
   const cache = new Map();
-  async function response(url, source) {
-    const load = async () => ({ data: await getResource(url, source.format), fetched: now() });
+  async function response(url, source, allowStale = false) {
+    const isFeed = source.format === 'rss' || source.format === 'atom';
+    const load = async () => {
+      const data = await getResource(url, source.format);
+      const value = isFeed ? { feed: parseFeed(data, source.format, url) } : { data };
+      return { ...value, fetched: now() };
+    };
     if (!source.cacheSeconds) return load();
     const key = source.format + ':' + url.href;
-    const saved = cache.get(key);
-    if (saved && (saved.pending || now() - saved.fetched < source.cacheSeconds * 1000)) {
-      return saved.pending ?? saved;
-    }
-    const entry = {};
-    entry.pending = load().then(value => {
-      Object.assign(entry, value, { pending: null });
-      return entry;
-    }, error => {
-      if (cache.get(key) === entry) cache.delete(key);
-      throw error;
-    });
+    const entry = cache.get(key) ?? {};
+    if (entry.value && now() - entry.value.fetched < source.cacheSeconds * 1000) return entry.value;
     cache.delete(key);
     cache.set(key, entry);
     if (cache.size > 12) cache.delete(cache.keys().next().value);
-    return entry.pending;
+    const fallback = () => {
+      if (allowStale && entry.value && now() - entry.value.fetched <= feedCacheLimit) {
+        return { ...entry.value, stale: true };
+      }
+      throw entry.error;
+    };
+    if (entry.error && now() < entry.retryAt) return fallback();
+    entry.pending ??= load().then(value => {
+      entry.value = value;
+      entry.error = undefined;
+      return value;
+    }, error => {
+      entry.error = error;
+      entry.retryAt = now() + (isFeed ? feedRetryDelay : 0);
+      throw error;
+    }).finally(() => { entry.pending = undefined; });
+    return entry.pending.catch(fallback);
   }
   async function sources() {
     try {
@@ -273,8 +285,7 @@ export function resourceCatalog({ configFile, getResource = getPayload, now = Da
     },
     async news(parameters) {
       return aggregateNews([...(await sources()).values()], parameters, async source => {
-        const url = resourceUrl(source);
-        return { ...(await response(url, source)), url };
+        return response(resourceUrl(source), source, true);
       });
     },
     async download(id, parameters) {
@@ -294,12 +305,12 @@ export function resourceCatalog({ configFile, getResource = getPayload, now = Da
       }
       const url = resourceUrl(source, selected);
       try {
-        const { data, fetched } = await response(url, source);
+        const payload = await response(url, source);
         return {
           id, title: source.title, publisher: source.publisher, sourceUrl: source.sourceUrl,
-          format: source.format, filters: { ...selected, ...refined }, fetchedAt: new Date(fetched).toISOString(),
+          format: source.format, filters: { ...selected, ...refined }, fetchedAt: new Date(payload.fetched).toISOString(),
           columns: source.fields.map(({ key, label }) => ({ key, label })),
-          ...extractRows(data, source, refined, url, parameters.has('export'))
+          ...extractRows(payload, source, refined, parameters.has('export'))
         };
       } catch { throw fail(503, '数据源暂不可达或响应格式已变更，请稍后重试'); }
     }

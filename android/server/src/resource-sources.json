@@ -2,6 +2,7 @@
   "sources": [
     {
       "id": "un-geneva-headlines",
+      "language": "en",
       "title": "联合国日内瓦要闻",
       "publisher": "联合国日内瓦办事处（UN Geneva）",
       "sourceUrl": "https://www.ungeneva.org/en/news-media/rss",
@@ -13,6 +14,7 @@
     },
     {
       "id": "eu-commission-briefings",
+      "language": "en",
       "title": "欧盟委员会时事通报",
       "publisher": "欧盟委员会（European Commission）",
       "sourceUrl": "https://ec.europa.eu/commission/presscorner/home/en",
@@ -69,6 +71,7 @@
     },
     {
       "id": "wto-trade-news",
+      "language": "en",
       "category": "trade",
       "title": "WTO 国际贸易新闻",
       "publisher": "WTO news",
@@ -80,6 +83,7 @@
     },
     {
       "id": "uk-business-trade",
+      "language": "en",
       "title": "英国商业与贸易动态",
       "publisher": "GOV.UK",
       "sourceUrl": "https://www.gov.uk/government/organisations/department-for-business-innovation-science-and-trade",
@@ -92,6 +96,7 @@
     },
     {
       "id": "eu-trade-policy",
+      "language": "en",
       "category": "trade",
       "title": "欧盟贸易政策动态",
       "publisher": "欧盟委员会贸易总司（DG Trade）",
@@ -103,6 +108,7 @@
     },
     {
       "id": "ustr-trade-news",
+      "language": "en",
       "category": "trade",
       "title": "美国贸易代表办公室动态",
       "publisher": "美国贸易代表办公室（USTR）",
@@ -114,6 +120,7 @@
     },
     {
       "id": "uk-trade-remedies",
+      "language": "en",
       "category": "trade",
       "title": "英国贸易救济动态",
       "publisher": "英国贸易救济署（TRA）",

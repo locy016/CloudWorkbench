@@ -28,7 +28,7 @@ export class Gateway {
   approvals = new Map(); loaded = new Set(); lock = false; statusCache = null;
   startingRequestId = null;
   constructor({ codex, store, token, cwd, events, sshMobile, readReferenceRates = referenceRates(), tradeData = worldBank(),
-    resources = resourceCatalog(),
+    resources = resourceCatalog(), translateNews,
     projects = [{ id: 'default', name: '默认项目', path: cwd }], sharedWritableRoots = [], codexAccess = 'workspace-write' }) {
     if (!['workspace-write', 'danger-full-access'].includes(codexAccess)) {
       throw new Error('Invalid Codex access mode');
@@ -40,6 +40,7 @@ export class Gateway {
     this.readReferenceRates = readReferenceRates;
     this.tradeData = tradeData;
     this.resources = resources;
+    this.translateNews = translateNews;
     if (events) store.onChange = (id, overview) => events.notify(id, overview);
     codex.on('notification', m => { if (!this.closing) this.onNotification(m); });
     codex.on('request', m => { if (!this.closing) this.onRequest(m); });
@@ -125,6 +126,12 @@ export class Gateway {
       if (req.method === 'GET' && path === '/v1/server-data/news') {
         if (!subject) throw fail(401, '资讯需通过已授权的 SSH 连接读取');
         return respond(200, await this.resources.news(url.searchParams));
+      }
+      if (req.method === 'POST' && path === '/v1/server-data/news/translate') {
+        if (!subject) throw fail(401, '资讯翻译需通过已授权的 SSH 连接');
+        if (url.search) throw fail(400, '翻译接口不接受查询参数');
+        if (!this.translateNews) throw fail(503, '服务器尚未启用资讯翻译');
+        return respond(200, await this.translateNews(await this.body(req, 8 * 1024)));
       }
       const resource = /^\/v1\/server-data\/resources\/([a-z][a-z0-9-]{0,47})$/.exec(path);
       if (req.method === 'GET' && resource) {

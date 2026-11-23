@@ -99,3 +99,46 @@ test('news keyword and selected source combine before deduplication', async () =
   }
   assert.equal(hosts.length, 1);
 });
+
+test('news returns the last valid feed during upstream or parse failure and identifies its collection time', async () => {
+  let clock = Date.parse('2026-11-23T08:00:00Z');
+  let fetches = 0;
+  let body = rss([['A published report', 'Mon, 23 Nov 2026 04:00:00 GMT', 'https://example.test/report']]);
+  const catalog = resourceCatalog({ now: () => clock, getResource: async () => {
+    fetches++;
+    if (body instanceof Error) throw body;
+    return body;
+  } });
+  const source = 'un-geneva-headlines';
+  const query = new URLSearchParams({ source });
+  const fresh = await catalog.news(query);
+  assert.deepEqual(fresh.cached, []);
+  assert.equal(fresh.articles[0].language, 'en');
+  assert.equal(fresh.requestedSourceCount, 1);
+
+  clock += 121_000;
+  body = '<html>Unexpected upstream response</html>';
+  const cached = await catalog.news(query);
+  assert.deepEqual(cached.articles, fresh.articles);
+  assert.deepEqual(cached.cached, [{ id: source, fetchedAt: '2026-11-23T08:00:00.000Z' }]);
+  assert.deepEqual(cached.unavailable, []);
+  assert.deepEqual((await catalog.news(query)).cached, cached.cached);
+  await assert.rejects(catalog.download(source, new URLSearchParams()), { status: 503 });
+  assert.equal(fetches, 2);
+
+  clock += 16_000;
+  body = rss([['An updated official bulletin', 'Mon, 23 Nov 2026 08:00:00 GMT', 'https://example.test/latest']]);
+  const recovered = await catalog.news(query);
+  assert.deepEqual(recovered.cached, []);
+  assert.equal(recovered.articles[0].title, 'An updated official bulletin');
+
+  clock += 121_000;
+  body = new Error('Upstream timed out');
+  assert.deepEqual((await catalog.news(query)).articles, recovered.articles);
+
+  clock += 6 * 60 * 60 * 1000 + 1;
+  body = '<broken';
+  const expired = await catalog.news(query);
+  assert.deepEqual(expired.unavailable, [source]);
+  assert.deepEqual(expired.articles, []);
+});

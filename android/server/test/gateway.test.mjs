@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { Gateway } from '../src/gateway.mjs';
 import { Store } from '../src/store.mjs';
+import { newsTranslation } from '../src/news-translation.mjs';
 class Fake extends EventEmitter {
   calls = []; replies = []; process = {}; count = 0;
   async start() {}
@@ -73,6 +74,29 @@ test('reference rates are read-only and require SSH mobile authorization and no 
   assert.equal(fetched, 0);
   assert.deepEqual(await call(route, undefined, auth), { status: 200, body: sample });
   assert.equal(fetched, 1);
+});
+
+test('news translation requires SSH authorization and bounds the translation request', async t => {
+  const route = '/v1/server-data/news/translate';
+  const auth = { Authorization: 'SSH test' };
+  const calls = [];
+  const { call } = await fixture(t, {
+    sshMobile: req => req.headers.authorization === 'SSH test' ? 'test-device' : null,
+    translateNews: newsTranslation({ translate: async (target, texts) => {
+      calls.push([target, texts]);
+      return ['贸易新闻', '出口与进口'];
+    } })
+  });
+  const article = { source: 'en', target: 'zh', title: 'Trade news', summary: 'Exports and imports' };
+  assert.equal((await call(route, article)).status, 401);
+  assert.equal((await call(route, article, { ...auth, 'x-workbench-ingress': 'web' })).status, 404);
+  assert.equal((await call(route + '?host=example.test', article, auth)).status, 400);
+  for (const bad of [{ target: '../models' }, { title: 'x'.repeat(513) }, { source: 'es' }, { url: 'https://example.test' }]) {
+    assert.equal((await call(route, { ...article, ...bad }, auth)).status, 400);
+  }
+  assert.deepEqual(await call(route, article, auth), { status: 200, body: { target: 'zh', title: '贸易新闻', summary: '出口与进口' } });
+  assert.equal((await call(route, article, auth)).status, 200);
+  assert.deepEqual(calls, [['zh', [article.title, article.summary]]]);
 });
 test('trade directory and observations accept only SSH and the country-year query', async t => {
   const routes = '/v1/server-data/world-bank';

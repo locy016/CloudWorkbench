@@ -1,4 +1,4 @@
-import { isCalendarDate, parseFeed } from './resource-formats.mjs';
+import { isCalendarDate } from './resource-formats.mjs';
 
 const newsCategories = new Set(['headlines', 'current', 'trade']);
 const queryKeys = new Set(['source', 'q', 'category', 'from', 'to']);
@@ -60,9 +60,8 @@ export async function aggregateNews(catalog, parameters, readSource) {
     (category === null || source.summary.category === category));
   const keywords = keyword ? normalize(keyword).split(/\s+/) : [];
   const results = await Promise.allSettled(selected.map(async source => {
-    const { data, url } = await readSource(source);
-    const feed = parseFeed(data, source.format, url);
-    return feed.rows.filter(row => {
+    const { feed, stale, fetched } = await readSource(source);
+    const articles = feed.rows.filter(row => {
       if (!row.title) return false;
       if (from || to) {
         const day = row.published?.slice(0, 10);
@@ -75,18 +74,22 @@ export async function aggregateNews(catalog, parameters, readSource) {
       .map(row => ({
         sourceId: source.id, publisher: source.publisher,
         title: row.title.slice(0, 512), summary: row.summary.slice(0, 512),
-        time: row.published, timeKind: row.timeKind, link: row.link
+        time: row.published, timeKind: row.timeKind, link: row.link, language: source.language ?? null
       }));
+    return { articles, cachedAt: stale ? new Date(fetched).toISOString() : null };
   }));
-  const articles = [], unavailable = [];
+  const articles = [], unavailable = [], cached = [];
   for (const [index, result] of results.entries()) {
-    if (result.status === 'fulfilled') articles.push(...result.value);
-    else unavailable.push(selected[index].id);
+    const id = selected[index].id;
+    if (result.status === 'fulfilled') {
+      articles.push(...result.value.articles);
+      if (result.value.cachedAt) cached.push({ id, fetchedAt: result.value.cachedAt });
+    } else unavailable.push(id);
   }
   articles.sort((a, b) => (b.time ?? '').localeCompare(a.time ?? ''));
   const unique = deduplicate(articles);
   return {
     sources: sources.map(({ id, title, publisher, summary: { category } }) => ({ id, title, publisher, category })),
-    articles: unique.slice(0, maxArticles), matchedCount: unique.length, unavailable
+    articles: unique.slice(0, maxArticles), matchedCount: unique.length, unavailable, cached, requestedSourceCount: selected.length
   };
 }

@@ -8,6 +8,7 @@ import { Releases } from './releases.mjs';
 import { Events } from './events.mjs';
 import { mobileSessionAuthorizer, readMobileKey } from './mobile-session.mjs';
 import { resourceCatalog } from './resources.mjs';
+import { newsTranslation } from './news-translation.mjs';
 process.umask(0o077);
 const data = process.env.DATA_DIR || '/home/xux/.local/share/cloud-workbench';
 mkdirSync(data, { recursive: true, mode: 0o700 });
@@ -39,8 +40,10 @@ catch (error) {
   if (error.code !== 'ENOENT') console.error('SSH mobile session key unavailable');
 }
 const resources = resourceCatalog({ configFile: join(data, 'resource-sources.json') });
+const translations = process.env.NEWS_TRANSLATION_DIR || '/home/xux/.local/lib/cloud-workbench-translation';
 const gateway = new Gateway({ codex: new Codex(), store: new Store(data + '/workbench.db'),
-  token, cwd, events, sshMobile, projects, sharedWritableRoots, codexAccess, resources });
+  token, cwd, events, sshMobile, projects, sharedWritableRoots, codexAccess, resources,
+  translateNews: newsTranslation({ runtime: translations }) });
 gateway.extension = new Releases(data);
 gateway.draining = () => access(data + '/transport-maintenance').then(() => true, () => false);
 gateway.http.requestTimeout = 1800000; gateway.http.headersTimeout = 10000;
