@@ -3,6 +3,7 @@ import { Metrics } from './metrics.mjs';
 import { pageLimit } from './cursors.mjs';
 import { configureHttpTransport, respondJson } from './http-transport.mjs';
 import { privateLoopback } from './mobile-session.mjs';
+import { referenceRates } from './reference-rates.mjs';
 import { createServer } from 'node:http';
 import { timingSafeEqual, randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
@@ -24,7 +25,8 @@ export class Gateway {
   metrics = new Metrics(); statusInFlight = null;
   approvals = new Map(); loaded = new Set(); lock = false; statusCache = null;
   startingRequestId = null;
-  constructor({ codex, store, token, cwd, events, sshMobile, projects = [{ id: 'default', name: '默认项目', path: cwd }], sharedWritableRoots = [], codexAccess = 'workspace-write' }) {
+  constructor({ codex, store, token, cwd, events, sshMobile, readReferenceRates = referenceRates(),
+    projects = [{ id: 'default', name: '默认项目', path: cwd }], sharedWritableRoots = [], codexAccess = 'workspace-write' }) {
     if (!['workspace-write', 'danger-full-access'].includes(codexAccess)) {
       throw new Error('Invalid Codex access mode');
     }
@@ -32,6 +34,7 @@ export class Gateway {
       throw new Error('Codex shared writable roots must be absolute paths');
     }
     Object.assign(this, { codex, store, token, cwd, events, sshMobile, projects, sharedWritableRoots, codexAccess });
+    this.readReferenceRates = readReferenceRates;
     if (events) store.onChange = (id, overview) => events.notify(id, overview);
     codex.on('notification', m => { if (!this.closing) this.onNotification(m); });
     codex.on('request', m => { if (!this.closing) this.onRequest(m); });
@@ -93,6 +96,11 @@ export class Gateway {
         api: this.metrics.snapshot(), store: this.store.performanceSnapshot?.() || null,
       });
       if (this.extension && await this.extension.handle(req, res, path, respond)) return;
+      if (req.method === 'GET' && path === '/v1/server-data/ecb-rates') {
+        if (!subject) throw fail(401, '此数据需通过已授权的 SSH 连接读取');
+        if (url.search) throw fail(400, '参考汇率接口不接受查询参数');
+        return respond(200, await this.readReferenceRates());
+      }
       if (req.method === 'GET' && path === '/v1/status') return respond(200, await this.status(url.searchParams.get('refresh') === '1'));
       if (req.method === 'GET' && path === '/v1/projects') return respond(200, { projects: this.projects });
       if (req.method === 'POST' && path === '/v1/attachments') {

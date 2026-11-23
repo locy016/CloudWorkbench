@@ -32,12 +32,20 @@ import androidx.compose.ui.window.DialogProperties
 @Composable
 internal fun BrowserStartPage(
     entries: List<BrowserBookmark>, message: String?, onOpen: (BrowserBookmark) -> Unit, onManage: () -> Unit,
-    onConnectionAction: (() -> Unit)?, connectionAction: String
+    onConnectionAction: (() -> Unit)?, connectionAction: String, onServerData: () -> Unit
 ) {
     Surface(Modifier.fillMaxSize(), color = Background) {
         LazyColumn(Modifier.fillMaxSize().testTag("browserStart"), horizontalAlignment = Alignment.CenterHorizontally,
             contentPadding = PaddingValues(horizontal = 20.dp, vertical = 28.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            item {
+                FilledTonalButton(onClick = onServerData,
+                    modifier = Modifier.widthIn(max = 640.dp).fillMaxWidth().testTag("openServerData")) {
+                    Icon(Icons.Outlined.Storage, null, Modifier.size(20.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("服务器数据")
+                }
+            }
             item {
                 Row(Modifier.widthIn(max = 640.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text("常用地址", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)

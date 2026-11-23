@@ -59,6 +59,31 @@ class BrowserAcceptanceTest {
         compose.onNodeWithTag("browserSend").performClick()
         compose.waitUntil(180000) { runCatching { compose.onAllNodes(hasTestTag("message-assistant") and hasAnyDescendant(hasText("BROWSER_TEXT_OK", substring = true)), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }.getOrDefault(false) }
     }
+
+    @Test fun serverDataShowsEcbReferenceRatesWithoutAWebView() {
+        compose.waitUntil(45000) { compose.onAllNodesWithText("已连接").fetchSemanticsNodes().isNotEmpty() }
+        compose.openWorkbenchTab("浏览")
+        compose.onNodeWithTag("openServerData").assertIsDisplayed().performClick()
+        compose.onNodeWithTag("serverDataPage").assertIsDisplayed()
+        compose.onNodeWithTag("browserView").assertDoesNotExist()
+        compose.runOnIdle { org.junit.Assert.assertNull(web(activity.window.decorView)) }
+        compose.waitUntil(25000) { compose.onAllNodesWithText("USD").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("referenceRatesSource").assertTextEquals("来源：欧洲央行（ECB）")
+        compose.onNodeWithTag("referenceRatesDate").assert(
+            SemanticsMatcher("shows the source publication date") { node ->
+                node.config[androidx.compose.ui.semantics.SemanticsProperties.Text].any {
+                    it.text.matches(Regex("数据日期：\\d{4}-\\d{2}-\\d{2}"))
+                }
+            }
+        )
+        compose.onNodeWithTag("referenceRatesRefresh").assertIsEnabled().performClick()
+        compose.waitUntil(25000) {
+            compose.onAllNodes(hasTestTag("referenceRatesRefresh") and isEnabled()).fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithTag("referenceRatesStatus").assertDoesNotExist()
+        compose.onNodeWithContentDescription("返回浏览").performClick()
+        compose.onNodeWithTag("browserStart").assertIsDisplayed()
+    }
     @Test fun keyboardGoAndSelectedText() {
         browser()
         compose.onNodeWithTag("browserAddress").performTextReplacement("https://example.com/?workbench=selection")

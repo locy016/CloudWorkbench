@@ -56,6 +56,24 @@ test('authentication, origin and unknown thread are rejected', async t => {
   assert.equal((await call('/v1/threads', undefined, { Origin: 'https://evil.test' })).status, 403);
   assert.equal((await call('/v1/threads/not-ours')).status, 404);
 });
+test('reference rates are read-only and require SSH mobile authorization and no client-supplied destination', async t => {
+  const route = '/v1/server-data/ecb-rates';
+  const sample = { date: '2026-11-20', rates: [{ currency: 'USD', rate: '1.0990' }], stale: false };
+  let fetched = 0;
+  const { call } = await fixture(t, {
+    sshMobile: req => req.headers.authorization === 'SSH test' ? 'test-device' : null,
+    readReferenceRates: async () => { fetched++; return sample; }
+  });
+  const auth = { Authorization: 'SSH test' };
+  assert.equal((await call(route)).status, 401);
+  assert.equal((await call(route, undefined, { ...auth, Origin: 'https://example.test' })).status, 403);
+  assert.equal((await call(route, undefined, { ...auth, 'x-workbench-ingress': 'web' })).status, 404);
+  assert.equal((await call(route + '?url=https://example.test', undefined, auth)).status, 400);
+  assert.equal((await call(route, {}, auth)).status, 404);
+  assert.equal(fetched, 0);
+  assert.deepEqual(await call(route, undefined, auth), { status: 200, body: sample });
+  assert.equal(fetched, 1);
+});
 test('manual overview refresh bypasses the cache and shares an in-flight collection', async t => {
   const { g, call } = await fixture(t);
   let collections = 0;

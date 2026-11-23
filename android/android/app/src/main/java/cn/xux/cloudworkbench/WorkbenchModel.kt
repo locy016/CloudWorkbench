@@ -119,6 +119,12 @@ class WorkbenchModel internal constructor(
     var browserUrl by mutableStateOf("")
     var browserSaved: android.os.Bundle? = null
     internal val browserBookmarks = BrowserBookmarks(prefs)
+    internal val referenceRatesConnected get() = connected && !connecting && !reconnecting
+    internal var ecbRates by mutableStateOf(prefs.getString(ECB_RATES_CACHE, null)?.let {
+        runCatching { ReferenceRates.parse(JSONObject(it)) }.getOrNull()
+    }); private set
+    internal var referenceRatesLoading by mutableStateOf(false); private set
+    internal var referenceRatesUnavailable by mutableStateOf(false); private set
     private val draftStore = DraftStore(prefs, File(app.noBackupFilesDir,
         if (persistBinding) "workbench-drafts" else "workbench-test-drafts"))
     private val drafts = mutableStateMapOf<String, DraftRecord>().apply { putAll(draftStore.restore()) }
@@ -607,6 +613,27 @@ class WorkbenchModel internal constructor(
         }
     }
 
+    internal suspend fun refreshReferenceRates() {
+        if (!referenceRatesConnected || referenceRatesLoading) return
+        val transport = connection
+        referenceRatesLoading = true
+        referenceRatesUnavailable = false
+        try {
+            val payload = transport.sync("/v1/server-data/ecb-rates")
+            val rates = ReferenceRates.parse(payload)
+            if (transport === connection && referenceRatesConnected) {
+                ecbRates = rates
+                prefs.edit().putString(ECB_RATES_CACHE, payload.toString()).apply()
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            if (transport === connection) referenceRatesUnavailable = true
+        } finally {
+            referenceRatesLoading = false
+        }
+    }
+
     private suspend fun refresh(notice: ChangeNotice) {
         val selectedId = currentId
         val now = SystemClock.elapsedRealtime()
@@ -1079,6 +1106,7 @@ class WorkbenchModel internal constructor(
 
     private companion object {
         const val OVERVIEW_CACHE = "last-server-overview"
+        const val ECB_RATES_CACHE = "last-ecb-reference-rates"
         const val BACKGROUND_SYNC_GRACE_MS = 30_000L
         const val PROJECTS_INTERVAL_MS = 30000L
         const val SUBMISSION_UNCONFIRMED = "发送结果待确认。连接恢复后会核对会话，如未收到可手动重试。"

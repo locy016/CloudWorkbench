@@ -131,6 +131,7 @@ private suspend fun WebView.hasPageContent(): Boolean = suspendCancellableCorout
     var view by remember { mutableStateOf<WebView?>(null) }
     var address by remember { mutableStateOf(TextFieldValue(vm.browserUrl)) }
     var startPage by rememberSaveable { mutableStateOf(vm.browserUrl.isEmpty()) }
+    var serverDataOpen by rememberSaveable { mutableStateOf(false) }
     var bookmarksOpen by rememberSaveable { mutableStateOf(false) }
     var bookmarkToEdit by rememberSaveable { mutableStateOf<String?>(null) }
     var addressFocused by remember { mutableStateOf(false) }
@@ -171,6 +172,18 @@ private suspend fun WebView.hasPageContent(): Boolean = suspendCancellableCorout
     fun finishAddressEdit() {
         focusManager.clearFocus(force = true)
         keyboardController?.hide()
+    }
+    fun openServerData() {
+        finishAddressEdit()
+        imageJob?.cancel()
+        view?.stopLoading()
+        pageReady = false
+        pageLoading = false
+        serverDataOpen = true
+    }
+    if (serverDataOpen) {
+        ServerDataPage(vm, visible, menuButton, onBack = { serverDataOpen = false })
+        return
     }
     fun startNavigation() {
         pageError = null
@@ -368,6 +381,8 @@ private suspend fun WebView.hasPageContent(): Boolean = suspendCancellableCorout
                     }
                 }, enabled = screenshot == null) { Icon(Icons.Outlined.MoreHoriz, "更多浏览操作") }
                 DropdownMenu(expanded = toolsOpen, onDismissRequest = { toolsOpen = false }) {
+                    DropdownMenuItem(text = { Text("服务器数据") }, leadingIcon = { Icon(Icons.Outlined.Storage, null) },
+                        onClick = { toolsOpen = false; openServerData() })
                     if (screenWidth < 350) DropdownMenuItem(text = { Text("主页") },
                         leadingIcon = { Icon(Icons.Outlined.Home, null) }, onClick = { toolsOpen = false; goHome() })
                     if (!starInToolbar) DropdownMenuItem(
@@ -557,7 +572,8 @@ private suspend fun WebView.hasPageContent(): Boolean = suspendCancellableCorout
                     onOpen = { if (online) openBookmark(it) }, onManage = {
                     finishAddressEdit()
                     bookmarksOpen = true
-                }, onConnectionAction = configureBrowser.takeIf { supported && !online }, connectionAction = "前往云端")
+                }, onConnectionAction = configureBrowser.takeIf { supported && !online }, connectionAction = "前往云端",
+                    onServerData = ::openServerData)
             } else if ((!pageReady || pageError != null) && screenshot == null) Surface(Modifier.fillMaxSize().zIndex(1f), color = Background) {
                 Box(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
