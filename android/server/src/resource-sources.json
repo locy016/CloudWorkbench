@@ -208,6 +208,331 @@
       "limit": 25
     },
     {
+      "id": "bbc-world",
+      "category": "headlines",
+      "language": "en",
+      "readerHosts": [
+        "www.bbc.co.uk",
+        "www.bbc.com"
+      ],
+      "title": "BBC 国际要闻",
+      "publisher": "BBC News",
+      "sourceUrl": "https://www.bbc.co.uk/news/world",
+      "endpoint": "https://feeds.bbci.co.uk/news/world/rss.xml",
+      "format": "rss",
+      "cacheSeconds": 180,
+      "limit": 25
+    },
+    {
+      "id": "npr-headlines",
+      "category": "headlines",
+      "language": "en",
+      "readerHosts": [
+        "www.npr.org"
+      ],
+      "title": "NPR 新闻要闻",
+      "publisher": "美国国家公共电台（NPR）",
+      "sourceUrl": "https://www.npr.org/sections/news/",
+      "endpoint": "https://feeds.npr.org/1001/rss.xml",
+      "format": "rss",
+      "cacheSeconds": 180,
+      "limit": 25
+    },
+    {
+      "id": "dw-current-affairs",
+      "category": "current",
+      "language": "en",
+      "readerHosts": [
+        "www.dw.com"
+      ],
+      "title": "德国之声国际时事",
+      "publisher": "德国之声（DW）",
+      "sourceUrl": "https://www.dw.com/en/top-stories/s-9097",
+      "endpoint": "https://rss.dw.com/rdf/rss-en-all",
+      "format": "rss",
+      "cacheSeconds": 180,
+      "limit": 25
+    },
+    {
+      "id": "uk-housing-communities",
+      "category": "society",
+      "language": "en",
+      "readerHosts": [
+        "www.gov.uk"
+      ],
+      "title": "住房与社区资讯",
+      "publisher": "英国住房与社区部（MHCLG）",
+      "sourceUrl": "https://www.gov.uk/government/organisations/ministry-of-housing-communities-local-government",
+      "endpoint": "https://www.gov.uk/search/news-and-communications.atom",
+      "format": "atom",
+      "query": {
+        "organisations[]": "ministry-of-housing-communities-local-government"
+      },
+      "cacheSeconds": 180,
+      "limit": 25
+    },
+    {
+      "id": "bbc-arts-culture",
+      "category": "humanities",
+      "language": "en",
+      "readerHosts": [
+        "www.bbc.co.uk",
+        "www.bbc.com"
+      ],
+      "title": "BBC 艺术与文化",
+      "publisher": "BBC News",
+      "sourceUrl": "https://www.bbc.co.uk/news/entertainment_and_arts",
+      "endpoint": "https://feeds.bbci.co.uk/news/entertainment_and_arts/rss.xml",
+      "format": "rss",
+      "cacheSeconds": 180,
+      "limit": 25
+    },
+    {
+      "id": "dvids-military-news",
+      "category": "military",
+      "language": "en",
+      "readerHosts": [
+        "www.dvidshub.net"
+      ],
+      "title": "美国国防公开新闻",
+      "publisher": "美国国防视觉信息发布机构（DVIDS）",
+      "sourceUrl": "https://www.dvidshub.net/news",
+      "endpoint": "https://www.dvidshub.net/rss/news",
+      "format": "rss",
+      "cacheSeconds": 180,
+      "limit": 25
+    },
+    {
+      "id": "esa-science-news",
+      "category": "science",
+      "language": "en",
+      "readerHosts": [
+        "www.esa.int"
+      ],
+      "title": "欧洲航天动态",
+      "publisher": "欧洲航天局（ESA）",
+      "sourceUrl": "https://www.esa.int/articles/about-us/directorates/resources-and-services/rss-feeds",
+      "endpoint": "https://www.esa.int/rss/latest-news-homepage.rss",
+      "format": "rss",
+      "cacheSeconds": 180,
+      "limit": 25
+    },
+    {
+      "id": "mit-research-news",
+      "category": "science",
+      "language": "en",
+      "readerHosts": [
+        "news.mit.edu"
+      ],
+      "title": "MIT 科研与工程动态",
+      "publisher": "麻省理工学院（MIT News）",
+      "sourceUrl": "https://news.mit.edu/",
+      "endpoint": "https://news.mit.edu/rss/feed",
+      "format": "rss",
+      "cacheSeconds": 180,
+      "limit": 25
+    },
+    {
+      "id": "uk-health-security",
+      "category": "health",
+      "language": "en",
+      "readerHosts": [
+        "www.gov.uk"
+      ],
+      "title": "公共卫生与健康预警",
+      "publisher": "英国卫生安全局（UKHSA）",
+      "sourceUrl": "https://www.gov.uk/government/organisations/uk-health-security-agency",
+      "endpoint": "https://www.gov.uk/search/news-and-communications.atom",
+      "format": "atom",
+      "query": {
+        "organisations[]": "uk-health-security-agency"
+      },
+      "cacheSeconds": 180,
+      "limit": 25
+    },
+    {
+      "id": "bbc-health",
+      "category": "health",
+      "language": "en",
+      "readerHosts": [
+        "www.bbc.co.uk",
+        "www.bbc.com"
+      ],
+      "title": "BBC 健康资讯",
+      "publisher": "BBC News",
+      "sourceUrl": "https://www.bbc.co.uk/news/health",
+      "endpoint": "https://feeds.bbci.co.uk/news/health/rss.xml",
+      "format": "rss",
+      "cacheSeconds": 180,
+      "limit": 25
+    },
+    {
+      "id": "uk-foreign-affairs",
+      "category": "diplomacy",
+      "language": "en",
+      "readerHosts": [
+        "www.gov.uk"
+      ],
+      "title": "英国外交动态",
+      "publisher": "英国外交及发展事务部（FCDO）",
+      "sourceUrl": "https://www.gov.uk/government/organisations/foreign-commonwealth-development-office",
+      "endpoint": "https://www.gov.uk/search/news-and-communications.atom",
+      "format": "atom",
+      "query": {
+        "organisations[]": "foreign-commonwealth-development-office"
+      },
+      "cacheSeconds": 180,
+      "limit": 25
+    },
+    {
+      "id": "eu-international-partnerships",
+      "category": "diplomacy",
+      "language": "en",
+      "readerHosts": [
+        "international-partnerships.ec.europa.eu",
+        "ec.europa.eu"
+      ],
+      "title": "欧盟国际伙伴关系动态",
+      "publisher": "欧盟国际伙伴关系总司（DG INTPA）",
+      "sourceUrl": "https://international-partnerships.ec.europa.eu/news-and-events/news_en",
+      "endpoint": "https://international-partnerships.ec.europa.eu/node/2/rss_en",
+      "format": "rss",
+      "cacheSeconds": 180,
+      "limit": 25
+    },
+    {
+      "id": "eea-environment-news",
+      "category": "environment",
+      "language": "en",
+      "readerHosts": [
+        "www.eea.europa.eu"
+      ],
+      "title": "欧洲环境与气候资讯",
+      "publisher": "欧洲环境署（EEA）",
+      "sourceUrl": "https://www.eea.europa.eu/en/newsroom/news",
+      "endpoint": "https://www.eea.europa.eu/en/newsroom/news/rss.xml",
+      "format": "rss",
+      "cacheSeconds": 180,
+      "limit": 25
+    },
+    {
+      "id": "uk-environment-agency",
+      "category": "environment",
+      "language": "en",
+      "readerHosts": [
+        "www.gov.uk"
+      ],
+      "title": "环境与水务动态",
+      "publisher": "英国环境署（Environment Agency）",
+      "sourceUrl": "https://www.gov.uk/government/organisations/environment-agency",
+      "endpoint": "https://www.gov.uk/search/news-and-communications.atom",
+      "format": "atom",
+      "query": {
+        "organisations[]": "environment-agency"
+      },
+      "cacheSeconds": 180,
+      "limit": 25
+    },
+    {
+      "id": "uk-education-policy",
+      "category": "education",
+      "language": "en",
+      "readerHosts": [
+        "www.gov.uk"
+      ],
+      "title": "教育政策动态",
+      "publisher": "英国教育部（DfE）",
+      "sourceUrl": "https://www.gov.uk/government/organisations/department-for-education",
+      "endpoint": "https://www.gov.uk/search/news-and-communications.atom",
+      "format": "atom",
+      "query": {
+        "organisations[]": "department-for-education"
+      },
+      "cacheSeconds": 180,
+      "limit": 25
+    },
+    {
+      "id": "bbc-education",
+      "category": "education",
+      "language": "en",
+      "readerHosts": [
+        "www.bbc.co.uk",
+        "www.bbc.com"
+      ],
+      "title": "BBC 教育与家庭资讯",
+      "publisher": "BBC News",
+      "sourceUrl": "https://www.bbc.co.uk/news/education",
+      "endpoint": "https://feeds.bbci.co.uk/news/education/rss.xml",
+      "format": "rss",
+      "cacheSeconds": 180,
+      "limit": 25
+    },
+    {
+      "id": "eia-energy-analysis",
+      "category": "energy",
+      "language": "en",
+      "readerHosts": [
+        "www.eia.gov"
+      ],
+      "title": "美国能源市场资讯",
+      "publisher": "美国能源信息署（EIA）",
+      "sourceUrl": "https://www.eia.gov/todayinenergy/",
+      "endpoint": "https://www.eia.gov/rss/todayinenergy.xml",
+      "format": "rss",
+      "cacheSeconds": 180,
+      "limit": 25
+    },
+    {
+      "id": "eu-energy-news",
+      "category": "energy",
+      "language": "en",
+      "readerHosts": [
+        "energy.ec.europa.eu",
+        "ec.europa.eu"
+      ],
+      "title": "欧盟能源动态",
+      "publisher": "欧盟能源总司（DG Energy）",
+      "sourceUrl": "https://energy.ec.europa.eu/news_en",
+      "endpoint": "https://energy.ec.europa.eu/node/2/rss_en",
+      "format": "rss",
+      "cacheSeconds": 180,
+      "limit": 25
+    },
+    {
+      "id": "eu-transport-news",
+      "category": "transport",
+      "language": "en",
+      "readerHosts": [
+        "transport.ec.europa.eu",
+        "ec.europa.eu"
+      ],
+      "title": "欧盟交通与出行动态",
+      "publisher": "欧盟交通总司（DG MOVE）",
+      "sourceUrl": "https://transport.ec.europa.eu/news-events/news_en",
+      "endpoint": "https://transport.ec.europa.eu/node/2/rss_en",
+      "format": "rss",
+      "cacheSeconds": 180,
+      "limit": 25
+    },
+    {
+      "id": "uk-transport-policy",
+      "category": "transport",
+      "language": "en",
+      "readerHosts": [
+        "www.gov.uk"
+      ],
+      "title": "英国交通运输动态",
+      "publisher": "英国交通部（DfT）",
+      "sourceUrl": "https://www.gov.uk/government/organisations/department-for-transport",
+      "endpoint": "https://www.gov.uk/search/news-and-communications.atom",
+      "format": "atom",
+      "query": {
+        "organisations[]": "department-for-transport"
+      },
+      "cacheSeconds": 180,
+      "limit": 25
+    },
+    {
       "id": "nws-marine-alerts",
       "category": "logistics",
       "title": "海运气象警报",

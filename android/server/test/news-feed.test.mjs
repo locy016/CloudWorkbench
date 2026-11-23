@@ -8,7 +8,7 @@ const rss = items => '<rss version="2.0"><channel>' + items.map(([title, time, l
 
 function fixture() {
   const hosts = [];
-  const catalog = resourceCatalog({ getResource: async url => {
+  const catalog = resourceCatalog({ getResource: async (url, format) => {
     hosts.push(url.hostname);
     switch (url.hostname) {
       case 'www.ungeneva.org':
@@ -37,7 +37,8 @@ function fixture() {
       case 'www.wto.org':
         throw new Error('Source unavailable');
       default:
-        throw new Error('Non-news resource was requested');
+        assert.equal(format, 'rss');
+        return rss([]);
     }
   } });
   return { catalog, hosts };
@@ -46,11 +47,12 @@ function fixture() {
 test('news joins eligible sources, orders dates and deduplicates records without rewriting original links', async () => {
   const { catalog, hosts } = fixture();
   const news = await catalog.news(new URLSearchParams());
-  assert.equal(hosts.length, 12);
-  assert.deepEqual(new Set(news.sources.map(source => source.id)),
-    new Set(['un-geneva-headlines', 'eu-commission-briefings', 'wto-trade-news', 'uk-business-trade',
-      'eu-trade-policy', 'ustr-trade-news', 'uk-trade-remedies', 'uk-social-policy', 'historic-england-culture',
-      'uk-defence-news', 'nasa-science-news', 'uk-public-health']));
+  assert.equal(hosts.length, 32);
+  assert.equal(new Set(news.sources.map(source => source.id)).size, 32);
+  const categories = Map.groupBy(news.sources, source => source.category);
+  assert.deepEqual([...categories.keys()].sort(), ['current', 'diplomacy', 'education', 'energy', 'environment',
+    'headlines', 'health', 'humanities', 'military', 'science', 'society', 'trade', 'transport']);
+  for (const sources of categories.values()) assert(new Set(sources.map(source => source.publisher)).size >= 2);
   assert.deepEqual(news.unavailable, ['wto-trade-news']);
   assert.deepEqual(news.articles.map(article => article.title), [
     'UK trade bulletin', 'International supply chain report', 'Official trade meeting conclusions',
@@ -86,7 +88,7 @@ test('news category, inclusive UTC publication dates, source and keyword interse
     'category=logistics', 'category=', 'category=trade&category=current', 'to=2026-11-21&to=2026-11-21']) {
     await assert.rejects(catalog.news(new URLSearchParams(invalid)), { status: 400 });
   }
-  assert.deepEqual(hosts, ['ec.europa.eu', 'www.ungeneva.org', 'www.gov.uk']);
+  assert.deepEqual(hosts, ['ec.europa.eu', 'www.ungeneva.org', 'feeds.bbci.co.uk', 'feeds.npr.org', 'www.gov.uk']);
 });
 
 test('news keyword and selected source combine before deduplication', async () => {

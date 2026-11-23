@@ -255,7 +255,7 @@ export function resourceCatalog({ configFile, getResource = getPayload, getArtic
     if (entry.value && now() - entry.value.fetched < source.cacheSeconds * 1000) return entry.value;
     cache.delete(key);
     cache.set(key, entry);
-    if (cache.size > 20) cache.delete(cache.keys().next().value);
+    if (cache.size > 36) cache.delete(cache.keys().next().value);
     const fallback = () => {
       if (allowStale && entry.value && now() - entry.value.fetched <= feedCacheLimit) {
         return { ...entry.value, stale: true };

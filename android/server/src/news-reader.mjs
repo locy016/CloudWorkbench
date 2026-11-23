@@ -4,7 +4,7 @@ import { Readability } from '@mozilla/readability';
 import { parseHTML } from 'linkedom';
 import { decodeResource } from './resource-formats.mjs';
 
-const maxPageBytes = 1024 * 1024;
+const maxPageBytes = 2 * 1024 * 1024;
 const maxText = 80_000;
 const maxBlocks = 500;
 const referenceLifetime = 3 * 60 * 60 * 1000;
@@ -144,6 +144,8 @@ export function newsReader({ lookup, getArticlePage = readPage, now = Date.now }
     remember(article, source) {
       const url = article.link && source && articleUrl(article.link, source.readerHosts);
       if (!url) return null;
+      if ((['www.bbc.co.uk', 'www.bbc.com'].includes(url.hostname) && url.pathname.startsWith('/news/videos/')) ||
+          (url.hostname === 'www.eia.gov' && url.pathname === '/todayinenergy/detail.php' && !url.searchParams.get('id'))) return null;
       const id = createHash('sha256').update(article.sourceId).update('\0').update(url.href).digest('hex');
       references.delete(id);
       references.set(id, { ...article, storedAt: now() });
@@ -170,9 +172,14 @@ export function newsReader({ lookup, getArticlePage = readPage, now = Date.now }
           if (document.refCd !== commission.reference || typeof language?.htmlContent !== 'string' ||
               typeof language.title !== 'string') throw unavailable();
           content = bodyFromHtml(language.htmlContent, article.title, language.title);
+          if (content && typeof language.language === 'string') {
+            content.language = language.language.toLowerCase().split(/[-_]/)[0];
+          }
         } else {
           const html = await getArticlePage(url, { hosts, lookup });
           content = bodyFromHtml(html, article.title);
+          const language = /<html\b[^>]*\blang\s*=\s*['"]?([a-z]{2,3})(?=['"\s>_-])/i.exec(html.slice(0, 8_192))?.[1];
+          if (content && language) content.language = language.toLowerCase();
         }
         if (!content) throw unavailable();
         const value = { id, ...content };

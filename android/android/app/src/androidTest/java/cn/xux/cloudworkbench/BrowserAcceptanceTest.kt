@@ -253,7 +253,7 @@ class BrowserAcceptanceTest {
         compose.onNodeWithTag("aggregatedNews").performScrollToNode(hasTestTag("newsHeadline"))
         compose.onAllNodesWithTag("newsHeadline").onFirst().assertIsDisplayed()
         compose.onAllNodesWithTag("newsHeadlineMetadata").onFirst().assertTextContains("UTC", substring = true)
-        compose.onAllNodesWithTag("newsHeadlineLink").onFirst().assertTextContains("复制原文地址")
+        compose.onAllNodesWithTag("newsHeadlineLink").onFirst().assertTextContains("复制链接")
         compose.onNodeWithTag("aggregatedNews").performScrollToNode(hasTestTag("pickNewsSource"))
         compose.onNodeWithTag("pickNewsSource").performClick()
         compose.onNodeWithTag("newsSource-wto-trade-news").performClick()
@@ -287,9 +287,13 @@ class BrowserAcceptanceTest {
             .config[androidx.compose.ui.semantics.SemanticsProperties.Text].single().text
 
         awaitNews()
-        for ((category, publisher) in listOf("headlines" to "UN Geneva", "current" to "European Commission")) {
+        for ((category, source, publisher) in listOf(Triple("headlines", "un-geneva-headlines", "UN Geneva"),
+            Triple("current", "eu-commission-briefings", "European Commission"))) {
             list.performScrollToNode(hasTestTag("newsCategory-$category"))
             compose.onNodeWithTag("newsCategory-$category").performClick().assertIsSelected()
+            awaitNews()
+            compose.onNodeWithTag("pickNewsSource").performClick()
+            compose.onNodeWithTag("newsSource-$source").performClick()
             awaitNews()
             list.performScrollToNode(hasTestTag("newsHeadline"))
             org.junit.Assert.assertTrue(metadata().contains(publisher))
@@ -353,7 +357,18 @@ class BrowserAcceptanceTest {
         }
         awaitTranslated()
         org.junit.Assert.assertTrue(currentTitle().any { Character.UnicodeScript.of(it.code) == Character.UnicodeScript.HAN })
+        list.performScrollToNode(hasTestTag("newsArticleFooter"))
+        val actions = listOf("newsHeadlineLink", "toggleNewsOriginal", "readNewsArticle")
+        val footerBounds = actions.map { tag -> compose.onAllNodesWithTag(tag).onFirst().fetchSemanticsNode().boundsInRoot }
+        val footerY = footerBounds.map { it.center.y }
+        org.junit.Assert.assertTrue(footerY.max() - footerY.min() < 10)
+        org.junit.Assert.assertTrue(footerBounds.maxOf { it.height } - footerBounds.minOf { it.height } < 2)
         list.performScrollToNode(hasTestTag("pickNewsSource"))
+        val controls = listOf("newsKeyword", "searchNews", "pickNewsSource", "pickNewsDates")
+        val toolbarBounds = controls.map { tag -> compose.onNodeWithTag(tag).fetchSemanticsNode().boundsInRoot }
+        val toolbarY = toolbarBounds.map { it.center.y }
+        org.junit.Assert.assertTrue(toolbarY.max() - toolbarY.min() < 10)
+        org.junit.Assert.assertTrue(toolbarBounds.maxOf { it.height } - toolbarBounds.minOf { it.height } < 2)
         compose.onNodeWithTag("pickNewsSource").performClick()
         compose.onNodeWithTag("newsSource-wto-trade-news").performClick()
         compose.waitUntil(30000) { compose.onAllNodesWithTag("newsCount").fetchSemanticsNodes().isNotEmpty() }
@@ -408,6 +423,14 @@ class BrowserAcceptanceTest {
         compose.waitUntil(35000) { compose.onAllNodesWithTag("newsReaderBlock").fetchSemanticsNodes().size >= 2 }
         compose.onNodeWithTag("newsReaderTitle").assertIsDisplayed()
         compose.onNodeWithTag("openOriginalNewsPage").assertIsDisplayed()
+        compose.onNodeWithTag("toggleNewsReaderLanguage").assertTextContains("查看译文").performClick()
+        compose.waitUntil(45000) { compose.onAllNodesWithTag("newsReaderTranslatedBlock").fetchSemanticsNodes().isNotEmpty() }
+        val translated = compose.onAllNodesWithTag("newsReaderTranslatedBlock").onFirst().fetchSemanticsNode()
+            .config[androidx.compose.ui.semantics.SemanticsProperties.Text].single().text
+        org.junit.Assert.assertTrue(translated.any { Character.UnicodeScript.of(it.code) == Character.UnicodeScript.HAN })
+        compose.onNodeWithTag("toggleNewsReaderLanguage").assertTextContains("查看原文").performClick()
+        compose.onAllNodesWithTag("newsReaderTranslatedBlock").assertCountEquals(0)
+        compose.onAllNodesWithTag("newsReaderBlock").onFirst().assertIsDisplayed()
         compose.runOnIdle { org.junit.Assert.assertNull(web(activity.window.decorView)) }
         compose.onNodeWithContentDescription("返回资讯").performClick()
         compose.onNodeWithTag("newsReader").assertDoesNotExist()
@@ -421,10 +444,18 @@ class BrowserAcceptanceTest {
         compose.onNodeWithTag("newsOriginals").performClick()
         val list = compose.onNodeWithTag("aggregatedNews")
         val sections = listOf(
-            Triple("society", "社会", "DWP"), Triple("humanities", "人文", "Historic England"),
-            Triple("military", "军事", "MOD"), Triple("science", "科技", "NASA"), Triple("health", "健康", "DHSC")
+            Triple("society", "社会", listOf("uk-social-policy", "uk-housing-communities")),
+            Triple("humanities", "人文", listOf("historic-england-culture", "bbc-arts-culture")),
+            Triple("military", "军事", listOf("uk-defence-news", "dvids-military-news")),
+            Triple("science", "科技", listOf("nasa-science-news", "esa-science-news", "mit-research-news")),
+            Triple("health", "健康", listOf("uk-public-health", "uk-health-security", "bbc-health")),
+            Triple("diplomacy", "外交", listOf("uk-foreign-affairs", "eu-international-partnerships")),
+            Triple("environment", "环境", listOf("eea-environment-news", "uk-environment-agency")),
+            Triple("education", "教育", listOf("uk-education-policy", "bbc-education")),
+            Triple("energy", "能源", listOf("eia-energy-analysis", "eu-energy-news")),
+            Triple("transport", "交通", listOf("eu-transport-news", "uk-transport-policy"))
         )
-        for ((key, label, publisher) in sections) {
+        for ((key, label, sourceIds) in sections) {
             val tag = "newsCategory-$key"
             list.performScrollToNode(hasTestTag(tag))
             compose.waitUntil(30000) {
@@ -433,7 +464,11 @@ class BrowserAcceptanceTest {
             compose.onNodeWithTag(tag).assertTextContains(label).performClick().assertIsSelected()
             compose.waitUntil(30000) { compose.onAllNodesWithTag("newsCount").fetchSemanticsNodes().isNotEmpty() }
             list.performScrollToNode(hasTestTag("newsHeadline"))
-            compose.onAllNodesWithTag("newsHeadlineMetadata").onFirst().assertTextContains(publisher, substring = true)
+            compose.onAllNodesWithTag("newsHeadlineMetadata").onFirst().assertIsDisplayed()
+            list.performScrollToNode(hasTestTag("pickNewsSource"))
+            compose.onNodeWithTag("pickNewsSource").performClick()
+            sourceIds.forEach { id -> compose.onNodeWithTag("newsSource-$id").assertExists() }
+            compose.onNodeWithTag("newsAllSources").performClick()
         }
     }
 

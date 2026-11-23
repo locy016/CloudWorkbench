@@ -10,15 +10,21 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.DateRange
+import androidx.compose.material.icons.automirrored.outlined.List
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
@@ -120,7 +126,8 @@ internal class NewsFeed(prefs: SharedPreferences, private val connection: () -> 
             NewsBodyBlock(row.getString("kind"), row.getString("text")).also { require(it.text.isNotBlank()) }
         }
         require(blocks.sumOf { it.text.length } <= 80_000)
-        return NewsArticleBody(blocks, response.getBoolean("truncated")).also { body ->
+        val language = response.optString("language").takeUnless { response.isNull("language") || it.isBlank() }
+        return NewsArticleBody(blocks, response.getBoolean("truncated"), language).also { body ->
             articleCache[id] = body
             if (articleCache.size > 12) articleCache.remove(articleCache.keys.first())
         }
@@ -149,7 +156,6 @@ internal class NewsFeed(prefs: SharedPreferences, private val connection: () -> 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun NewsFeedPage(feed: NewsFeed, connected: Boolean, visible: Boolean) {
-    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val focus = LocalFocusManager.current
     val snapshot = feed.snapshot
@@ -164,7 +170,7 @@ internal fun NewsFeedPage(feed: NewsFeed, connected: Boolean, visible: Boolean) 
     var showOriginals by rememberSaveable { mutableStateOf(false) }
     var translationError by remember { mutableStateOf(false) }
     var translationRetry by remember { mutableIntStateOf(0) }
-    var reading by remember { mutableStateOf<NewsArticle?>(null) }
+    var reading by remember { mutableStateOf<Pair<NewsArticle, Boolean>?>(null) }
     val listState = rememberLazyListState()
     val preferredLanguage = feed.translations.preferredLanguage
     var appliedKeyword by rememberSaveable { mutableStateOf(snapshot?.query?.keyword.orEmpty()) }
@@ -187,9 +193,9 @@ internal fun NewsFeedPage(feed: NewsFeed, connected: Boolean, visible: Boolean) 
     LaunchedEffect(visible, connected) {
         if (visible && connected) feed.refresh(query)
     }
-    LaunchedEffect(visible, connected, preferredLanguage, showOriginals, articles, translationRetry) {
+    LaunchedEffect(visible, connected, preferredLanguage, showOriginals, articles, translationRetry, reading != null) {
         translationError = false
-        if (!visible || !connected || showOriginals || articles.isEmpty()) return@LaunchedEffect
+        if (!visible || !connected || showOriginals || articles.isEmpty() || reading != null) return@LaunchedEffect
         snapshotFlow {
             val visibleRows = listState.layoutInfo.visibleItemsInfo
             val start = ((visibleRows.firstOrNull()?.index ?: 1) - 1).coerceIn(0, articles.lastIndex)
@@ -214,7 +220,7 @@ internal fun NewsFeedPage(feed: NewsFeed, connected: Boolean, visible: Boolean) 
             search(query.copy(from = start, to = end))
         }
     }
-    reading?.let { article -> NewsArticleReader(article, feed, connected) { reading = null } }
+    reading?.let { (article, original) -> NewsArticleReader(article, feed, connected, original) { reading = null } }
     LazyColumn(
         Modifier.fillMaxSize().testTag("aggregatedNews"), horizontalAlignment = Alignment.CenterHorizontally,
         state = listState,
@@ -255,35 +261,58 @@ internal fun NewsFeedPage(feed: NewsFeed, connected: Boolean, visible: Boolean) 
                             modifier = Modifier.testTag("newsCategory-${option?.key ?: "all"}"))
                     }
                 }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedTextField(keyword, { keyword = it.take(100) }, label = { Text("搜索资讯") },
-                        modifier = Modifier.weight(1f).testTag("newsKeyword"), singleLine = true,
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                        keyboardActions = KeyboardActions(onSearch = { search() }))
-                    Button(onClick = { search() }, enabled = canSearch,
-                        modifier = Modifier.testTag("searchNews")) { Text("查询") }
-                }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.weight(1f, fill = false)) {
-                        OutlinedButton(onClick = { sourcesOpen = true }, enabled = canSearch && sources.isNotEmpty(),
-                            modifier = Modifier.testTag("pickNewsSource")) {
-                            Text(sources.firstOrNull { it.id == sourceId }?.title ?: "全部来源")
-                        }
-                        DropdownMenu(expanded = sourcesOpen, onDismissRequest = { sourcesOpen = false }) {
-                            DropdownMenuItem(text = { Text("全部来源") }, onClick = {
-                                sourcesOpen = false
-                                search(query.copy(sourceId = null))
-                            })
-                            sources.forEach { source ->
-                                DropdownMenuItem(text = { Text(source.title) }, modifier = Modifier.testTag("newsSource-${source.id}"),
-                                    onClick = { sourcesOpen = false; search(query.copy(sourceId = source.id)) })
+                val selectedSource = sources.firstOrNull { it.id == sourceId }?.title
+                BoxWithConstraints(Modifier.fillMaxWidth()) {
+                    val compact = maxWidth < 480.dp
+                    val controlHeight = 56.dp
+                    val shape = MaterialTheme.shapes.medium
+                    Column {
+                        Row(Modifier.fillMaxWidth().testTag("newsSearchToolbar"),
+                            horizontalArrangement = Arrangement.spacedBy(if (compact) 0.dp else 8.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            OutlinedTextField(keyword, { keyword = it.take(100) }, placeholder = { Text("搜索资讯", maxLines = 1) },
+                                modifier = Modifier.weight(1f).height(controlHeight).testTag("newsKeyword")
+                                    .semantics { contentDescription = "搜索资讯" }, singleLine = true, shape = shape,
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                                keyboardActions = KeyboardActions(onSearch = { search() }))
+                            if (compact) IconButton(onClick = { search() }, enabled = canSearch,
+                                modifier = Modifier.height(controlHeight).testTag("searchNews")) { Icon(Icons.Outlined.Search, "查询") }
+                            else Button(onClick = { search() }, enabled = canSearch,
+                                modifier = Modifier.height(controlHeight).testTag("searchNews"), shape = shape) { Text("查询", maxLines = 1) }
+
+                            Box {
+                                val sourceLabel = selectedSource ?: "全部来源"
+                                if (compact) IconButton(onClick = { sourcesOpen = true }, enabled = canSearch && sources.isNotEmpty(),
+                                    modifier = Modifier.height(controlHeight).testTag("pickNewsSource")) {
+                                    Icon(Icons.AutoMirrored.Outlined.List, sourceLabel)
+                                }
+                                else OutlinedButton(onClick = { sourcesOpen = true }, enabled = canSearch && sources.isNotEmpty(),
+                                    modifier = Modifier.height(controlHeight).widthIn(max = 160.dp).testTag("pickNewsSource"),
+                                    shape = shape,
+                                    contentPadding = PaddingValues(horizontal = 12.dp)) {
+                                    Text(sourceLabel, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                                DropdownMenu(expanded = sourcesOpen, onDismissRequest = { sourcesOpen = false }) {
+                                    DropdownMenuItem(text = { Text("全部来源") }, modifier = Modifier.testTag("newsAllSources"), onClick = {
+                                        sourcesOpen = false
+                                        search(query.copy(sourceId = null))
+                                    })
+                                    sources.forEach { source ->
+                                        DropdownMenuItem(text = { Text(source.title) }, modifier = Modifier.testTag("newsSource-${source.id}"),
+                                            onClick = { sourcesOpen = false; search(query.copy(sourceId = source.id)) })
+                                    }
+                                }
+                            }
+                            if (compact) IconButton(onClick = { datesOpen = true }, enabled = canSearch,
+                                modifier = Modifier.height(controlHeight).testTag("pickNewsDates")) { Icon(Icons.Outlined.DateRange, "发布时间") }
+                            else OutlinedButton(onClick = { datesOpen = true }, enabled = canSearch,
+                                modifier = Modifier.height(controlHeight).testTag("pickNewsDates"), shape = shape) {
+                                Text("发布时间", maxLines = 1)
                             }
                         }
+                        if (compact && selectedSource != null) Text(selectedSource, color = Muted,
+                            style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
-                    OutlinedButton(onClick = { datesOpen = true }, enabled = canSearch,
-                        modifier = Modifier.testTag("pickNewsDates")) { Text("发布时间") }
                 }
                 val dateLabel = when {
                     from != null && to != null -> "$from 至 $to（UTC）"
@@ -334,17 +363,24 @@ internal fun NewsFeedPage(feed: NewsFeed, connected: Boolean, visible: Boolean) 
                 if (translated != null) Text("机器译文", Modifier.testTag("newsTranslated"), color = Muted,
                     style = MaterialTheme.typography.labelSmall)
                 FeedArticleCard(translated?.title ?: item.title, item.publisher, item.time,
-                    translated?.summary?.takeIf { it.isNotBlank() } ?: item.summary, item.link, context,
+                    translated?.summary?.takeIf { it.isNotBlank() } ?: item.summary,
                     timeLabel = if (item.timeKind == "updated") "更新" else "发布",
                     titleTag = "newsHeadline")
-                if (translation != null && !showOriginals) {
-                    TextButton(onClick = { showOriginal = !showOriginal }, modifier = Modifier.testTag("toggleNewsOriginal")) {
-                        Text(if (showOriginal) "查看译文" else "查看原文")
+                Row(Modifier.fillMaxWidth().testTag("newsArticleFooter"), verticalAlignment = Alignment.CenterVertically) {
+                    val actionSize = Modifier.height(48.dp)
+                    item.link?.let { CopyFeedLink(it, "newsHeadlineLink", modifier = actionSize) }
+                    if (translation != null && !showOriginals) {
+                        TextButton(onClick = { showOriginal = !showOriginal }, modifier = actionSize.testTag("toggleNewsOriginal"),
+                            contentPadding = PaddingValues(horizontal = 8.dp)) {
+                            Text(if (showOriginal) "查看译文" else "查看原文", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
                     }
-                }
-                if (item.link != null) {
-                    OutlinedButton(onClick = { reading = item }, modifier = Modifier.testTag("readNewsArticle")) {
-                        Text("阅读全文")
+                    if (item.link != null) {
+                        TextButton(onClick = { reading = item to (showOriginals || showOriginal) },
+                            modifier = actionSize.testTag("readNewsArticle"),
+                            contentPadding = PaddingValues(horizontal = 8.dp)) {
+                            Text("阅读全文", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
                     }
                 }
             }

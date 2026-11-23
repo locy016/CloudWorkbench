@@ -37,6 +37,8 @@ internal enum class ResourceCategory(val key: String, val label: String) {
     Headlines("headlines", "要闻"), Current("current", "时事"), Trade("trade", "经贸"),
     Society("society", "社会"), Humanities("humanities", "人文"), Military("military", "军事"),
     Science("science", "科技"), Health("health", "健康"),
+    Diplomacy("diplomacy", "外交"), Environment("environment", "环境"), Education("education", "教育"),
+    Energy("energy", "能源"), Transport("transport", "交通"),
     Logistics("logistics", "物流"), Other("other", "其他");
 
     val isNews get() = this != Logistics && this != Other
@@ -135,7 +137,8 @@ internal fun ResourceDataPage(data: ResourceData, connected: Boolean, visible: B
     var categoryKey by rememberSaveable { mutableStateOf(ResourceCategory.Logistics.key) }
     var sourceId by rememberSaveable { mutableStateOf("") }
     var exportStatus by rememberSaveable { mutableStateOf<String?>(null) }
-    val categories = ResourceCategory.entries.filter { category -> data.sources.any { it.category == category } }
+    val categories = (listOf(ResourceCategory.Logistics, ResourceCategory.Other) + ResourceCategory.entries.filter { it.isNews })
+        .filter { category -> data.sources.any { it.category == category } }
     val category = categories.find { it.key == categoryKey } ?: categories.firstOrNull()
     val sourcesInCategory = data.sources.filter { it.category == category }
     val source = sourcesInCategory.find { it.id == sourceId } ?: sourcesInCategory.firstOrNull()
@@ -285,7 +288,7 @@ internal fun ResourceDataPage(data: ResourceData, connected: Boolean, visible: B
             items(previewRows) { row ->
                 Panel(Modifier.widthIn(max = 640.dp).fillMaxWidth()) {
                     if (source?.category?.isNews == true && source.format in listOf("rss", "atom")) {
-                        ResourceHeadline(row, source.publisher, context)
+                        ResourceHeadline(row, source.publisher)
                     } else {
                         columns.forEach { column ->
                             val key = column.getString("key")
@@ -300,17 +303,18 @@ internal fun ResourceDataPage(data: ResourceData, connected: Boolean, visible: B
 }
 
 @Composable
-private fun ResourceHeadline(row: JSONObject, publisher: String, context: Context) {
+private fun ResourceHeadline(row: JSONObject, publisher: String) {
     fun text(key: String) = row.optString(key).takeUnless { row.isNull(key) || it.isBlank() }
-    FeedArticleCard(text("headline") ?: "未提供标题", publisher, text("published"), text("summary"), text("link"),
-        context, titleTag = "resourceHeadline")
+    FeedArticleCard(text("headline") ?: "未提供标题", publisher, text("published"), text("summary"),
+        titleTag = "resourceHeadline")
+    text("link")?.let { CopyFeedLink(it, "resourceHeadlineLink", "复制原文地址") }
 }
 
 private val feedTime = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").withZone(ZoneOffset.UTC)
 
 @Composable
-internal fun FeedArticleCard(title: String, publisher: String, time: String?, summary: String?, link: String?,
-    context: Context, titleTag: String, timeLabel: String? = null) {
+internal fun FeedArticleCard(title: String, publisher: String, time: String?, summary: String?,
+    titleTag: String, timeLabel: String? = null) {
     Text(title, Modifier.testTag(titleTag), style = MaterialTheme.typography.titleMedium)
     val date = time?.let { runCatching { feedTime.format(Instant.parse(it)) + " UTC" }.getOrNull() }
     val timeText = when {
@@ -324,10 +328,15 @@ internal fun FeedArticleCard(title: String, publisher: String, time: String?, su
     summary?.let {
         Text(it, Modifier.testTag("${titleTag}Summary"), maxLines = 4, overflow = TextOverflow.Ellipsis)
     }
-    link?.let {
-        TextButton(onClick = {
-            context.getSystemService(ClipboardManager::class.java)?.setPrimaryClip(ClipData.newPlainText("原文地址", it))
-        }, modifier = Modifier.testTag("${titleTag}Link")) { Text("复制原文地址") }
+}
+
+@Composable
+internal fun CopyFeedLink(link: String, tag: String, label: String = "复制链接", modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    TextButton(onClick = {
+        context.getSystemService(ClipboardManager::class.java)?.setPrimaryClip(ClipData.newPlainText("原文地址", link))
+    }, modifier = modifier.testTag(tag), contentPadding = PaddingValues(horizontal = 8.dp)) {
+        Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 

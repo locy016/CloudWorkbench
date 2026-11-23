@@ -7,6 +7,7 @@ import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.Closeable
@@ -19,6 +20,18 @@ import kotlin.concurrent.thread
 
 @RunWith(AndroidJUnit4::class)
 class NewsTransportTest {
+    @Test fun chunksLongReaderParagraphsWithoutLosingTextOrSplittingSurrogates() {
+        val words = List(95) { "paragraph$it" }.joinToString(" ")
+        val chunks = newsParagraphChunks(words)
+        assertEquals(words, chunks.joinToString(" "))
+        assertTrue(chunks.size > 1 && chunks.all { it.length <= 360 })
+
+        val unbroken = "a".repeat(359) + "🔖" + "b".repeat(50)
+        val unbrokenChunks = newsParagraphChunks(unbroken)
+        assertEquals(unbroken, unbrokenChunks.joinToString(""))
+        assertTrue(unbrokenChunks.none { it.last().isHighSurrogate() || it.first().isLowSurrogate() })
+    }
+
     @Test fun automaticTranslationWaitsForAPreviousBatchAndCachesTheResult() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val prefs = context.getSharedPreferences("news-transport-fixture", Context.MODE_PRIVATE)

@@ -16,6 +16,21 @@ internal data class NewsTranslation(val title: String, val summary: String)
 
 private data class TranslationKey(val target: String, val title: String, val summary: String)
 
+internal fun newsParagraphChunks(text: String): List<String> = buildList {
+    val limit = 360
+    var start = 0
+    while (start < text.length) {
+        var end = (start + limit).coerceAtMost(text.length)
+        if (end < text.length) {
+            val space = text.lastIndexOf(' ', end)
+            if (space > start + limit / 2) end = space
+            else if (text[end].isLowSurrogate() && text[end - 1].isHighSurrogate()) end--
+        }
+        text.substring(start, end).trim().takeIf { it.isNotEmpty() }?.let(::add)
+        start = end
+    }
+}
+
 internal class NewsTranslations(private val prefs: SharedPreferences, private val connection: () -> WorkbenchConnection?) {
     private val cache = mutableStateMapOf<TranslationKey, NewsTranslation>()
     private val order = ArrayDeque<TranslationKey>()
@@ -35,10 +50,20 @@ internal class NewsTranslations(private val prefs: SharedPreferences, private va
     fun get(article: NewsArticle, target: String): NewsTranslation? =
         if (article.language == "en") cache[article.translationKey(target)] else null
 
-    suspend fun translate(articles: List<NewsArticle>, target: String) {
+    fun paragraph(chunks: List<String>, target: String): String? {
+        val translated = chunks.map { cache[TranslationKey(target, it, "")]?.title ?: return null }
+        return translated.joinToString(" ").takeIf { it.isNotBlank() }
+    }
+
+    suspend fun translate(articles: List<NewsArticle>, target: String) =
+        translateKeys(articles.filter { it.language == "en" }.map { it.translationKey(target) }, target)
+
+    suspend fun translateParagraphs(chunks: List<String>, target: String) =
+        translateKeys(chunks.map { TranslationKey(target, it, "") }, target)
+
+    private suspend fun translateKeys(keys: List<TranslationKey>, target: String) {
         val transport = connection() ?: return
-        val missing = articles.asSequence().filter { it.language == "en" }.map { it.translationKey(target) }
-            .distinct().filterNot(cache::containsKey).toList()
+        val missing = keys.distinct().filterNot(cache::containsKey)
         for (batch in missing.chunked(3)) {
             if (transport !== connection()) return
             val text = JSONArray(batch.map { JSONObject().put("title", it.title).put("summary", it.summary) })
