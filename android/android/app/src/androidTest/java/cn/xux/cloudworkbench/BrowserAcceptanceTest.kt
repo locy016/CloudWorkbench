@@ -63,9 +63,10 @@ class BrowserAcceptanceTest {
     @Test fun serverDataShowsEcbReferenceRatesWithoutAWebView() {
         awaitVisibleConnection()
         compose.openWorkbenchTab("浏览")
-        compose.onNodeWithTag("openServerData").assertIsDisplayed().performClick()
-        compose.onNodeWithTag("openEcbRates").performClick()
+        openDataSection("openEcbRates")
         compose.onNodeWithTag("serverDataPage").assertIsDisplayed()
+        compose.onNodeWithTag("serverDataTitle").assertTextEquals("欧元参考汇率")
+        compose.onNodeWithTag("openWorldBankTrade").assertDoesNotExist()
         compose.onNodeWithTag("browserView").assertDoesNotExist()
         compose.runOnIdle { org.junit.Assert.assertNull(web(activity.window.decorView)) }
         compose.waitUntil(25000) { compose.onAllNodesWithText("USD").fetchSemanticsNodes().isNotEmpty() }
@@ -92,8 +93,9 @@ class BrowserAcceptanceTest {
     @Test fun serverDataFiltersWorldBankTradeByCountryAndYear() {
         awaitVisibleConnection()
         compose.openWorkbenchTab("浏览")
-        compose.onNodeWithTag("openServerData").performClick()
-        compose.onNodeWithTag("openWorldBankTrade").performClick()
+        openDataSection("openWorldBankTrade")
+        compose.onNodeWithTag("serverDataTitle").assertTextEquals("贸易指标")
+        compose.onNodeWithTag("openEcbRates").assertDoesNotExist()
         compose.onNodeWithTag("tradeSource").assertTextContains("世界银行", substring = true)
         compose.onNodeWithTag("browserView").assertDoesNotExist()
         compose.runOnIdle { org.junit.Assert.assertNull(web(activity.window.decorView)) }
@@ -137,7 +139,6 @@ class BrowserAcceptanceTest {
     @Test fun downloadsAnOnDemandResourceByKeywordAndSavesTheActualResult() {
         awaitVisibleConnection()
         compose.openWorkbenchTab("浏览")
-        compose.onNodeWithTag("openServerData").performClick()
         awaitResourceCatalog()
         compose.onNodeWithTag("resourceCategory-other").performClick()
         compose.onNodeWithTag("resourceInput-period").performClick()
@@ -167,7 +168,6 @@ class BrowserAcceptanceTest {
     @Test fun previewsOfficialFeedsAndExportsFilteredPortObservationsAsCsv() {
         awaitVisibleConnection()
         compose.openWorkbenchTab("浏览")
-        compose.onNodeWithTag("openServerData").performClick()
         awaitResourceCatalog()
         fun source(name: String) {
             compose.onNodeWithTag("resourcePicker").performScrollTo().performClick()
@@ -213,11 +213,14 @@ class BrowserAcceptanceTest {
     @Test fun singleSourceDirectoryKeepsHeadlinesCurrentAffairsAndTradeEasyToFind() {
         awaitVisibleConnection()
         compose.openWorkbenchTab("浏览")
-        compose.onNodeWithTag("openServerData").performClick()
         awaitResourceCatalog()
-        compose.onNodeWithTag("openSingleSource").assertIsSelected()
+        compose.onNodeWithTag("serverDataTitle").assertTextEquals("数据查询与下载")
+        compose.onNodeWithTag("resourceCategory-logistics").assertIsSelected()
+        compose.onNodeWithTag("resourceResult").assertDoesNotExist()
+        compose.onNodeWithTag("resourceCategory-headlines").performClick()
         compose.onNodeWithTag("resourceCategory-headlines").assertIsSelected()
         compose.onNodeWithTag("resourcePicker").assertTextContains("联合国日内瓦要闻", substring = true)
+        compose.onNodeWithTag("fetchResource").performClick()
         compose.waitUntil(25000) { compose.onAllNodesWithTag("resourceResult").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("onDemandResources").performScrollToNode(hasTestTag("resourceHeadline"))
         compose.onAllNodesWithTag("resourceHeadline").onFirst().assertIsDisplayed()
@@ -228,14 +231,16 @@ class BrowserAcceptanceTest {
         compose.waitUntil(25000) { compose.onAllNodesWithTag("resourceResult").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("resourceCategory-trade").performClick()
         compose.onNodeWithTag("resourcePicker").assertTextContains("WTO 国际贸易新闻", substring = true)
-        compose.onNodeWithTag("openEcbRates").assertIsNotSelected()
+        compose.onNodeWithTag("openEcbRates").assertDoesNotExist()
     }
 
     @Test fun opensAggregatedNewsAndFiltersBySourceAndKeyword() {
         awaitVisibleConnection()
         compose.openWorkbenchTab("浏览")
-        compose.onNodeWithTag("openServerData").performClick()
-        compose.onNodeWithTag("openServerNews").assertIsSelected()
+        openDataSection("openInternationalNews")
+        compose.onNodeWithTag("serverDataTitle").assertTextEquals("国际资讯")
+        compose.onNodeWithTag("openSingleSource").assertDoesNotExist()
+        compose.onNodeWithTag("newsOriginals").performClick()
         fun awaitSearch() {
             compose.waitUntil(30000) {
                 compose.onAllNodes(hasTestTag("searchNews") and isEnabled()).fetchSemanticsNodes().isNotEmpty() &&
@@ -271,7 +276,8 @@ class BrowserAcceptanceTest {
     @Test fun newsCategoriesAndPublicationRangeCombineWithSourceAndKeyword() {
         awaitVisibleConnection()
         compose.openWorkbenchTab("浏览")
-        compose.onNodeWithTag("openServerData").performClick()
+        openDataSection("openInternationalNews")
+        compose.onNodeWithTag("newsOriginals").performClick()
         val list = compose.onNodeWithTag("aggregatedNews")
         fun awaitNews() = compose.waitUntil(30000) {
             compose.onAllNodes(hasTestTag("searchNews") and isEnabled()).fetchSemanticsNodes().isNotEmpty() &&
@@ -332,42 +338,67 @@ class BrowserAcceptanceTest {
         compose.onNodeWithText(headline).assertExists()
     }
 
-    @Test fun translatesNewsOnTheServerAndPreservesTheOriginal() {
+    @Test fun automaticallyTranslatesNewsAndKeepsPreferredLanguageAndOriginal() {
         awaitVisibleConnection()
         compose.openWorkbenchTab("浏览")
-        compose.onNodeWithTag("openServerData").performClick()
+        openDataSection("openInternationalNews")
+        compose.onNodeWithTag("newsLanguage").assertTextContains("简体中文", substring = true)
         compose.waitUntil(30000) { compose.onAllNodesWithTag("newsCount").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithTag("aggregatedNews").performScrollToNode(hasTestTag("translateNewsArticle"))
-        compose.onAllNodesWithTag("translateNewsArticle").onFirst().performClick()
-        val title = compose.onNodeWithTag("newsTranslationTitle")
-        val original = title.fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsProperties.Text].single().text
-        fun translate() {
-            compose.onNodeWithTag("requestNewsTranslation").performClick()
-            compose.waitUntil(20000) {
-                compose.onAllNodesWithTag("toggleNewsOriginal").fetchSemanticsNodes().isNotEmpty()
-            }
+        val list = compose.onNodeWithTag("aggregatedNews")
+        val title = compose.onAllNodesWithTag("newsHeadline").onFirst()
+        fun currentTitle() = title.fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsProperties.Text].single().text
+        fun awaitTranslated() {
+            list.performScrollToNode(hasTestTag("newsHeadline"))
+            compose.waitUntil(30000) { compose.onAllNodesWithTag("newsTranslated").fetchSemanticsNodes().isNotEmpty() }
         }
-        compose.onNodeWithTag("newsLanguage").performClick()
-        compose.onNodeWithTag("newsLanguage-zh").performClick()
-        translate()
-        val chinese = title.fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsProperties.Text].single().text
-        org.junit.Assert.assertTrue(chinese != original && chinese.any { Character.UnicodeScript.of(it.code) == Character.UnicodeScript.HAN })
-        compose.onNodeWithTag("toggleNewsOriginal").performClick()
-        title.assertTextEquals(original)
-
-        compose.onNodeWithTag("newsLanguage").performClick()
-        compose.onNodeWithTag("newsLanguage-ja").performClick()
-        translate()
-        val japanese = title.fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsProperties.Text].single().text
-        org.junit.Assert.assertTrue(japanese != original && japanese != chinese)
-        compose.onNodeWithText("关闭").performClick()
-        compose.onAllNodesWithText(original).onFirst().assertExists()
+        awaitTranslated()
+        org.junit.Assert.assertTrue(currentTitle().any { Character.UnicodeScript.of(it.code) == Character.UnicodeScript.HAN })
+        list.performScrollToNode(hasTestTag("pickNewsSource"))
+        compose.onNodeWithTag("pickNewsSource").performClick()
+        compose.onNodeWithTag("newsSource-wto-trade-news").performClick()
+        compose.waitUntil(30000) { compose.onAllNodesWithTag("newsCount").fetchSemanticsNodes().isNotEmpty() }
+        awaitTranslated()
+        val chinese = currentTitle()
+        val summary = compose.onAllNodesWithTag("newsHeadlineSummary").onFirst()
+        val chineseSummary = summary.fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsProperties.Text].single().text
+        org.junit.Assert.assertTrue(chineseSummary.any { Character.UnicodeScript.of(it.code) == Character.UnicodeScript.HAN })
+        list.performScrollToNode(hasTestTag("toggleNewsOriginal"))
+        compose.onAllNodesWithTag("toggleNewsOriginal").onFirst().performClick()
+        val original = currentTitle()
+        org.junit.Assert.assertNotEquals(chinese, original)
+        org.junit.Assert.assertNotEquals(chineseSummary, summary.fetchSemanticsNode()
+            .config[androidx.compose.ui.semantics.SemanticsProperties.Text].single().text)
+        compose.onAllNodesWithTag("toggleNewsOriginal").onFirst().performClick()
+        title.assertTextEquals(chinese)
         compose.onAllNodesWithTag("newsHeadlineLink").onFirst().assertExists()
         compose.runOnIdle { org.junit.Assert.assertNull(web(activity.window.decorView)) }
+
+        val prefs = activity.getSharedPreferences("ui", 0)
+        val previous = prefs.getString(NEWS_PREFERRED_LANGUAGE, null)
+        try {
+            list.performScrollToNode(hasTestTag("newsLanguage"))
+            compose.onNodeWithTag("newsLanguage").performClick()
+            compose.onNodeWithTag("newsLanguage-ja").performClick()
+            awaitTranslated()
+            val japanese = currentTitle()
+            org.junit.Assert.assertTrue(japanese != original && japanese != chinese)
+            org.junit.Assert.assertEquals("ja", prefs.getString(NEWS_PREFERRED_LANGUAGE, null))
+
+            compose.onNodeWithContentDescription("返回浏览").performClick()
+            openDataSection("openInternationalNews")
+            compose.onNodeWithTag("newsLanguage").assertTextContains("日本語", substring = true)
+        } finally {
+            prefs.edit().putString(NEWS_PREFERRED_LANGUAGE, previous).commit()
+        }
+    }
+
+    private fun openDataSection(tag: String) {
+        compose.onNodeWithTag("browserStart").performScrollToNode(hasTestTag(tag))
+        compose.onNodeWithTag(tag).performClick()
     }
 
     private fun awaitResourceCatalog() {
-        compose.onNodeWithTag("openSingleSource").performClick()
+        openDataSection("openSingleSource")
         compose.waitUntil(25000) {
             compose.onAllNodesWithTag("resourcePicker").fetchSemanticsNodes().isNotEmpty() &&
                 compose.onAllNodes(hasTestTag("fetchResource") and isEnabled()).fetchSemanticsNodes().isNotEmpty()

@@ -127,11 +127,13 @@ export class Gateway {
         if (!subject) throw fail(401, '资讯需通过已授权的 SSH 连接读取');
         return respond(200, await this.resources.news(url.searchParams));
       }
-      if (req.method === 'POST' && path === '/v1/server-data/news/translate') {
+      if (req.method === 'POST' && ['/v1/server-data/news/translate', '/v1/server-data/news/translate-batch'].includes(path)) {
         if (!subject) throw fail(401, '资讯翻译需通过已授权的 SSH 连接');
         if (url.search) throw fail(400, '翻译接口不接受查询参数');
         if (!this.translateNews) throw fail(503, '服务器尚未启用资讯翻译');
-        return respond(200, await this.translateNews(await this.body(req, 8 * 1024)));
+        const batch = path.endsWith('/translate-batch');
+        const input = await this.body(req, (batch ? 24 : 8) * 1024);
+        return respond(200, await (batch ? this.translateNews.batch(input) : this.translateNews.one(input)));
       }
       const resource = /^\/v1\/server-data\/resources\/([a-z][a-z0-9-]{0,47})$/.exec(path);
       if (req.method === 'GET' && resource) {

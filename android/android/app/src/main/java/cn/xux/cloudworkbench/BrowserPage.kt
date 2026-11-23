@@ -131,7 +131,7 @@ private suspend fun WebView.hasPageContent(): Boolean = suspendCancellableCorout
     var view by remember { mutableStateOf<WebView?>(null) }
     var address by remember { mutableStateOf(TextFieldValue(vm.browserUrl)) }
     var startPage by rememberSaveable { mutableStateOf(vm.browserUrl.isEmpty()) }
-    var serverDataOpen by rememberSaveable { mutableStateOf(false) }
+    var serverDataSection by rememberSaveable { mutableStateOf<ServerDataSection?>(null) }
     var bookmarksOpen by rememberSaveable { mutableStateOf(false) }
     var bookmarkToEdit by rememberSaveable { mutableStateOf<String?>(null) }
     var addressFocused by remember { mutableStateOf(false) }
@@ -173,16 +173,16 @@ private suspend fun WebView.hasPageContent(): Boolean = suspendCancellableCorout
         focusManager.clearFocus(force = true)
         keyboardController?.hide()
     }
-    fun openServerData() {
+    fun openServerData(section: ServerDataSection) {
         finishAddressEdit()
         imageJob?.cancel()
         view?.stopLoading()
         pageReady = false
         pageLoading = false
-        serverDataOpen = true
+        serverDataSection = section
     }
-    if (serverDataOpen) {
-        ServerDataPage(vm, visible, menuButton, onBack = { serverDataOpen = false })
+    serverDataSection?.let { section ->
+        ServerDataPage(vm, section, visible, menuButton, onBack = { serverDataSection = null })
         return
     }
     fun startNavigation() {
@@ -381,8 +381,10 @@ private suspend fun WebView.hasPageContent(): Boolean = suspendCancellableCorout
                     }
                 }, enabled = screenshot == null) { Icon(Icons.Outlined.MoreHoriz, "更多浏览操作") }
                 DropdownMenu(expanded = toolsOpen, onDismissRequest = { toolsOpen = false }) {
-                    DropdownMenuItem(text = { Text("服务器数据") }, leadingIcon = { Icon(Icons.Outlined.Storage, null) },
-                        onClick = { toolsOpen = false; openServerData() })
+                    ServerDataSection.entries.forEach { section ->
+                        DropdownMenuItem(text = { Text(section.title) }, leadingIcon = { Icon(section.icon, null) },
+                            onClick = { toolsOpen = false; openServerData(section) })
+                    }
                     if (screenWidth < 350) DropdownMenuItem(text = { Text("主页") },
                         leadingIcon = { Icon(Icons.Outlined.Home, null) }, onClick = { toolsOpen = false; goHome() })
                     if (!starInToolbar) DropdownMenuItem(

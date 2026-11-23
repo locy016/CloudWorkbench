@@ -98,6 +98,40 @@ test('news translation requires SSH authorization and bounds the translation req
   assert.equal((await call(route, article, auth)).status, 200);
   assert.deepEqual(calls, [['zh', [article.title, article.summary]]]);
 });
+
+test('automatic news translation batches share the single-article cache and preserve article order', async t => {
+  const legacy = '/v1/server-data/news/translate';
+  const route = legacy + '-batch';
+  const auth = { Authorization: 'SSH test' };
+  const calls = [];
+  const { call } = await fixture(t, {
+    sshMobile: req => req.headers.authorization === 'SSH test' ? 'test-device' : null,
+    translateNews: newsTranslation({ translate: async (target, texts) => {
+      calls.push([target, texts]);
+      return texts.map(text => target + ' ' + text);
+    } })
+  });
+  const first = { title: 'First article', summary: 'Article summary' };
+  const second = { title: 'Second article' };
+  const language = { source: 'en', target: 'zh' };
+  const input = { ...language, articles: [first, second, first] };
+  assert.equal((await call(route, input)).status, 401);
+  assert.equal((await call(route, input, { ...auth, 'x-workbench-ingress': 'web' })).status, 404);
+  assert.equal((await call(route, { ...input, articles: [first, first, first, first] }, auth)).status, 400);
+  assert.equal((await call(route, { ...input, articles: [{ ...first, url: 'https://example.test' }] }, auth)).status, 400);
+  const response = await call(route, input, auth);
+  assert.equal(response.status, 200);
+  const translatedFirst = { title: 'zh First article', summary: 'zh Article summary' };
+  assert.deepEqual(response.body, {
+    target: 'zh', articles: [translatedFirst, { title: 'zh Second article', summary: '' }, translatedFirst]
+  });
+  assert.deepEqual((await call(legacy, { ...language, ...first }, auth)).body, { ...translatedFirst, target: 'zh' });
+  await call(route, input, auth);
+  assert.deepEqual(calls, [['zh', [first.title, first.summary, second.title]]]);
+  await call(route, { ...input, target: 'ja' }, auth);
+  assert.equal(calls.at(-1)[0], 'ja');
+  assert.equal(calls.length, 2);
+});
 test('trade directory and observations accept only SSH and the country-year query', async t => {
   const routes = '/v1/server-data/world-bank';
   const auth = { Authorization: 'SSH test' };

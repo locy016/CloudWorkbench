@@ -25,7 +25,7 @@
 
 资讯源取数或解析失败后短暂退避。只读聚合接口可使用进程内 6 小时内成功解析的同源结果，并返回使用缓存的来源和采集时间。来源目录的单源导出继续要求有效的上游结果。
 
-英文资讯条目从目录的 `language: "en"` 获取语言标记。翻译接口仅接受 SSH 授权请求，将单条标题和摘要交给本地 CPU 模型。每次只运行一个翻译进程，缓存有长度上限。部署时用 Python 3.12 虚拟环境安装 `ctranslate2==4.6.0` 和 `sentencepiece==0.2.1`。`NEWS_TRANSLATION_DIR` 指向该虚拟环境，默认路径为 `/home/xux/.local/lib/cloud-workbench-translation`。从 Argos 官方分发目录获取 `en_zh 1.9`、`en_ja 1.1`、`en_ko 1.1`、`en_fr 1.9`、`en_de 1.3` 和 `en_es 1.0`，核对包内 `metadata.json` 的语言和版本。将每个包的 `sentencepiece.model` 和 `model/` 放入虚拟环境的 `models/<目标语言>/`。 [Argos 官方模型目录](https://data.argosopentech.com/argospm/v1/)
+英文资讯条目从目录的 `language: "en"` 获取语言标记。翻译接口仅接受 SSH 授权请求。自动翻译请求可包含最多三条标题和摘要，旧版单条翻译仍走原接口。两种请求共用服务器缓存，命中缓存的条目无需再次推理。每次只运行一个翻译进程。部署时用 Python 3.12 虚拟环境安装 `ctranslate2==4.6.0` 和 `sentencepiece==0.2.1`。`NEWS_TRANSLATION_DIR` 指向该虚拟环境，默认路径为 `/home/xux/.local/lib/cloud-workbench-translation`。从 Argos 官方分发目录获取 `en_zh 1.9`、`en_ja 1.1`、`en_ko 1.1`、`en_fr 1.9`、`en_de 1.3` 和 `en_es 1.0`，核对包内 `metadata.json` 的语言和版本。将每个包的 `sentencepiece.model` 和 `model/` 放入虚拟环境的 `models/<目标语言>/`。[Argos 官方模型目录](https://data.argosopentech.com/argospm/v1/)
 
 每个来源配置固定的 HTTPS 接口和来源说明。JSON 或 GeoJSON 需要记录数组路径和导出字段，CSV 需要表头字段名。RSS 和 Atom 直接读取标题、条目时间、摘要和原文地址。`dateField` 指向归一化的时间字段，以 UTC 按天筛选。关键词和日期筛选在服务端本次取得的内容中执行。
 

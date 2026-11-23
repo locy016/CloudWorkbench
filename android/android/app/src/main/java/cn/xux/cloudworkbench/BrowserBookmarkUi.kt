@@ -32,18 +32,25 @@ import androidx.compose.ui.window.DialogProperties
 @Composable
 internal fun BrowserStartPage(
     entries: List<BrowserBookmark>, message: String?, onOpen: (BrowserBookmark) -> Unit, onManage: () -> Unit,
-    onConnectionAction: (() -> Unit)?, connectionAction: String, onServerData: () -> Unit
+    onConnectionAction: (() -> Unit)?, connectionAction: String, onServerData: (ServerDataSection) -> Unit
 ) {
     Surface(Modifier.fillMaxSize(), color = Background) {
         LazyColumn(Modifier.fillMaxSize().testTag("browserStart"), horizontalAlignment = Alignment.CenterHorizontally,
             contentPadding = PaddingValues(horizontal = 20.dp, vertical = 28.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            item {
-                FilledTonalButton(onClick = onServerData,
-                    modifier = Modifier.widthIn(max = 640.dp).fillMaxWidth().testTag("openServerData")) {
-                    Icon(Icons.Outlined.Storage, null, Modifier.size(20.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("服务器数据")
+            items(ServerDataSection.entries, key = { it.name }) { section ->
+                Surface(onClick = { onServerData(section) },
+                    modifier = Modifier.widthIn(max = 640.dp).fillMaxWidth().testTag(section.tag),
+                    shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface) {
+                    Row(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Icon(section.icon, null, tint = MaterialTheme.colorScheme.primary)
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(section.title, style = MaterialTheme.typography.titleSmall)
+                            Text(section.description, style = MaterialTheme.typography.bodySmall, color = Muted)
+                        }
+                        Icon(Icons.Outlined.ChevronRight, null, tint = Muted)
+                    }
                 }
             }
             item {

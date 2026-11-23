@@ -1,21 +1,19 @@
 package cn.xux.cloudworkbench
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.Article
+import androidx.compose.material.icons.outlined.BarChart
+import androidx.compose.material.icons.outlined.CurrencyExchange
+import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -26,7 +24,13 @@ import org.json.JSONObject
 import java.time.LocalDate
 
 internal data class ReferenceRate(val currency: String, val rate: String)
-private enum class ServerDataSection { News, Resources, Rates, Trade }
+internal enum class ServerDataSection(val title: String, val description: String, val tag: String,
+    val icon: androidx.compose.ui.graphics.vector.ImageVector) {
+    News("国际资讯", "阅读要闻、时事和经贸动态", "openInternationalNews", Icons.AutoMirrored.Outlined.Article),
+    Resources("数据查询与下载", "按来源查询、预览和导出数据", "openSingleSource", Icons.Outlined.FileDownload),
+    Trade("贸易指标", "按国家和年份查看世界银行贸易数据", "openWorldBankTrade", Icons.Outlined.BarChart),
+    Rates("欧元参考汇率", "查看欧洲央行发布的参考汇率", "openEcbRates", Icons.Outlined.CurrencyExchange)
+}
 
 internal data class ReferenceRates(val date: LocalDate, val rates: List<ReferenceRate>, val stale: Boolean) {
     companion object {
@@ -51,13 +55,12 @@ internal data class ReferenceRates(val date: LocalDate, val rates: List<Referenc
 
 @Composable
 internal fun ServerDataPage(
-    vm: WorkbenchModel, visible: Boolean, menuButton: (@Composable () -> Unit)?, onBack: () -> Unit
+    vm: WorkbenchModel, section: ServerDataSection, visible: Boolean, menuButton: (@Composable () -> Unit)?, onBack: () -> Unit
 ) {
     val connected = vm.serverDataConnected
     val rates = vm.ecbRates
     val loading = vm.referenceRatesLoading
     val scope = rememberCoroutineScope()
-    var section by rememberSaveable { mutableStateOf(ServerDataSection.News) }
     BackHandler(enabled = visible, onBack = onBack)
     LaunchedEffect(visible, connected, section) {
         if (visible && connected && section == ServerDataSection.Rates) vm.refreshReferenceRates()
@@ -67,7 +70,7 @@ internal fun ServerDataPage(
             Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 menuButton?.invoke()
                 IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "返回浏览") }
-                Text("服务器数据", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
+                Text(section.title, Modifier.weight(1f).testTag("serverDataTitle"), style = MaterialTheme.typography.titleLarge)
                 if (section == ServerDataSection.Rates) {
                     TextButton(onClick = { scope.launch { vm.refreshReferenceRates() } }, enabled = connected && !loading,
                         modifier = Modifier.testTag("referenceRatesRefresh")) {
@@ -77,21 +80,6 @@ internal fun ServerDataPage(
             }
         }
         HorizontalDivider(color = Outline)
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.Center) {
-            FilterChip(selected = section == ServerDataSection.News, onClick = { section = ServerDataSection.News },
-                label = { Text("资讯") }, modifier = Modifier.testTag("openServerNews"))
-            Spacer(Modifier.width(8.dp))
-            FilterChip(selected = section == ServerDataSection.Resources, onClick = { section = ServerDataSection.Resources },
-                label = { Text("来源目录") }, modifier = Modifier.testTag("openSingleSource"))
-            Spacer(Modifier.width(8.dp))
-            FilterChip(selected = section == ServerDataSection.Trade, onClick = { section = ServerDataSection.Trade },
-                label = { Text("经贸指标") },
-                modifier = Modifier.testTag("openWorldBankTrade"))
-            Spacer(Modifier.width(8.dp))
-            FilterChip(selected = section == ServerDataSection.Rates, onClick = { section = ServerDataSection.Rates },
-                label = { Text("参考汇率") }, modifier = Modifier.testTag("openEcbRates"))
-        }
         when (section) {
             ServerDataSection.News -> {
                 NewsFeedPage(vm.newsFeed, connected, visible)
@@ -115,7 +103,6 @@ internal fun ServerDataPage(
         ) {
             item {
                 Panel(Modifier.widthIn(max = 640.dp).fillMaxWidth()) {
-                    Text("欧元参考汇率", style = MaterialTheme.typography.titleLarge)
                     Text("来源：欧洲央行（ECB）", Modifier.testTag("referenceRatesSource"), color = Muted)
                     Text(rates?.let { "数据日期：${it.date}" } ?: "数据日期：待获取",
                         Modifier.testTag("referenceRatesDate"), color = Muted)

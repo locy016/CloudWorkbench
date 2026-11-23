@@ -26,7 +26,7 @@ def main():
     if target not in {"zh", "ja", "ko", "fr", "de", "es"}:
         raise ValueError("Unsupported translation target")
     texts = json.load(sys.stdin)
-    if not isinstance(texts, list) or not 1 <= len(texts) <= 2 or any(
+    if not isinstance(texts, list) or not 1 <= len(texts) <= 6 or any(
         not isinstance(text, str) or not text.strip() or len(text) > 512 for text in texts
     ):
         raise ValueError("Invalid translation batch")

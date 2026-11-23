@@ -1,10 +1,12 @@
 package cn.xux.cloudworkbench
 
+import android.content.SharedPreferences
 import android.net.Uri
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -20,7 +22,6 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
-import org.json.JSONObject
 
 internal data class NewsQuery(val sourceId: String? = null, val keyword: String = "",
     val category: ResourceCategory? = null, val from: String? = null, val to: String? = null)
@@ -30,9 +31,8 @@ internal data class NewsArticle(val title: String, val publisher: String, val ti
 internal data class NewsSnapshot(val query: NewsQuery, val sources: List<NewsSource>, val articles: List<NewsArticle>,
     val matchedCount: Int, val unavailable: Set<String>, val cached: Map<String, String>, val requestedSources: Int)
 
-internal data class NewsTranslation(val title: String, val summary: String)
-
-internal class NewsFeed(private val connection: () -> WorkbenchConnection?) {
+internal class NewsFeed(prefs: SharedPreferences, private val connection: () -> WorkbenchConnection?) {
+    val translations = NewsTranslations(prefs, connection)
     var snapshot by mutableStateOf<NewsSnapshot?>(null); private set
     var loading by mutableStateOf(false); private set
     var refreshError by mutableStateOf<String?>(null); private set
@@ -89,14 +89,6 @@ internal class NewsFeed(private val connection: () -> WorkbenchConnection?) {
         }
     }
 
-    suspend fun translate(article: NewsArticle, target: String): NewsTranslation {
-        val transport = connection() ?: error("未连接")
-        val body = JSONObject().put("source", article.language).put("target", target)
-            .put("title", article.title).put("summary", article.summary.orEmpty())
-        val response = transport.request("/v1/server-data/news/translate", body)
-        check(transport === connection() && response.getString("target") == target)
-        return NewsTranslation(response.getString("title"), response.getString("summary"))
-    }
 }
 
 @Composable
@@ -112,11 +104,16 @@ internal fun NewsFeedPage(feed: NewsFeed, connected: Boolean, visible: Boolean) 
     var to by rememberSaveable { mutableStateOf(snapshot?.query?.to) }
     var sourcesOpen by remember { mutableStateOf(false) }
     var datesOpen by rememberSaveable { mutableStateOf(false) }
-    var translatingArticle by remember { mutableStateOf<NewsArticle?>(null) }
-    var preferredLanguage by rememberSaveable { mutableStateOf("zh") }
+    var languageMenuOpen by remember { mutableStateOf(false) }
+    var showOriginals by rememberSaveable { mutableStateOf(false) }
+    var translationError by remember { mutableStateOf(false) }
+    var translationRetry by remember { mutableIntStateOf(0) }
+    val listState = rememberLazyListState()
+    val preferredLanguage = feed.translations.preferredLanguage
     var appliedKeyword by rememberSaveable { mutableStateOf(snapshot?.query?.keyword.orEmpty()) }
     val query = NewsQuery(sourceId, appliedKeyword, category, from, to)
     val result = snapshot?.takeIf { it.query == query }
+    val articles = result?.articles.orEmpty()
     val sources = snapshot?.sources.orEmpty().filter { category == null || it.category == category }
     val canSearch = connected && !feed.loading
     fun search(next: NewsQuery = query) {
@@ -133,24 +130,59 @@ internal fun NewsFeedPage(feed: NewsFeed, connected: Boolean, visible: Boolean) 
     LaunchedEffect(visible, connected) {
         if (visible && connected) feed.refresh(query)
     }
+    LaunchedEffect(visible, connected, preferredLanguage, showOriginals, articles, translationRetry) {
+        translationError = false
+        if (!visible || !connected || showOriginals || articles.isEmpty()) return@LaunchedEffect
+        snapshotFlow {
+            val visibleRows = listState.layoutInfo.visibleItemsInfo
+            val start = ((visibleRows.firstOrNull()?.index ?: 1) - 1).coerceIn(0, articles.lastIndex)
+            val end = ((visibleRows.lastOrNull()?.index ?: 1) + 2).coerceIn(start + 1, articles.size)
+            articles.subList(start, end)
+        }.collect { window ->
+            try {
+                feed.translations.translate(window, preferredLanguage)
+                translationError = false
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                translationError = true
+            }
+        }
+    }
     if (datesOpen) {
         NewsDateDialog(from.orEmpty(), to.orEmpty(), canSearch, onDismiss = { datesOpen = false }) { start, end ->
             datesOpen = false
             search(query.copy(from = start, to = end))
         }
     }
-    translatingArticle?.let { article ->
-        NewsTranslationDialog(article, feed, connected, preferredLanguage, { preferredLanguage = it }) {
-            translatingArticle = null
-        }
-    }
     LazyColumn(
         Modifier.fillMaxSize().testTag("aggregatedNews"), horizontalAlignment = Alignment.CenterHorizontally,
+        state = listState,
         contentPadding = PaddingValues(horizontal = LocalPagePadding.current, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         item {
             Panel(Modifier.widthIn(max = 640.dp).fillMaxWidth()) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.weight(1f, fill = false)) {
+                        OutlinedButton(onClick = { languageMenuOpen = true }, modifier = Modifier.testTag("newsLanguage")) {
+                            Text("译文语言 · ${newsLanguages.getValue(preferredLanguage)}")
+                        }
+                        DropdownMenu(expanded = languageMenuOpen, onDismissRequest = { languageMenuOpen = false }) {
+                            newsLanguages.forEach { (code, label) ->
+                                DropdownMenuItem(text = { Text(label) }, modifier = Modifier.testTag("newsLanguage-$code"),
+                                    onClick = {
+                                        languageMenuOpen = false
+                                        feed.translations.setLanguage(code)
+                                        showOriginals = false
+                                    })
+                            }
+                        }
+                    }
+                    FilterChip(selected = showOriginals, onClick = { showOriginals = !showOriginals },
+                        label = { Text("显示原文") }, modifier = Modifier.testTag("newsOriginals"))
+                }
                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     val categories = listOf(null) + ResourceCategory.entries.filter { it.isNews }
@@ -225,6 +257,9 @@ internal fun NewsFeedPage(feed: NewsFeed, connected: Boolean, visible: Boolean) 
                 if (connected && (feed.refreshError != null || result?.unavailable?.isNotEmpty() == true || result?.cached?.isNotEmpty() == true)) {
                     TextButton(onClick = { search() }, enabled = canSearch, modifier = Modifier.testTag("retryNews")) { Text("重试") }
                 }
+                if (translationError && !showOriginals && connected) {
+                    TextButton(onClick = { translationRetry++ }) { Text("部分资讯翻译未完成，重试翻译") }
+                }
                 if (result != null && result.articles.isNotEmpty()) {
                     val count = result.matchedCount
                     Text(if (count > result.articles.size) "显示 ${result.articles.size} / $count 条" else "$count 条资讯",
@@ -232,14 +267,21 @@ internal fun NewsFeedPage(feed: NewsFeed, connected: Boolean, visible: Boolean) 
                 }
             }
         }
-        items(result?.articles.orEmpty()) { item ->
+        items(articles) { item ->
+            var showOriginal by rememberSaveable(item.title, item.summary, item.link, preferredLanguage) { mutableStateOf(false) }
+            val translation = feed.translations.get(item, preferredLanguage)
+            val translated = translation?.takeUnless { showOriginals || showOriginal }
             Panel(Modifier.widthIn(max = 640.dp).fillMaxWidth().testTag("newsArticle")) {
-                FeedArticleCard(item.title, item.publisher, item.time, item.summary, item.link, context,
+                if (translated != null) Text("机器译文", Modifier.testTag("newsTranslated"), color = Muted,
+                    style = MaterialTheme.typography.labelSmall)
+                FeedArticleCard(translated?.title ?: item.title, item.publisher, item.time,
+                    translated?.summary?.takeIf { it.isNotBlank() } ?: item.summary, item.link, context,
                     timeLabel = if (item.timeKind == "updated") "更新" else "发布",
                     titleTag = "newsHeadline")
-                if (item.language == "en") {
-                    TextButton(onClick = { translatingArticle = item }, enabled = connected,
-                        modifier = Modifier.testTag("translateNewsArticle")) { Text("翻译") }
+                if (translation != null && !showOriginals) {
+                    TextButton(onClick = { showOriginal = !showOriginal }, modifier = Modifier.testTag("toggleNewsOriginal")) {
+                        Text(if (showOriginal) "查看译文" else "查看原文")
+                    }
                 }
             }
         }

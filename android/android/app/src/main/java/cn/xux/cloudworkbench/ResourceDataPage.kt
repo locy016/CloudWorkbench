@@ -79,13 +79,6 @@ internal class ResourceData(private val connection: () -> WorkbenchConnection?) 
         if (transport === connection()) sources = list
     }
 
-    suspend fun loadDefaultHeadlines() {
-        val source = sources.firstOrNull { it.category == ResourceCategory.Headlines } ?: return
-        if (source.filters.isEmpty() && (result?.source != source.id || result?.filters?.isNotEmpty() == true)) {
-            download(source, emptyMap())
-        }
-    }
-
     suspend fun download(source: ResourceSource, choices: Map<String, String>) =
         operation("获取失败，请稍后重试") { transport ->
             val query = Uri.Builder()
@@ -137,7 +130,7 @@ internal class ResourceData(private val connection: () -> WorkbenchConnection?) 
 internal fun ResourceDataPage(data: ResourceData, connected: Boolean, visible: Boolean) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var categoryKey by rememberSaveable { mutableStateOf(ResourceCategory.Headlines.key) }
+    var categoryKey by rememberSaveable { mutableStateOf(ResourceCategory.Logistics.key) }
     var sourceId by rememberSaveable { mutableStateOf("") }
     var exportStatus by rememberSaveable { mutableStateOf<String?>(null) }
     val categories = ResourceCategory.entries.filter { category -> data.sources.any { it.category == category } }
@@ -178,10 +171,7 @@ internal fun ResourceDataPage(data: ResourceData, connected: Boolean, visible: B
     val jsonDocument = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json"), completeExport)
     val csvDocument = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv"), completeExport)
     LaunchedEffect(visible, connected) {
-        if (visible && connected) {
-            data.refreshCatalog()
-            if (categoryKey == ResourceCategory.Headlines.key && sourceId.isEmpty()) data.loadDefaultHeadlines()
-        }
+        if (visible && connected) data.refreshCatalog()
     }
 
     LazyColumn(
@@ -242,7 +232,7 @@ internal fun ResourceDataPage(data: ResourceData, connected: Boolean, visible: B
                             exportStatus = null
                             scope.launch { data.download(source, choices) }
                         }, enabled = connected && !data.loading && !rangeError && choices.values.none { it.isBlank() },
-                            modifier = Modifier.testTag("fetchResource")) { Text(if (source.category.isNews) "获取资讯" else "获取数据") }
+                            modifier = Modifier.testTag("fetchResource")) { Text("查询数据") }
                         TextButton(onClick = { scope.launch { data.refreshCatalog() } }, enabled = connected && !data.loading) {
                             Text("刷新目录")
                         }
@@ -330,7 +320,7 @@ internal fun FeedArticleCard(title: String, publisher: String, time: String?, su
     Text(listOfNotNull(publisher, timeText).joinToString(" · "), color = Muted,
         style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("${titleTag}Metadata"))
     summary?.let {
-        Text(it, maxLines = 4, overflow = TextOverflow.Ellipsis)
+        Text(it, Modifier.testTag("${titleTag}Summary"), maxLines = 4, overflow = TextOverflow.Ellipsis)
     }
     link?.let {
         TextButton(onClick = {
