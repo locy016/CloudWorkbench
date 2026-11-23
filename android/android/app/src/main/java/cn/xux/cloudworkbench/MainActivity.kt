@@ -279,6 +279,8 @@ private fun whenText(ms: Long) = SimpleDateFormat("MM-dd HH:mm", Locale.CHINA).f
 private fun stateText(s: String) = mapOf("idle" to "已完成", "running" to "执行中", "starting" to "准备中", "approval" to "等待确认", "failed" to "失败", "interrupted" to "已中断")[s] ?: s
 
 @Composable private fun Dashboard(vm: WorkbenchModel) {
+    var showAllDrafts by rememberSaveable { mutableStateOf(false) }
+    val drafts = vm.savedDrafts
     PageColumn {
         val heroShape = MaterialTheme.shapes.large
         Column(
@@ -308,6 +310,13 @@ private fun stateText(s: String) = mapOf("idle" to "已完成", "running" to "�
                         else -> "重试连接"
                     }, maxLines = 1)
                 }
+            }
+        }
+        if (drafts.isNotEmpty()) {
+            Panel(Modifier.fillMaxWidth().testTag("savedDrafts")) {
+                Text("继续草稿", style = MaterialTheme.typography.titleMedium)
+                drafts.take(3).forEach { draft -> SavedDraftRow(draft, !vm.busy) { vm.openSavedDraft(draft) } }
+                if (drafts.size > 3) TextButton(onClick = { showAllDrafts = true }) { Text("查看全部 ${drafts.size} 条草稿") }
             }
         }
         if (vm.connecting) {
@@ -352,6 +361,34 @@ private fun stateText(s: String) = mapOf("idle" to "已完成", "running" to "�
                 }
             }
         }
+    }
+    if (showAllDrafts && drafts.isNotEmpty()) {
+        AlertDialog(onDismissRequest = { showAllDrafts = false }, title = { Text("未发送的草稿") }, text = {
+            LazyColumn(Modifier.heightIn(max = 360.dp)) {
+                items(drafts, key = { it.key }) { draft -> SavedDraftRow(draft, !vm.busy) {
+                    showAllDrafts = false
+                    vm.openSavedDraft(draft)
+                } }
+            }
+        }, confirmButton = { TextButton(onClick = { showAllDrafts = false }) { Text("关闭") } })
+    }
+}
+
+@Composable private fun SavedDraftRow(draft: SavedDraft, enabled: Boolean, open: () -> Unit) {
+    Row(Modifier.fillMaxWidth().clip(MaterialTheme.shapes.small).testTag("draft-${draft.key}")
+        .clickable(enabled = enabled, onClickLabel = "继续编辑草稿", role = Role.Button, onClick = open)
+        .heightIn(min = 56.dp).padding(horizontal = 4.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.weight(1f)) {
+            Text(draft.title, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            val details = listOfNotNull(draft.projectName.ifBlank { null },
+                draft.images.takeIf { it > 0 }?.let { "$it 张图片" },
+                draft.updatedAt.takeIf { it > 0 }?.let(::whenText)).joinToString(" · ")
+            if (details.isNotEmpty()) Text(details, color = Muted, style = MaterialTheme.typography.bodySmall, maxLines = 1)
+            if (draft.preview.isNotEmpty()) Text(draft.preview, color = Muted, style = MaterialTheme.typography.bodySmall,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        Icon(Icons.Outlined.ChevronRight, null, Modifier.size(18.dp), tint = Muted)
     }
 }
 
@@ -588,10 +625,6 @@ private data class MetricValue(val label: String, val value: String, val hint: S
         historyError = null
         history = true
     }
-    LaunchedEffect(history, vm.hostOnline) {
-        if (!history || !vm.hostOnline) return@LaunchedEffect
-        vm.loadConversations(firstPage = true) { historyError = it }
-    }
     val keyboardOpen = WindowInsets.ime.getBottom(LocalDensity.current) > 0
     val floatingKeyboard = editorFocused && WindowInsets.isImeVisible && !keyboardOpen
     // Floating IMEs report visibility without a bottom inset. Keep the focused editor above their usual position.
@@ -625,6 +658,7 @@ private data class MetricValue(val label: String, val value: String, val hint: S
         if (vm.messages.isEmpty() && vm.currentId != null) {
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 Text(when {
+                    vm.draftThreadMissing -> "原会话已不可用，草稿保存在本机"
                     vm.current != null -> "这个会话还没有消息"
                     vm.reconnecting -> "连接恢复后将继续读取会话"
                     vm.connecting || vm.hostOnline -> "正在读取会话…"
@@ -681,7 +715,7 @@ private data class MetricValue(val label: String, val value: String, val hint: S
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
             Box(Modifier.widthIn(max = 824.dp).fillMaxWidth()
                 .padding(horizontal = LocalPagePadding.current, vertical = 8.dp)) {
-                if (vm.selectedConversationArchived) {
+                if (vm.selectedConversationArchived && !vm.hasDraft) {
                     Surface(color = MaterialTheme.colorScheme.surface, shape = MaterialTheme.shapes.medium) {
                         Text("此会话来自已停用的工作区。可在当前工作区开启新对话。",
                             Modifier.padding(12.dp), color = Muted, style = MaterialTheme.typography.bodySmall)
@@ -691,6 +725,7 @@ private data class MetricValue(val label: String, val value: String, val hint: S
                         vm.busy -> "正在提交…"
                         vm.submissionHint != null -> vm.submissionHint
                         !vm.hostOnline -> "设备未连接，草稿暂存于应用内"
+                        !vm.canSendInConversation -> "当前会话或项目不可用，草稿保存在本机"
                         vm.running -> "任务进行中"
                         vm.activeThread != null -> "另一个会话正在执行任务"
                         else -> null
@@ -700,30 +735,31 @@ private data class MetricValue(val label: String, val value: String, val hint: S
             }
         }
     }
-    if (history) ConversationHistory(vm, historyError, onPageError = { historyError = it }, onSelect = { id ->
+    if (history) ConversationHistory(vm, historyError, onSelect = { id ->
         historyError = null
         vm.select(id, onSuccess = { history = false }, onFailure = { historyError = it })
     }, onClose = { history = false })
 }
 
 @Composable private fun ConversationHistory(
-    vm: WorkbenchModel, loadError: String?, onPageError: (String?) -> Unit, onSelect: (String) -> Unit, onClose: () -> Unit
+    vm: WorkbenchModel, selectError: String?, onSelect: (String) -> Unit, onClose: () -> Unit
 ) {
     var query by rememberSaveable { mutableStateOf("") }
-    var projectOnly by rememberSaveable { mutableStateOf(false) }
+    var filterProject by rememberSaveable { mutableStateOf<String?>(null) }
+    var filterStatus by rememberSaveable { mutableStateOf<String?>(null) }
     var deleteId by rememberSaveable { mutableStateOf<String?>(null) }
     var confirmCleanup by rememberSaveable { mutableStateOf(false) }
     var removing by remember { mutableStateOf(false) }
     var feedback by remember { mutableStateOf<String?>(null) }
     var removeError by remember { mutableStateOf<String?>(null) }
     val canManage = vm.hostOnline && !vm.busy && !vm.connecting && !vm.importingAttachment
-    val history = vm.historyThreads
+    val filter = HistoryFilter(query.trim(), filterProject, filterStatus)
+    LaunchedEffect(filter, vm.hostOnline) { vm.loadConversations(filter) }
+    DisposableEffect(vm) { onDispose { vm.cancelHistoryLoad() } }
+    val sameFilter = vm.historyFilter == filter
+    val history = vm.historyThreads.takeIf { sameFilter }.orEmpty()
     val recent = vm.threads.associateBy { it.getString("id") }
     val deleteTarget = history.firstOrNull { it.optString("id") == deleteId }?.let { recent[it.getString("id")] ?: it }
-    val visible = history.map { recent[it.getString("id")] ?: it }.filter { thread ->
-        val project = vm.threadProjectId(thread)
-        (!projectOnly || project == vm.projectId) && vm.threadTitle(thread).contains(query.trim(), ignoreCase = true)
-    }
     if (deleteTarget != null || confirmCleanup) {
         val cancel = { deleteId = null; confirmCleanup = false }
         AlertDialog(
@@ -757,30 +793,36 @@ private data class MetricValue(val label: String, val value: String, val hint: S
     }
     AlertDialog(onDismissRequest = { if (vm.loadingConversation == null) onClose() }, title = { Text("历史会话") }, text = {
         Column {
-            if (history.isNotEmpty()) {
-                OutlinedTextField(query, { query = it }, label = {
-                    Text(if (vm.canLoadMoreConversations) "搜索已加载的会话标题" else "搜索会话标题")
-                }, singleLine = true,
-                    leadingIcon = { Icon(Icons.Outlined.Search, null, Modifier.size(20.dp)) },
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier.fillMaxWidth().testTag("conversationSearch"))
-                if (vm.projects.size > 1) FilterChip(projectOnly, { projectOnly = !projectOnly }, label = { Text("仅当前工作区") })
+            OutlinedTextField(query, { query = it.take(120) }, label = { Text("搜索会话标题") }, singleLine = true,
+                leadingIcon = { Icon(Icons.Outlined.Search, null, Modifier.size(20.dp)) },
+                shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth().testTag("conversationSearch"))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                HistoryFilterMenu("全部项目", filterProject, vm.projects.map { it.getString("id") to it.optString("name", it.getString("id")) },
+                    Modifier.weight(1f).testTag("historyProjectFilter")) { filterProject = it }
+                val states = listOf("starting", "running", "approval", "idle", "failed", "interrupted")
+                HistoryFilterMenu("全部状态", filterStatus, states.map { it to stateText(it) },
+                    Modifier.weight(1f).testTag("historyStatusFilter")) { filterStatus = it }
             }
-            if (visible.isEmpty()) Text(
+            if (history.isEmpty()) Text(
                 when {
-                    history.isEmpty() && (vm.connecting || vm.busy) -> "正在读取历史会话…"
-                    history.isEmpty() && !vm.hostOnline -> "连接服务器后读取会话"
-                    history.isEmpty() -> "还没有历史会话"
+                    !vm.hostOnline -> "连接服务器后搜索历史会话"
+                    !sameFilter || vm.historyLoading -> "正在搜索历史会话…"
+                    vm.historyLoadError != null -> "历史会话读取失败"
+                    filter == HistoryFilter() -> "还没有历史会话"
                     else -> "没有匹配的会话"
                 }, Modifier.padding(vertical = 16.dp), color = Muted
             )
-            loadError?.let {
+            val loadError = vm.historyLoadError.takeIf { sameFilter }
+            (selectError ?: loadError)?.let {
                 Text(it, Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodySmall)
             }
+            if (loadError != null && vm.hostOnline && !vm.historyLoading) {
+                TextButton(onClick = { vm.loadConversations(filter, firstPage = history.isEmpty()) }) { Text("重试搜索") }
+            }
             feedback?.let { Text(it, color = Accent, style = MaterialTheme.typography.bodySmall) }
             LazyColumn(Modifier.heightIn(max = 360.dp).testTag("conversationList")) {
-                items(visible, key = { it.getString("id") }) { t ->
+                items(history, key = { it.getString("id") }) { t ->
                     val id = t.getString("id")
                     val selected = id == vm.currentId
                     Row(Modifier.fillMaxWidth().background(if (selected) AccentSurface else Color.Transparent, RoundedCornerShape(12.dp)),
@@ -794,17 +836,16 @@ private data class MetricValue(val label: String, val value: String, val hint: S
                         if (vm.loadingConversation == id) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                         else if (selected) Icon(Icons.Outlined.Check, "当前会话", tint = Accent)
                         IconButton(onClick = { removeError = null; deleteId = id },
-                            enabled = canManage && t.optString("status") !in activeTaskStates) {
+                            enabled = canManage && (recent[id] ?: t).optString("status") !in activeTaskStates) {
                             Icon(Icons.Outlined.DeleteOutline, "删除会话 " + vm.threadTitle(t))
                         }
                     }
                 }
-                if (vm.canLoadMoreConversations) item("more-conversations") {
-                    TextButton(onClick = {
-                        onPageError(null)
-                        vm.loadConversations(firstPage = false) { onPageError(it) }
-                    },
-                        enabled = canManage, modifier = Modifier.testTag("loadMoreConversations")) { Text("加载更多会话") }
+                if (sameFilter && vm.canLoadMoreConversations) item("more-conversations") {
+                    TextButton(onClick = { vm.loadConversations(filter, firstPage = false) },
+                        enabled = canManage && !vm.historyLoading, modifier = Modifier.testTag("loadMoreConversations")) {
+                        Text(if (vm.historyLoading) "正在加载…" else "加载更多会话")
+                    }
                 }
             }
         }
@@ -814,6 +855,25 @@ private data class MetricValue(val label: String, val value: String, val hint: S
                 TextButton(onClick = { removeError = null; confirmCleanup = true }, enabled = canManage) { Text("清理空会话") }
             }
         })
+}
+
+@Composable private fun HistoryFilterMenu(all: String, selected: String?, options: List<Pair<String, String>>,
+    modifier: Modifier, select: (String?) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box(modifier) {
+        OutlinedButton(onClick = { open = true }, enabled = options.isNotEmpty(), modifier = Modifier.fillMaxWidth(),
+            contentPadding = PaddingValues(horizontal = 8.dp)) {
+            Text(options.find { it.first == selected }?.second ?: selected ?: all, Modifier.weight(1f, fill = false),
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Icon(Icons.Outlined.ExpandMore, null, Modifier.size(16.dp))
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            DropdownMenuItem(text = { Text(all) }, onClick = { open = false; select(null) })
+            options.forEach { (value, label) ->
+                DropdownMenuItem(text = { Text(label) }, onClick = { open = false; select(value) })
+            }
+        }
+    }
 }
 
 @Composable private fun Message(m: JSONObject) {

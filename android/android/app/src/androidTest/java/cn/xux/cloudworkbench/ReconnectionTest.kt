@@ -3,6 +3,7 @@ package cn.xux.cloudworkbench
 import android.app.Application
 import android.content.Intent
 import android.graphics.Bitmap
+import android.net.Uri
 import android.os.SystemClock
 import android.view.WindowManager
 import androidx.activity.compose.setContent
@@ -198,6 +199,64 @@ class ReconnectionTest {
             compose.onNodeWithTag("home-result-$RESULT_THREAD").performScrollTo().performClick()
             compose.waitUntil(10_000) { compose.onAllNodesWithText("验收结果已就绪").fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithTag("conversationTitle").assertTextEquals("最近完成的检查")
+        } finally {
+            onMain { activity.finish() }
+            instrument.waitForIdleSync()
+        }
+    }
+
+    @Test
+    fun historySearchCombinesFiltersAndLoadsTheNextMatchingPage() {
+        onMain {
+            gateway.historyFixture = true
+            model.openProject()
+        }
+        val activity = instrument.startActivitySync(Intent(app, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as MainActivity
+        try {
+            onMain { activity.setContent { WorkbenchTheme { Workbench(model) } } }
+            compose.onNodeWithTag("conversationHistory").performClick()
+            compose.waitUntil(10_000) { onMain { model.historyThreads.size == 40 } }
+            compose.onNodeWithTag("conversationSearch").performTextReplacement("磁盘 & 50%")
+            compose.onNodeWithText("全部项目").performClick()
+            compose.onNodeWithText("项目乙").performClick()
+            compose.onNodeWithText("全部状态").performClick()
+            compose.onNodeWithText("失败").performClick()
+            compose.waitUntil(10_000) { compose.onAllNodesWithText("旧会话磁盘结果").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithTag("loadMoreConversations").performScrollTo().performClick()
+            compose.waitUntil(10_000) { compose.onAllNodesWithText("更早的磁盘记录").fetchSemanticsNodes().isNotEmpty() }
+            onMain {
+                assertEquals(HistoryFilter("磁盘 & 50%", OTHER_PROJECT, "failed"), model.historyFilter)
+                assertEquals(2, model.historyThreads.size)
+                assertTrue(gateway.historyPaths.last().contains("before=match2"))
+            }
+        } finally {
+            onMain { activity.finish() }
+            instrument.waitForIdleSync()
+        }
+    }
+
+    @Test
+    fun homeReopensProjectAndExistingConversationDraftsAfterRestartWhileOffline() {
+        onMain {
+            model.draft = "旧会话未发送"
+            model.newThread()
+            model.selectProject(OTHER_PROJECT)
+            model.draft = "项目乙未发送"
+            recreateModel()
+        }
+        await { model.hostOnline && model.savedDrafts.size == 2 }
+        onMain { model.disconnect() }
+        val activity = instrument.startActivitySync(Intent(app, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as MainActivity
+        try {
+            onMain { activity.setContent { WorkbenchTheme { Workbench(model) } } }
+            compose.onNodeWithTag("draft-new:$OTHER_PROJECT").performScrollTo().performClick()
+            compose.onNodeWithTag("messageInput").assertTextContains("项目乙未发送")
+            onMain { assertEquals(OTHER_PROJECT, model.projectId); assertEquals(null, model.currentId) }
+            compose.openWorkbenchTab("云端")
+            compose.onNodeWithTag("draft-$THREAD").performScrollTo().performClick()
+            compose.onNodeWithTag("messageInput").assertTextContains("旧会话未发送")
+            compose.onNodeWithTag("send").assertIsNotEnabled()
+            onMain { assertEquals(THREAD, model.currentId); assertTrue(gateway.posted.isEmpty()) }
         } finally {
             onMain { activity.finish() }
             instrument.waitForIdleSync()
@@ -423,6 +482,8 @@ class ReconnectionTest {
         var metrics: CompletableDeferred<JSONObject>? = null
         var metricsRequests = 0
         var hasRecentResult = false
+        var historyFixture = false
+        val historyPaths = mutableListOf<String>()
         val decisions = mutableListOf<String>()
         private val received = linkedMapOf<String, String>()
 
@@ -443,6 +504,26 @@ class ReconnectionTest {
             override suspend fun request(path: String, body: JSONObject?, delete: Boolean): JSONObject {
                 if (!available || !connected) throw IOException("模拟网络中断")
                 if (path == "/v1/threads") businessFailure?.let { throw it }
+                if (historyFixture && path.startsWith("/v1/threads?limit=")) {
+                    historyPaths += path
+                    val uri = Uri.parse("https://fixture$path")
+                    val query = uri.getQueryParameter("q")
+                    val project = uri.getQueryParameter("projectId")
+                    val status = uri.getQueryParameter("status")
+                    val before = uri.getQueryParameter("before")
+                    val match = query == "磁盘 & 50%" && project == OTHER_PROJECT && status == "failed"
+                    val rows = when {
+                        match -> listOf(JSONObject().put("id", if (before == null) "old-result" else "older-result")
+                            .put("title", if (before == null) "旧会话磁盘结果" else "更早的磁盘记录")
+                            .put("projectId", OTHER_PROJECT).put("status", "failed").put("updated", 20))
+                        query == null && project == null && status == null -> (1..40).map {
+                            thread().put("id", "history-$it").put("title", "会话 $it").put("updated", 50 + it)
+                        }
+                        else -> emptyList()
+                    }
+                    return JSONObject().put("threads", JSONArray(rows)).put("searchSupported", true)
+                        .put("hasMore", match && before == null).put("nextBefore", "match2")
+                }
                 if (path.startsWith("/v1/threads/") && "/updates?" in path) updatePaths.add(path)
                 if (path.startsWith("/v1/threads/$THREAD/updates?")) {
                     if (rejectCursor && "&cursor=" in path) {
@@ -476,7 +557,7 @@ class ReconnectionTest {
                 return when (path) {
                     "/v1/status" -> { metricsRequests++; metrics?.await() ?: JSONObject() }
                     "/v1/projects" -> JSONObject().put("projects", JSONArray().put(JSONObject().put("id", "default"))
-                        .put(JSONObject().put("id", OTHER_PROJECT)))
+                        .put(JSONObject().put("id", OTHER_PROJECT).put("name", "项目乙")))
                     "/v1/threads" -> JSONObject().put("threads", JSONArray().put(thread()).apply {
                         if (overviewApprovals.length() > 0) put(otherThread())
                     })

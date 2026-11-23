@@ -1,4 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
+import { createHash } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import { Metrics } from './metrics.mjs';
 import { MessageChanges } from './message-changes.mjs';
@@ -16,6 +17,7 @@ export class Store {
     if (!Number.isInteger(flushMs) || flushMs < 1 || flushMs > 1000) throw new Error('Invalid flush interval');
     this.flushMs = flushMs; this.metrics = metrics;
     this.db = new DatabaseSync(path);
+    this.db.function('history_text_key', { deterministic: true }, value => value.normalize('NFKC').toLowerCase());
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;
       CREATE TABLE IF NOT EXISTS threads(id TEXT PRIMARY KEY,title TEXT NOT NULL,created INTEGER NOT NULL,updated INTEGER NOT NULL,status TEXT NOT NULL,turnId TEXT,error TEXT);
       CREATE TABLE IF NOT EXISTS messages(id TEXT PRIMARY KEY,threadId TEXT NOT NULL,role TEXT NOT NULL,text TEXT NOT NULL,status TEXT NOT NULL,created INTEGER NOT NULL);
@@ -146,18 +148,36 @@ export class Store {
     this.metrics.increment('messageRowsWritten', entries.length);
     this.metrics.observe('messageFlushMs', performance.now() - started);
   }
-  listPage({ limit, before }) {
-    let rows;
+  listPage({ limit, before, query = '', projectId = null, status = null, defaultProjectId = null }) {
+    const conditions = [];
+    const params = [];
+    if (query) {
+      conditions.push('instr(history_text_key(title), ?) > 0');
+      params.push(query.normalize('NFKC').toLowerCase());
+    }
+    if (projectId !== null) {
+      conditions.push('COALESCE(projectId, ?) = ?');
+      params.push(defaultProjectId, projectId);
+    }
+    if (status !== null) {
+      conditions.push('status = ?');
+      params.push(status);
+    }
+    const scope = conditions.length ? createHash('sha256').update(JSON.stringify([query, projectId, status, defaultProjectId])).digest('hex') : null;
     if (before) {
       const cursor = decodeCursor(before, 'threads');
       requireInteger(cursor.updated);
-      if (typeof cursor.id !== 'string' || !/^[a-zA-Z0-9-]{1,128}$/.test(cursor.id)) throw Object.assign(new Error('分页游标无效'), { status: 400 });
-      rows = this.prepare('SELECT * FROM threads WHERE (updated,id) < (?,?) ORDER BY updated DESC,id DESC LIMIT ?').all(cursor.updated, cursor.id, limit + 1);
-    } else rows = this.prepare('SELECT * FROM threads ORDER BY updated DESC,id DESC LIMIT ?').all(limit + 1);
+      if ((cursor.scope ?? null) !== scope || typeof cursor.id !== 'string' || !/^[a-zA-Z0-9-]{1,128}$/.test(cursor.id))
+        throw Object.assign(new Error('分页参数无效，请重新获取第一页'), { status: 400 });
+      conditions.push('(updated,id) < (?,?)');
+      params.push(cursor.updated, cursor.id);
+    }
+    const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
+    const rows = this.prepare(`SELECT * FROM threads ${where} ORDER BY updated DESC,id DESC LIMIT ?`).all(...params, limit + 1);
     const hasMore = rows.length > limit;
     const threads = rows.slice(0, limit);
     const last = threads.at(-1);
-    return { threads, hasMore, nextBefore: hasMore ? encodeCursor({ kind: 'threads', updated: last.updated, id: last.id }) : null };
+    return { threads, hasMore, nextBefore: hasMore ? encodeCursor({ kind: 'threads', updated: last.updated, id: last.id, scope }) : null };
   }
   messagePage(threadId, { limit, before }) {
     this.flush(threadId);

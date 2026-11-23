@@ -133,7 +133,7 @@ internal fun ConversationComposer(vm: WorkbenchModel, statusHint: String?, onEdi
 
     val canAct = vm.connected && vm.hostOnline && !vm.connecting && !vm.busy
     val hasDraft = vm.hasDraft
-    val canSend = canAct && speech.stage == null && !vm.importingAttachment && vm.activeThread == null && hasDraft
+    val canSend = canAct && vm.canSendInConversation && speech.stage == null && !vm.importingAttachment && vm.activeThread == null && hasDraft
     val attachmentsEnabled = speech.stage == null && !vm.busy && !vm.importingAttachment
     val error = speech.error ?: vm.attachmentError
     val hint = when {

@@ -78,10 +78,8 @@ class InterfaceReviewTest {
         }
         if (compose.onAllNodesWithText("还没有历史会话").fetchSemanticsNodes().isNotEmpty()) {
             compose.onNodeWithText("清理空会话").assertDoesNotExist()
-            compose.onNodeWithTag("conversationSearch").assertDoesNotExist()
-        } else {
-            compose.onNodeWithTag("conversationSearch").assertIsDisplayed()
         }
+        compose.onNodeWithTag("conversationSearch").assertIsDisplayed()
         screenshot("history")
         compose.onNodeWithText("关闭").performClick()
         compose.onNodeWithTag("project-任务").assertIsDisplayed().performClick()

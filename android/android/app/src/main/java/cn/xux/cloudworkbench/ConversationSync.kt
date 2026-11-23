@@ -1,11 +1,19 @@
 package cn.xux.cloudworkbench
 
+import android.net.Uri
 import org.json.JSONObject
 
 private const val PAGE_SIZE = 40
 
-internal fun threadPagePath(before: String? = null): String =
-    "/v1/threads?limit=$PAGE_SIZE" + (before?.let { "&before=$it" } ?: "")
+internal data class HistoryFilter(val query: String = "", val project: String? = null, val status: String? = null)
+
+internal fun threadPagePath(before: String? = null, filter: HistoryFilter = HistoryFilter()): String = buildString {
+    append("/v1/threads?limit=$PAGE_SIZE")
+    before?.let { append("&before=${Uri.encode(it)}") }
+    if (filter.query.isNotEmpty()) append("&q=${Uri.encode(filter.query)}")
+    filter.project?.let { append("&projectId=${Uri.encode(it)}") }
+    filter.status?.let { append("&status=${Uri.encode(it)}") }
+}
 
 internal fun historyPagePath(id: String, before: String): String =
     "/v1/threads/$id/history?limit=$PAGE_SIZE&before=$before"

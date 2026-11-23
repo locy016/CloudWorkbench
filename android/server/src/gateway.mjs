@@ -17,6 +17,7 @@ export const instructions = `你是用户的私人开发助手。使用中文。
 const textInput = text => [{ type: 'text', text, text_elements: [] }];
 const active = status => ['starting', 'running', 'approval'].includes(status);
 const validRequestId = id => typeof id === 'string' && /^[a-zA-Z0-9-]{12,100}$/.test(id);
+const historyStates = new Set(['starting', 'running', 'approval', 'idle', 'failed', 'interrupted']);
 const fail = (status, message) => Object.assign(new Error(message), { status });
 
 export class Gateway {
@@ -113,8 +114,16 @@ export class Gateway {
         this.store.attachment(id, thread.id, file, b.mime);
         return respond(201, { id, mime: b.mime, size: bytes.length });
       }
-      if (req.method === 'GET' && path === '/v1/threads' && (url.searchParams.has('limit') || url.searchParams.has('before'))) {
-        return respond(200, this.store.listPage({ limit: pageLimit(url.searchParams.get('limit'), 100), before: url.searchParams.get('before') }));
+      if (req.method === 'GET' && path === '/v1/threads' &&
+          ['limit', 'before', 'q', 'projectId', 'status'].some(key => url.searchParams.has(key))) {
+        const query = (url.searchParams.get('q') || '').trim();
+        const projectId = url.searchParams.get('projectId');
+        const status = url.searchParams.get('status');
+        if (query.length > 120 || (projectId !== null && !this.projects.some(project => project.id === projectId)) ||
+            (status !== null && !historyStates.has(status))) throw fail(400, '无效的会话查询条件');
+        const page = this.store.listPage({ limit: pageLimit(url.searchParams.get('limit'), 100),
+          before: url.searchParams.get('before'), query, projectId, status, defaultProjectId: this.projects[0].id });
+        return respond(200, { ...page, searchSupported: true });
       }
       const history = path.match(/^\/v1\/threads\/([a-zA-Z0-9-]+)\/(history|updates)$/);
       if (req.method === 'GET' && history) {

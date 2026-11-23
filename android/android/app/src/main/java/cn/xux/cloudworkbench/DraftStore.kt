@@ -11,9 +11,14 @@ internal data class DraftRecord(
     val text: String = "",
     val images: List<DraftImage> = emptyList(),
     val browser: BrowserSubmission? = null,
-    val attempt: MessageAttempt? = null
+    val attempt: MessageAttempt? = null,
+    val updatedAt: Long = 0,
+    val projectId: String? = null,
+    val title: String? = null,
+    val projectName: String? = null
 ) {
     val uploads get() = listOfNotNull(browser?.image) + images.map { it.upload }
+    val isEmpty get() = text.isEmpty() && images.isEmpty() && browser == null && attempt == null
 
     fun messageText(): String? = text.trim().ifEmpty { if (uploads.isNotEmpty()) "请分析附图。" else return null }
 }
@@ -78,6 +83,8 @@ internal class DraftStore(private val prefs: SharedPreferences, private val dire
     private fun imageFile(id: UUID) = File(directory, "$id.img")
 
     private fun encode(record: DraftRecord): JSONObject = JSONObject().put("text", record.text)
+        .put("updatedAt", record.updatedAt).put("projectId", record.projectId)
+        .put("title", record.title).put("projectName", record.projectName)
         .put("images", JSONArray(record.images.map { encodeImage(it.upload).put("name", it.name) }))
         .put("browser", record.browser?.let { JSONObject().put("context", it.context).put("image", it.image?.let(::encodeImage)) })
         .put("attempt", record.attempt?.let {
@@ -100,7 +107,11 @@ internal class DraftStore(private val prefs: SharedPreferences, private val dire
             MessageAttempt(it.getString("requestId"), it.getString("text"),
                 List(ids.length()) { index -> UUID.fromString(ids.getString(index)) },
                 it.getString("draftAtSend"), it.getString("projectId"), it.getString("title"))
-        }
+        },
+        updatedAt = record.optLong("updatedAt"),
+        projectId = record.optString("projectId").ifBlank { null },
+        title = record.optString("title").ifBlank { null },
+        projectName = record.optString("projectName").ifBlank { null }
     )
 
     private fun decodeImage(value: JSONObject): MessageImage {

@@ -33,6 +33,8 @@ internal val activeTaskStates = setOf("starting", "running", "approval")
 internal const val MAX_DRAFT_LENGTH = 12000
 internal data class Continuation(val id: String, val title: String, val project: String, val state: String,
     val approvalId: String? = null, val updated: Long? = null)
+internal data class SavedDraft(val key: String, val title: String, val projectId: String?, val projectName: String,
+    val preview: String, val images: Int, val updatedAt: Long)
 internal enum class SshConnectionBlock(val message: String) {
     CREDENTIALS("SSH 密钥验证失败，请确认公钥已在服务器授权"),
     HOST_IDENTITY("服务器身份校验失败，请联系管理员核对 SSH 主机密钥")
@@ -78,6 +80,10 @@ class WorkbenchModel internal constructor(
     var threads by mutableStateOf<List<JSONObject>>(emptyList()); private set
     var historyThreads by mutableStateOf<List<JSONObject>>(emptyList()); private set
     private var historyThreadsBefore by mutableStateOf<String?>(null)
+    internal var historyFilter by mutableStateOf<HistoryFilter?>(null); private set
+    internal var historyLoading by mutableStateOf(false); private set
+    internal var historyLoadError by mutableStateOf<String?>(null); private set
+    private var historyLoad: Job? = null
     val canLoadMoreConversations get() = historyThreadsBefore != null
     private var historyBefore by mutableStateOf<String?>(null)
     val canLoadOlderMessages get() = historyBefore != null
@@ -91,6 +97,7 @@ class WorkbenchModel internal constructor(
     val hostName = "阿里云 · Ubuntu"
     var currentId by mutableStateOf(prefs.getString("thread-cloud", prefs.getString("thread", null))); private set
     var current by mutableStateOf<JSONObject?>(null); private set
+    internal var draftThreadMissing by mutableStateOf(false); private set
     var messages by mutableStateOf<List<JSONObject>>(emptyList()); private set
     var loadingConversation by mutableStateOf<String?>(null); private set
     var approvals by mutableStateOf<List<JSONObject>>(emptyList()); private set
@@ -154,10 +161,15 @@ class WorkbenchModel internal constructor(
 
     private fun saveDrafts(changes: Map<String, DraftRecord>) {
         val previous = changes.keys.flatMap { draftRecord(it).uploads }.map { it.file }
-        for ((key, record) in changes) {
-            if (record == DraftRecord()) drafts.remove(key) else drafts[key] = record
+        val records = changes.mapValues { (key, record) ->
+            if (record.isEmpty) DraftRecord() else record.copy(updatedAt = System.currentTimeMillis(),
+                projectId = draftProjectId(key, record), title = draftTitle(key, record),
+                projectName = draftProjectId(key, record)?.let { draftProjectName(it, record) })
         }
-        draftStore.save(changes, receivedThread)
+        for ((key, record) in records) {
+            if (record.isEmpty) drafts.remove(key) else drafts[key] = record
+        }
+        draftStore.save(records, receivedThread)
         if (previous.isEmpty()) return
         val retained = changes.values.flatMap { it.uploads }.mapTo(hashSetOf()) { it.file }
         val removed = previous.filterNot { it in retained }
@@ -256,6 +268,9 @@ class WorkbenchModel internal constructor(
     val activeProjects get() = projects.filterNot { it.optBoolean("archived") }
     val selectedConversationArchived get() = currentId != null &&
         projects.any { it.optString("id") == threadProjectId(current) && it.optBoolean("archived") }
+    internal val canSendInConversation get() = if (currentId == null) {
+        projects.isEmpty() || activeProjects.any { it.optString("id") == projectId }
+    } else current != null && !selectedConversationArchived && !draftThreadMissing
     val canCleanEmptyThreads get() = projectId in projectsWithEmptyThreads
     val activeThread get() = current?.takeIf { it.optString("status") in activeTaskStates }
         ?: threads.firstOrNull { it.optString("id") != currentId && it.optString("status") in activeTaskStates }
@@ -579,7 +594,8 @@ class WorkbenchModel internal constructor(
             if (busy || selectedId != currentId) return
             projects = availableProjects
             lastProjects = now
-            if (activeProjects.none { it.optString("id") == projectId }) {
+            if (activeProjects.none { it.optString("id") == projectId } &&
+                drafts["new:$projectId"]?.messageText() == null) {
                 activeProjects.firstOrNull()?.let { setProject(it.getString("id")) }
             }
         }
@@ -603,7 +619,7 @@ class WorkbenchModel internal constructor(
                 } catch (e: GatewayException) {
                     if (e.status != 404) throw e
                     if (!busy && selectedId == currentId) {
-                        openDraft()
+                        if (drafts[selectedId]?.messageText() != null) draftThreadMissing = true else openDraft()
                         hostOnline = true
                     }
                     return
@@ -654,6 +670,51 @@ class WorkbenchModel internal constructor(
             ?: id.takeUnless { it.isBlank() || it == "null" }
             ?: projects.firstOrNull()?.optString("name")
             ?: "默认项目"
+
+    private fun draftThread(key: String) = current?.takeIf { it.optString("id") == key }
+        ?: threads.find { it.optString("id") == key } ?: historyThreads.find { it.optString("id") == key }
+
+    private fun draftProjectId(key: String, record: DraftRecord): String? =
+        key.takeIf { it.startsWith("new:") }?.removePrefix("new:")
+            ?: draftThread(key)?.let(::threadProjectId)?.takeIf { it.isNotBlank() }
+            ?: record.projectId ?: record.attempt?.projectId ?: projectId.takeIf { key == currentId }
+
+    private fun draftProjectName(id: String, record: DraftRecord): String =
+        projects.find { it.optString("id") == id }?.optString("name")?.takeIf { it.isNotBlank() }
+            ?: record.projectName ?: projectName(id)
+
+    private fun draftTitle(key: String, record: DraftRecord): String = when {
+        key.startsWith("new:") -> "新会话草稿"
+        else -> draftThread(key)?.let(::threadTitle) ?: record.title ?: record.attempt?.title ?: "会话草稿"
+    }
+
+    internal val savedDrafts: List<SavedDraft> get() = drafts.entries.asSequence()
+        .filter { it.value.messageText() != null }.map { (key, record) ->
+            val id = draftProjectId(key, record)
+            SavedDraft(key, draftTitle(key, record), id, id?.let { draftProjectName(it, record) }.orEmpty(),
+                record.text.trim().lineSequence().first().take(100), record.uploads.size, record.updatedAt)
+        }.sortedWith(compareByDescending<SavedDraft> { it.updatedAt }.thenBy { it.key }).toList()
+
+    internal fun openSavedDraft(item: SavedDraft) {
+        if (busy || drafts[item.key]?.messageText() == null) return
+        if (item.key.startsWith("new:")) {
+            item.projectId?.let(::setProject)
+            openDraft()
+            openProject()
+        } else if (hostOnline && connected && !connecting) {
+            select(item.key, openLocalIfMissing = true)
+        } else {
+            openLocalThreadDraft(item.key)
+        }
+    }
+
+    private fun openLocalThreadDraft(id: String, missing: Boolean = false) {
+        val project = draftProjectId(id, draftRecord(id))
+        selectThreadId(id)
+        project?.let(::setProject)
+        draftThreadMissing = missing
+        openProject()
+    }
     fun threadProjectId(thread: JSONObject?): String =
         thread?.optString("projectId").orEmpty().takeUnless { it.isBlank() || it == "null" }
             ?: projects.firstOrNull()?.optString("id").orEmpty()
@@ -661,7 +722,7 @@ class WorkbenchModel internal constructor(
         get() {
             val id = currentId ?: return "新对话"
             val thread = current ?: threads.firstOrNull { it.optString("id") == id }
-            return thread?.let(::threadTitle) ?: "历史会话"
+            return thread?.let(::threadTitle) ?: drafts[id]?.let { draftTitle(id, it) } ?: "历史会话"
         }
     internal fun threadTitle(thread: JSONObject): String {
         val title = thread.optString("title").trim()
@@ -712,6 +773,7 @@ class WorkbenchModel internal constructor(
     }
 
     private fun applyConversation(thread: JSONObject, window: List<JSONObject>, pending: List<JSONObject>, receipt: SubmissionReceipt?) {
+        draftThreadMissing = false
         current = thread
         messages = window
         approvals = pending
@@ -754,7 +816,8 @@ class WorkbenchModel internal constructor(
             }
         }
     }
-    fun select(id: String, onSuccess: () -> Unit = {}, onFailure: (String) -> Unit = { error = it }, refresh: Boolean = false) {
+    fun select(id: String, onSuccess: () -> Unit = {}, onFailure: (String) -> Unit = { error = it },
+        refresh: Boolean = false, openLocalIfMissing: Boolean = false) {
         if (!refresh && id == currentId && current != null) {
             openProject()
             onSuccess()
@@ -768,27 +831,60 @@ class WorkbenchModel internal constructor(
                 applyUpdates(update)
                 openProject()
                 onSuccess()
+            } catch (e: GatewayException) {
+                if (!openLocalIfMissing || e.status != 404) throw e
+                openLocalThreadDraft(id, missing = true)
             } finally {
                 loadingConversation = null
             }
         }
     }
-    fun loadConversations(firstPage: Boolean, onFailure: (String) -> Unit) {
-        val before = if (firstPage) null else historyThreadsBefore ?: return
-        action(onFailure) {
-            var replace = firstPage
-            val page = try {
-                ConversationPage.parse(request(threadPagePath(before)), "threads")
-            } catch (e: GatewayException) {
-                if (e.status != 400 || before == null) throw e
-                replace = true
-                ConversationPage.parse(request(threadPagePath()), "threads")
-            }
-            val previous = if (replace) emptyList() else historyThreads
-            historyThreads = (previous + page.entries).associateBy { it.getString("id") }.values
-                .sortedWith(compareByDescending<JSONObject> { it.optLong("updated") }.thenByDescending { it.getString("id") })
-            historyThreadsBefore = page.nextBefore
+    internal fun loadConversations(filter: HistoryFilter, firstPage: Boolean = true) {
+        val before = if (firstPage) null else {
+            if (historyLoading || historyFilter != filter) return
+            historyThreadsBefore ?: return
         }
+        historyLoad?.cancel()
+        historyFilter = filter
+        historyLoadError = null
+        if (firstPage) {
+            historyThreads = emptyList()
+            historyThreadsBefore = null
+        }
+        historyLoading = hostOnline
+        if (!hostOnline) return
+        historyLoad = viewModelScope.launch {
+            try {
+                if (firstPage && filter.query.isNotEmpty()) delay(250L)
+                suspend fun load(cursor: String?): ConversationPage {
+                    val response = request(threadPagePath(cursor, filter))
+                    check(filter == HistoryFilter() || response.optBoolean("searchSupported")) { "服务器暂不支持历史会话筛选" }
+                    return ConversationPage.parse(response, "threads")
+                }
+                var replace = firstPage
+                val page = try {
+                    load(before)
+                } catch (e: GatewayException) {
+                    if (e.status != 400 || before == null) throw e
+                    replace = true
+                    load(null)
+                }
+                val previous = if (replace) emptyList() else historyThreads
+                historyThreads = (previous + page.entries).distinctBy { it.getString("id") }
+                historyThreadsBefore = page.nextBefore
+                historyLoading = false
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                historyLoadError = friendly(e)
+                historyLoading = false
+            }
+        }
+    }
+
+    internal fun cancelHistoryLoad() {
+        historyLoad?.cancel()
+        historyLoading = false
     }
 
     fun loadOlderMessages() {
@@ -834,16 +930,22 @@ class WorkbenchModel internal constructor(
 
     private fun selectConversation(thread: JSONObject): String {
         val id = thread.getString("id")
+        selectThreadId(id)
+        applyThreadProject(thread)
+        return id
+    }
+    private fun selectThreadId(id: String) {
         if (currentId != id) {
             keepPendingApprovals()
+            current = null
             messages = emptyList()
+            approvals = emptyList()
             historyBefore = null
             updateCursor = null
+            draftThreadMissing = false
         }
         currentId = id
         prefs.edit().putString("thread-cloud", id).apply()
-        applyThreadProject(thread)
-        return id
     }
     private fun applyThreadProject(thread: JSONObject) {
         val id = threadProjectId(thread)
@@ -857,6 +959,7 @@ class WorkbenchModel internal constructor(
     }
     private fun openDraft() {
         keepPendingApprovals()
+        draftThreadMissing = false
         currentId = null
         prefs.edit().putString("thread-cloud", null).remove("thread").apply()
         current = null
@@ -869,7 +972,7 @@ class WorkbenchModel internal constructor(
         otherApprovals = otherApprovals.filter { it.optString("threadId") != currentId } + approvals
     }
     fun send() {
-        if (selectedConversationArchived || activeThread != null || importingAttachment || dictation.stage != null) return
+        if (!canSendInConversation || activeThread != null || importingAttachment || dictation.stage != null) return
         val draftAtSend = draftRecord(draftKey)
         val text = draftAtSend.messageText() ?: return
         action {

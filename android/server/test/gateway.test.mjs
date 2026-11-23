@@ -64,6 +64,36 @@ test('the workbench API accepts the local SSH path and rejects requests from web
   assert.equal((await call('/v1/threads', undefined, { ...mobile, 'x-workbench-ingress': 'web' })).status, 404);
   assert.equal((await call('/internal/workstation-devices/codes', {}, mobile)).status, 404);
 });
+test('history filters across unloaded pages and scopes pagination to the same search', async t => {
+  const { call, store } = await fixture(t, { projects: [
+    { id: 'default', name: '常规', path: '/test/default' },
+    { id: 'archive', name: '历史', path: '/test/old', archived: true },
+  ] });
+  for (const id of ['old-a', 'old-b', 'wrong-status']) {
+    store.create(id, 'ÉTAT 磁盘 50%_&');
+    if (id !== 'wrong-status') store.state(id, 'failed');
+  }
+  store.create('wrong-project', 'ÉTAT 磁盘 50%_&');
+  store.project('wrong-project', 'archive');
+  store.state('wrong-project', 'failed');
+  store.prepare("UPDATE threads SET updated=1 WHERE title LIKE '%磁盘%'").run();
+  for (let i = 0; i < 45; i++) store.create(`new-${i}`, `较新的会话 ${i}`);
+  const initial = (await call('/v1/threads?limit=40')).body;
+  assert.equal(initial.threads.length, 40);
+  assert.equal(initial.threads.some(({ id }) => id.startsWith('old-')), false);
+  const search = '/v1/threads?limit=1&q=' + encodeURIComponent('état 磁盘 50%_&') + '&projectId=default&status=failed';
+  const first = (await call(search)).body;
+  assert.equal(first.searchSupported, true);
+  assert.deepEqual(first.threads.map(({ id }) => id), ['old-b']);
+  assert.equal(first.hasMore, true);
+  const second = (await call(search + '&before=' + first.nextBefore)).body;
+  assert.deepEqual(second.threads.map(({ id }) => id), ['old-a']);
+  assert.equal(second.hasMore, false);
+  assert.equal((await call(search.replace('default', 'archive') + '&before=' + first.nextBefore)).status, 400);
+  assert.deepEqual((await call(search.replace('default', 'archive'))).body.threads.map(({ id }) => id), ['wrong-project']);
+  assert.deepEqual((await call('/v1/threads?q=' + encodeURIComponent('找不到的标题'))).body.threads, []);
+  assert.equal((await call('/v1/threads?status=invalid')).status, 400);
+});
 test('archived workspaces preserve history and are skipped for new conversations', async t => {
   const { call, store } = await fixture(t, {
     projects: [{ id: 'default', name: 'Archived', path: '/test/old', archived: true },
