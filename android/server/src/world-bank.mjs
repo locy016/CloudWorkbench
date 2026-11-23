@@ -43,7 +43,7 @@ async function readJson(request, path, params) {
   const url = new URL(API + path);
   url.search = new URLSearchParams({ ...params, format: 'json' }).toString();
   const response = await request(url.href, {
-    redirect: 'error', signal: AbortSignal.timeout(7000), headers: { Accept: 'application/json' }
+    redirect: 'error', signal: AbortSignal.timeout(10_000), headers: { Accept: 'application/json' }
   });
   if (!response.ok || !response.body ||
       !/^application\/json(?:\s*;|$)/i.test(response.headers.get('content-type') || '')) {

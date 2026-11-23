@@ -131,7 +131,7 @@ private suspend fun WebView.hasPageContent(): Boolean = suspendCancellableCorout
     var view by remember { mutableStateOf<WebView?>(null) }
     var address by remember { mutableStateOf(TextFieldValue(vm.browserUrl)) }
     var startPage by rememberSaveable { mutableStateOf(vm.browserUrl.isEmpty()) }
-    var serverDataSection by rememberSaveable { mutableStateOf<ServerDataSection?>(null) }
+    var serverDataSectionName by rememberSaveable(key = "browserDataEntry") { mutableStateOf<String?>(null) }
     var bookmarksOpen by rememberSaveable { mutableStateOf(false) }
     var bookmarkToEdit by rememberSaveable { mutableStateOf<String?>(null) }
     var addressFocused by remember { mutableStateOf(false) }
@@ -179,10 +179,10 @@ private suspend fun WebView.hasPageContent(): Boolean = suspendCancellableCorout
         view?.stopLoading()
         pageReady = false
         pageLoading = false
-        serverDataSection = section
+        serverDataSectionName = section.name
     }
-    serverDataSection?.let { section ->
-        ServerDataPage(vm, section, visible, menuButton, onBack = { serverDataSection = null })
+    ServerDataSection.entries.firstOrNull { it.name == serverDataSectionName }?.let { section ->
+        ServerDataPage(vm, section, visible, menuButton, onBack = { serverDataSectionName = null })
         return
     }
     fun startNavigation() {
@@ -302,25 +302,27 @@ private suspend fun WebView.hasPageContent(): Boolean = suspendCancellableCorout
     val inlineActions = screenWidth >= 1040 && menuButton != null
     val canOpen = online && address.text.isNotBlank()
     val addressBar: @Composable (Modifier) -> Unit = { modifier ->
-        TextField(
+        OutlinedTextField(
             value = address,
             onValueChange = { address = it; error = null },
             singleLine = true,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go, keyboardType = KeyboardType.Uri),
             keyboardActions = KeyboardActions(onGo = { navigate(address.text) }),
-            modifier = modifier.onFocusChanged { state ->
+            modifier = modifier.height(52.dp).onFocusChanged { state ->
                 if (state.isFocused && !addressFocused) address = address.copy(selection = TextRange(0, address.text.length))
                 addressFocused = state.isFocused
             }.testTag("browserAddress"),
             placeholder = { Text("网址或搜索", maxLines = 1) },
-            shape = RoundedCornerShape(16.dp),
-            colors = TextFieldDefaults.colors(
-                focusedContainerColor = AccentSurface, unfocusedContainerColor = Background,
-                focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent
+            shape = MaterialTheme.shapes.medium,
+            textStyle = MaterialTheme.typography.bodyMedium,
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedContainerColor = MaterialTheme.colorScheme.surface,
+                unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                unfocusedBorderColor = Outline
             ),
             trailingIcon = {
-                FilledIconButton(onClick = { navigate(address.text) }, enabled = canOpen,
-                    modifier = Modifier.size(44.dp).testTag("browserGo")) {
+                IconButton(onClick = { navigate(address.text) }, enabled = canOpen,
+                    modifier = Modifier.size(48.dp).testTag("browserGo")) {
                     Icon(Icons.Outlined.ArrowForward, "打开网页")
                 }
             }
@@ -414,17 +416,16 @@ private suspend fun WebView.hasPageContent(): Boolean = suspendCancellableCorout
         }
     }
     val documentTitle = title.takeIf { pageReady && !startPage }
-    Column(Modifier.fillMaxSize().semantics { paneTitle = documentTitle ?: WorkbenchPage.Browse.title }) {
+    Column(Modifier.fillMaxSize().semantics { paneTitle = documentTitle ?: "网页" }) {
         Row(
             Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface)
-                .padding(start = 4.dp, end = if (screenWidth >= 600) LocalPagePadding.current else 8.dp, top = 2.dp, bottom = 2.dp)
+                .padding(start = 4.dp, end = if (screenWidth >= 600) LocalPagePadding.current else 8.dp, top = 4.dp, bottom = 4.dp)
                 .testTag("browserHeader"),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             menuButton?.invoke()
-            if (menuButton != null && screenWidth >= 480) {
-                if (documentTitle == null) PageTitle(WorkbenchPage.Browse)
-                else Text(documentTitle, Modifier.widthIn(max = 112.dp).testTag("browserDocumentTitle"),
+            if (menuButton != null && screenWidth >= 480 && documentTitle != null) {
+                Text(documentTitle, Modifier.widthIn(max = 112.dp).testTag("browserDocumentTitle"),
                     style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             addressBar(Modifier.weight(1f))

@@ -54,12 +54,10 @@ function deduplicate(sorted) {
   });
 }
 
-export async function aggregateNews(catalog, parameters, readSource) {
-  const sources = catalog.filter(source => newsCategories.has(source.summary.category) &&
-    ['rss', 'atom'].includes(source.format) && source.filters.length === 0);
+export async function aggregateNews(sources, parameters, readSource) {
   const { sourceId, category, from, to, keyword } = readQuery(parameters, sources);
   const selected = sources.filter(source => (sourceId === null || source.id === sourceId) &&
-    (category === null || source.summary.category === category));
+    (category === null || source.category === category));
   const keywords = keyword ? normalize(keyword).split(/\s+/) : [];
   const results = await Promise.allSettled(selected.map(async source => {
     const { feed, stale, fetched } = await readSource(source);
@@ -91,7 +89,7 @@ export async function aggregateNews(catalog, parameters, readSource) {
   articles.sort((a, b) => (b.time ?? '').localeCompare(a.time ?? ''));
   const unique = deduplicate(articles);
   return {
-    sources: sources.map(({ id, title, publisher, summary: { category } }) => ({ id, title, publisher, category })),
+    sources: sources.map(({ id, title, publisher, category }) => ({ id, title, publisher, category })),
     articles: unique.slice(0, maxArticles), matchedCount: unique.length, unavailable, cached, requestedSourceCount: selected.length
   };
 }

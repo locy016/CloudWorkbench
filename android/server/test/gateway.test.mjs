@@ -57,23 +57,26 @@ test('authentication, origin and unknown thread are rejected', async t => {
   assert.equal((await call('/v1/threads', undefined, { Origin: 'https://evil.test' })).status, 403);
   assert.equal((await call('/v1/threads/not-ours')).status, 404);
 });
-test('reference rates are read-only and require SSH mobile authorization and no client-supplied destination', async t => {
-  const route = '/v1/server-data/ecb-rates';
-  const sample = { date: '2026-11-20', rates: [{ currency: 'USD', rate: '1.0990' }], stale: false };
-  let fetched = 0;
+test('live rates require SSH mobile authorization and reject client-supplied destinations', async t => {
+  const route = '/v1/server-data/exchange-rates';
+  const sample = { base: 'USD', provider: 'Coinbase', fetchedAt: '2026-11-23T05:00:00.000Z', rates: { USD: '1' }, stale: false };
+  const refreshes = [];
   const { call } = await fixture(t, {
     sshMobile: req => req.headers.authorization === 'SSH test' ? 'test-device' : null,
-    readReferenceRates: async () => { fetched++; return sample; }
+    readExchangeRates: async ({ refresh }) => { refreshes.push(refresh); return sample; }
   });
   const auth = { Authorization: 'SSH test' };
   assert.equal((await call(route)).status, 401);
   assert.equal((await call(route, undefined, { ...auth, Origin: 'https://example.test' })).status, 403);
   assert.equal((await call(route, undefined, { ...auth, 'x-workbench-ingress': 'web' })).status, 404);
   assert.equal((await call(route + '?url=https://example.test', undefined, auth)).status, 400);
+  assert.equal((await call(route + '?refresh=2', undefined, auth)).status, 400);
+  assert.equal((await call(route + '?refresh=1&refresh=1', undefined, auth)).status, 400);
   assert.equal((await call(route, {}, auth)).status, 404);
-  assert.equal(fetched, 0);
+  assert.equal(refreshes.length, 0);
   assert.deepEqual(await call(route, undefined, auth), { status: 200, body: sample });
-  assert.equal(fetched, 1);
+  assert.deepEqual(await call(route + '?refresh=1', undefined, auth), { status: 200, body: sample });
+  assert.deepEqual(refreshes, [false, true]);
 });
 
 test('news translation requires SSH authorization and bounds the translation request', async t => {
@@ -105,7 +108,7 @@ test('article reader accepts only a single article identifier and an authorized 
   const id = 'b'.repeat(64);
   const { call } = await fixture(t, {
     sshMobile: req => req.headers.authorization === 'SSH test' ? 'test-device' : null,
-    resources: { article: async selected => { assert.equal(selected, id); return { id, blocks: [] }; } }
+    newsSources: { article: async selected => { assert.equal(selected, id); return { id, blocks: [] }; } }
   });
   assert.equal((await call(route + '?id=' + id)).status, 401);
   assert.equal((await call(route + '?id=' + id, undefined, { ...auth, 'x-workbench-ingress': 'web' })).status, 404);
@@ -169,24 +172,19 @@ test('trade directory and observations accept only SSH and the country-year quer
   assert.deepEqual(await call(routes + '/trade?year=2023&country=CHN', undefined, auth), { status: 200, body: sample });
   assert.equal(reads, 2);
 });
-test('resource catalog and fetch routes require SSH and reject input URLs', async t => {
-  const path = '/v1/server-data/resources';
+test('retired resource and ECB endpoints no longer respond', async t => {
   const auth = { Authorization: 'SSH test' };
   const { call } = await fixture(t, { sshMobile: req => req.headers.authorization === auth.Authorization ? 'test-device' : null });
-  assert.equal((await call(path)).status, 401);
-  assert.equal((await call(path + '/usgs-earthquakes?period=day', undefined, { ...auth, 'x-workbench-ingress': 'web' })).status, 404);
-  assert.equal((await call(path + '/usgs-earthquakes?url=https://example.test', undefined, auth)).status, 400);
-  assert.equal((await call(path + '/no-such-source', undefined, auth)).status, 404);
-  const { status, body } = await call(path, undefined, auth);
-  assert.equal(status, 200);
-  assert.ok(body.sources.some(entry => entry.id === 'github-project-search'));
+  for (const path of ['resources', 'resources/usgs-earthquakes?period=day', 'ecb-rates']) {
+    assert.equal((await call('/v1/server-data/' + path, undefined, auth)).status, 404);
+  }
 });
 
 test('aggregated news is restricted to the authenticated SSH transport', async t => {
   const auth = { Authorization: 'SSH test' };
   const { call } = await fixture(t, {
     sshMobile: req => req.headers.authorization === auth.Authorization ? 'test-device' : null,
-    resources: { news: async query => ({ query: Object.fromEntries(query) }) }
+    newsSources: { news: async query => ({ query: Object.fromEntries(query) }) }
   });
   const path = '/v1/server-data/news?q=trade&source=wto-trade-news';
   assert.equal((await call(path)).status, 401);

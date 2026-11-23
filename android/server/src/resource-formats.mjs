@@ -1,19 +1,9 @@
-import { parse } from 'csv-parse/sync';
 import { SaxesParser } from 'saxes';
 
-export const resourceTypes = {
-  json: ['application/json', 'application/geo+json'],
+export const feedTypes = {
   rss: ['application/rss+xml', 'application/xml', 'text/xml'],
-  atom: ['application/atom+xml', 'application/xml', 'text/xml'],
-  csv: ['text/csv', 'text/comma-separated-values', 'application/csv', 'text/plain', 'application/octet-stream']
+  atom: ['application/atom+xml', 'application/xml', 'text/xml']
 };
-
-export const feedFields = [
-  { key: 'headline', label: '标题', path: 'title' },
-  { key: 'published', label: '条目时间（UTC）', path: 'published', format: 'timestamp' },
-  { key: 'summary', label: '摘要', path: 'summary' },
-  { key: 'link', label: '原文地址', path: 'link' }
-];
 
 export function decodeResource(bytes, contentType, format) {
   const unicodeBom = bytes[0] === 0xff && bytes[1] === 0xfe ? 'utf-16le' :
@@ -26,17 +16,11 @@ export function decodeResource(bytes, contentType, format) {
   return format === 'json' ? JSON.parse(text) : text;
 }
 
-export function sourceTime(value, format = 'timestamp') {
-  if (typeof value !== 'number' && (typeof value !== 'string' || !value.trim())) return null;
-  const utcMinute = format === 'utc-minute';
-  if (utcMinute && (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(value))) return null;
-  const input = typeof value === 'string' ? value.trim().replace(/\s(CET|CEST)$/, (_, zone) =>
-    zone === 'CEST' ? ' +0200' : ' +0100') : value;
-  const normalized = utcMinute ? input.replace(' ', 'T') + ':00Z' : input;
-  const date = new Date(normalized);
-  if (!Number.isFinite(+date)) return null;
-  const iso = date.toISOString();
-  return !utcMinute || iso.slice(0, 16) === normalized.slice(0, 16) ? iso : null;
+export function sourceTime(value) {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  const input = value.trim().replace(/\s(CET|CEST)$/, (_, zone) => zone === 'CEST' ? ' +0200' : ' +0100');
+  const date = new Date(input);
+  return Number.isFinite(+date) ? date.toISOString() : null;
 }
 
 export function isCalendarDate(value) {
@@ -61,7 +45,6 @@ export function parseFeed(xml, format, endpoint) {
   const xmlParser = new SaxesParser({ xmlns: true });
   const names = [];
   const rows = [];
-  const metadata = {};
   let entry, depth, capture, root;
   xmlParser.on('doctype', () => { throw new Error('Feed DTD is not allowed'); });
   xmlParser.on('opentag', tag => {
@@ -92,9 +75,6 @@ export function parseFeed(xml, format, endpoint) {
       if (['title', 'description', 'summary', 'pubDate', 'date', 'published', 'updated', 'sent', 'link'].includes(name)) {
         capture = { target: entry, name, level, text: '' };
       }
-    } else if (!entry && ((atom && level === 2) || (parent === 'channel' && level === 3)) &&
-      ['updated', 'lastBuildDate', 'pubDate', 'date'].includes(tag.local)) {
-      capture = { target: metadata, name: tag.local, level, text: '' };
     }
     if (level > 64) throw new Error('Feed nesting limit exceeded');
   });
@@ -125,21 +105,5 @@ export function parseFeed(xml, format, endpoint) {
   });
   xmlParser.write(xml).close();
   if (!root) throw new Error('Feed did not contain a document');
-  return { rows, updatedAt: sourceTime(metadata.updated || metadata.lastBuildDate || metadata.pubDate || metadata.date) };
-}
-
-export function parseCsv(text, fields) {
-  let foundHeader = false;
-  const rows = parse(text, {
-    bom: true, trim: true, skip_empty_lines: true, max_record_size: 32 * 1024,
-    columns(headers) {
-      foundHeader = true;
-      if (new Set(headers).size !== headers.length || fields.some(field => !headers.includes(field.path))) {
-        throw new Error('Configured CSV headers are absent or ambiguous');
-      }
-      return headers;
-    }
-  });
-  if (!foundHeader || rows.length > 25000) throw new Error('Invalid CSV record count');
-  return rows;
+  return { rows };
 }

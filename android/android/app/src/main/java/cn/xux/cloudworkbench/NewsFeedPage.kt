@@ -35,8 +35,8 @@ import java.io.IOException
 import java.io.InterruptedIOException
 
 internal data class NewsQuery(val sourceId: String? = null, val keyword: String = "",
-    val category: ResourceCategory? = null, val from: String? = null, val to: String? = null)
-internal data class NewsSource(val id: String, val title: String, val category: ResourceCategory)
+    val category: NewsCategory? = null, val from: String? = null, val to: String? = null)
+internal data class NewsSource(val id: String, val title: String, val category: NewsCategory?)
 internal data class NewsArticle(val title: String, val publisher: String, val time: String?, val timeKind: String?,
     val summary: String?, val link: String?, val language: String?, val readerId: String?)
 internal data class NewsSnapshot(val query: NewsQuery, val sources: List<NewsSource>, val articles: List<NewsArticle>,
@@ -65,7 +65,7 @@ internal class NewsFeed(prefs: SharedPreferences, private val connection: () -> 
             val suffix = builder.build().encodedQuery?.let { "?$it" }.orEmpty()
             val response = readNews(transport, "/v1/server-data/news$suffix", started)
             val sources = response.getJSONArray("sources").objects().map {
-                NewsSource(it.getString("id"), it.getString("title"), ResourceCategory.fromKey(it.optString("category")))
+                NewsSource(it.getString("id"), it.getString("title"), NewsCategory.fromKey(it.optString("category")))
             }
             val payload = response.getJSONArray("articles")
             require(payload.length() <= 120)
@@ -250,7 +250,7 @@ internal fun NewsFeedPage(feed: NewsFeed, connected: Boolean, visible: Boolean) 
                         label = { Text("显示原文") }, modifier = Modifier.testTag("newsOriginals"))
                 }
                 FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    val categories = listOf(null) + ResourceCategory.entries.filter { it.isNews }
+                    val categories = listOf(null) + NewsCategory.entries
                     categories.forEach { option ->
                         FilterChip(selected = option == category, enabled = canSearch, onClick = {
                             val retainedSource = sourceId?.takeIf { id ->
@@ -362,13 +362,12 @@ internal fun NewsFeedPage(feed: NewsFeed, connected: Boolean, visible: Boolean) 
             Panel(Modifier.widthIn(max = 640.dp).fillMaxWidth().testTag("newsArticle")) {
                 if (translated != null) Text("机器译文", Modifier.testTag("newsTranslated"), color = Muted,
                     style = MaterialTheme.typography.labelSmall)
-                FeedArticleCard(translated?.title ?: item.title, item.publisher, item.time,
+                NewsArticlePreview(translated?.title ?: item.title, item.publisher, item.time,
                     translated?.summary?.takeIf { it.isNotBlank() } ?: item.summary,
-                    timeLabel = if (item.timeKind == "updated") "更新" else "发布",
-                    titleTag = "newsHeadline")
+                    timeLabel = if (item.timeKind == "updated") "更新" else "发布")
                 Row(Modifier.fillMaxWidth().testTag("newsArticleFooter"), verticalAlignment = Alignment.CenterVertically) {
                     val actionSize = Modifier.height(48.dp)
-                    item.link?.let { CopyFeedLink(it, "newsHeadlineLink", modifier = actionSize) }
+                    item.link?.let { CopyNewsLink(it, modifier = actionSize) }
                     if (translation != null && !showOriginals) {
                         TextButton(onClick = { showOriginal = !showOriginal }, modifier = actionSize.testTag("toggleNewsOriginal"),
                             contentPadding = PaddingValues(horizontal = 8.dp)) {
@@ -393,15 +392,15 @@ private fun NewsDateDialog(initialFrom: String, initialTo: String, canSearch: Bo
     onApply: (String?, String?) -> Unit) {
     var fromText by rememberSaveable { mutableStateOf(initialFrom) }
     var toText by rememberSaveable { mutableStateOf(initialTo) }
-    val from = filterDate(fromText)
-    val to = filterDate(toText)
+    val from = parseNewsDate(fromText)
+    val to = parseNewsDate(toText)
     val invalid = (fromText.isNotEmpty() && from == null) || (toText.isNotEmpty() && to == null) ||
         (from != null && to != null && from > to)
     AlertDialog(onDismissRequest = onDismiss, title = { Text("发布时间范围") }, text = {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("按 UTC 日期筛选，包含开始和结束当天。可只填一端。")
-            ResourceDateField(fromText, { fromText = it }, "开始日期", Modifier.fillMaxWidth().testTag("newsFrom"))
-            ResourceDateField(toText, { toText = it }, "结束日期", Modifier.fillMaxWidth().testTag("newsTo"))
+            NewsDateField(fromText, { fromText = it }, "开始日期", Modifier.fillMaxWidth().testTag("newsFrom"))
+            NewsDateField(toText, { toText = it }, "结束日期", Modifier.fillMaxWidth().testTag("newsTo"))
             if (invalid) Text("请输入有效的 YYYY-MM-DD，开始日期不得晚于结束日期",
                 color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
         }

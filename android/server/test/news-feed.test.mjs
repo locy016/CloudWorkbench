@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { resourceCatalog } from '../src/resources.mjs';
+import { newsSourceCatalog } from '../src/news-sources.mjs';
 
 const rss = items => '<rss version="2.0"><channel>' + items.map(([title, time, link, summary = '']) =>
   `<item><title>${title}</title><pubDate>${time}</pubDate><link>${link}</link><description>${summary}</description></item>`)
@@ -8,7 +8,7 @@ const rss = items => '<rss version="2.0"><channel>' + items.map(([title, time, l
 
 function fixture() {
   const hosts = [];
-  const catalog = resourceCatalog({ getResource: async (url, format) => {
+  const catalog = newsSourceCatalog({ getResource: async (url, format) => {
     hosts.push(url.hostname);
     switch (url.hostname) {
       case 'www.ungeneva.org':
@@ -108,7 +108,7 @@ test('news returns the last valid feed during upstream or parse failure and iden
   let clock = Date.parse('2026-11-23T08:00:00Z');
   let fetches = 0;
   let body = rss([['A published report', 'Mon, 23 Nov 2026 04:00:00 GMT', 'https://example.test/report']]);
-  const catalog = resourceCatalog({ now: () => clock, getResource: async () => {
+  const catalog = newsSourceCatalog({ now: () => clock, getResource: async () => {
     fetches++;
     if (body instanceof Error) throw body;
     return body;
@@ -127,7 +127,6 @@ test('news returns the last valid feed during upstream or parse failure and iden
   assert.deepEqual(cached.cached, [{ id: source, fetchedAt: '2026-11-23T08:00:00.000Z' }]);
   assert.deepEqual(cached.unavailable, []);
   assert.deepEqual((await catalog.news(query)).cached, cached.cached);
-  await assert.rejects(catalog.download(source, new URLSearchParams()), { status: 503 });
   assert.equal(fetches, 2);
 
   clock += 16_000;

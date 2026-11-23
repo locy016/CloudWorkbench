@@ -84,6 +84,15 @@ internal fun WorldBankTradePage(trade: WorldBankTrade, connected: Boolean, visib
                     else -> null
                 }
                 status?.let { Text(it, Modifier.testTag("tradeStatus"), color = Amber) }
+                if (connected && result != null && !result.hasData && result.year > 1960) {
+                    TextButton(onClick = {
+                        val previous = result.year - 1
+                        yearText = previous.toString()
+                        scope.launch { trade.query(countryCode, previous) }
+                    }, enabled = !trade.loading, modifier = Modifier.testTag("tradePreviousYear")) {
+                        Text("查询 ${result.year - 1} 年")
+                    }
+                }
             }
         }
         if (result != null) item { TradeResult(result) }

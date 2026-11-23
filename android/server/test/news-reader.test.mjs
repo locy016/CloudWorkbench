@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { resourceCatalog } from '../src/resources.mjs';
+import { newsSourceCatalog } from '../src/news-sources.mjs';
 
 const title = 'Trade delegations announce final agreement';
 const paragraph = 'Trade delegates released the final agreement today. It includes separate chapters on tariffs, ' +
@@ -11,7 +11,7 @@ const rss = (link, headline = title) => '<rss version="2.0"><channel><item>' +
 test('full-text reader only fetches a registered article and returns ordered text blocks', async () => {
   const calls = [];
   const link = 'https://www.wto.org/news/release';
-  const catalog = resourceCatalog({
+  const catalog = newsSourceCatalog({
     getResource: async () => rss(link),
     getArticlePage: async (url, options) => {
       calls.push(url.href);
@@ -41,7 +41,7 @@ test('full-text reader only fetches a registered article and returns ordered tex
 });
 
 test('European Commission web shell is resolved through its publishing API', async () => {
-  const catalog = resourceCatalog({
+  const catalog = newsSourceCatalog({
     getResource: async () => rss('https://ec.europa.eu/commission/presscorner/detail/en/statement_26_2557'),
     getArticlePage: async (url, options) => {
       assert.equal(url.origin + url.pathname, 'https://ec.europa.eu/commission/presscorner/api/documents');

@@ -26,7 +26,7 @@ APP 短时切到后台时保留现有 SSH 连接和事件流。后台满 30 秒�
 
 ## 浏览页的服务器数据
 
-「浏览」提供四个独立入口。「国际资讯」聚合要闻、时事、经贸、社会、人文、军事、科技、健康、外交、环境、教育、能源和交通资讯。「数据查询与下载」按来源查询、预览和导出。「贸易指标」按国家和年份查看世界银行数据。「欧元参考汇率」查看欧洲央行发布的数据。
+浏览页顶部可输入网址或关键词，按键盘「前往」或点击输入框里的箭头打开。起始页分别提供「国际资讯」「贸易指标」和「实时汇率」。「国际资讯」聚合要闻、时事、经贸、社会、人文、军事、科技、健康、外交、环境、教育、能源和交通资讯。
 
 「国际资讯」经 SSH 获取聚合结果，支持组合使用分类、关键词、来源及 UTC 发布时间范围。日期包含起止当天，也可只填一端。每条显示来源、时间和摘要，可以复制原文地址。只有更新时间的条目标为「更新」，未提供有效日期的条目排在末尾。限定日期时仅收录来源提供发布时间的条目。
 
@@ -38,17 +38,9 @@ APP 短时切到后台时保留现有 SSH 连接和事件流。后台满 30 秒�
 
 点「阅读全文」可在 APP 内阅读标题和正文。服务器从该条资讯登记的来源取正文，通过现有 SSH 返回段落、标题和列表。英文正文可按首选语言分段翻译，随滚动加载，切换原文后可复用译文。阅读页也提供「打开原网页」，用于来源未返回正文、内容超过阅读页上限或需要查看原网页媒体的情况。
 
-在「来源目录」选择单个来源后，可按关键词和 UTC 日期范围查询。日期范围包含所选首尾日期。页面分别显示匹配数、预览数和可保存条数。「保存 CSV」和「保存 JSON」可下载筛选后的记录。
+「实时汇率」支持输入金额、选择两种货币和一键交换币种。工作台通过 SSH 返回服务器从 Coinbase 取得的报价，页面显示来源和服务器取得时间。页面打开时每 30 秒更新一次，也可手动刷新。报价源不可达或 SSH 断线时显示缓存状态。换算汇率仅供参考。[Coinbase 汇率接口](https://docs.cdp.coinbase.com/coinbase-app/track-apis/exchange-rates)
 
-内置示例支持按时段获取全球地震动态、按项目获取发布记录，以及按自填关键词查询公开项目。[USGS GeoJSON 实时数据](https://earthquake.usgs.gov/earthquakes/feed/v1.0/geojson.php) · [GitHub 发布 API](https://docs.github.com/en/rest/releases/releases#list-releases) · [GitHub 搜索 API](https://docs.github.com/en/rest/search/search#search-repositories)
-
-贸易及物流来源包括 WTO 新闻 RSS、美国国家气象局的沿海海运气象警报 Atom，以及 NOAA CO-OPS 纽约和洛杉矶测站近 72 小时的潮位 CSV。页面显示条目时间、来源更新时间和服务器获取时间。潮位来源每六分钟一条观测，记录保留 NOAA 的质量标记。[WTO 新闻](https://www.wto.org/english/res_e/webcas_e/rss_e.htm) · [NWS 海运气象警报](https://www.weather.gov/documentation/services-web-alerts) · [NOAA 潮位接口](https://api.tidesandcurrents.noaa.gov/api/dev/)
-
-服务器数据的「参考汇率」提供欧元参考汇率。服务器读取欧洲央行的官方数据并经现有 SSH 连接返回结果。页面标明来源、数据日期和汇率基准。欧洲央行公布的参考汇率仅供参考。[欧洲央行官方汇率](https://www.ecb.europa.eu/stats/policy_and_exchange_rates/euro_reference_exchange_rates/html/index.en.html)
-
-网关缓存成功结果 15 分钟。数据源不可达时会标明服务器缓存，SSH 断线后仍可查看本机上次取得的数据。页面使用原生界面渲染文本，无需加载第三方页面或资源。
-
-同一页的「经贸指标」支持按国家或经济体和统计年份查询。页面展示货物和服务的出口额、进口额及贸易总额占 GDP 比重，并标明统计年度和世界银行数据集更新日期。来源尚未提供的数值显示为「暂无数据」。金额按现价美元取整，比重保留两位小数。[世界银行《世界发展指标》](https://data.worldbank.org/indicator/NE.TRD.GNFS.ZS) · [数据使用条款](https://data.worldbank.org/summary-terms-of-use)
+「贸易指标」支持按国家或经济体和统计年份查询。页面展示货物和服务的出口额、进口额及贸易总额占 GDP 比重，并标明统计年度和世界银行数据集更新日期。来源尚未提供的数值显示为「暂无数据」。三项均暂无数据时，可以一键查询上一年。金额按现价美元取整，比重保留两位小数。[世界银行《世界发展指标》](https://data.worldbank.org/indicator/NE.TRD.GNFS.ZS) · [数据使用条款](https://data.worldbank.org/summary-terms-of-use)
 
 网关经世界银行官方指标 API 读取国家目录和年度数据。国家目录缓存 24 小时，年度数据按国家和年份缓存 12 小时。来源超时会显示同一查询的上次结果及缓存状态。APP 通过现有 SSH 连接获取结果。
 

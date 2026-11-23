@@ -12,7 +12,6 @@
   },
   "dependencies": {
     "@mozilla/readability": "0.6.0",
-    "csv-parse": "7.0.3",
     "linkedom": "0.18.12",
     "saxes": "6.0.0"
   }

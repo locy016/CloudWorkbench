@@ -3,9 +3,9 @@ import { Metrics } from './metrics.mjs';
 import { pageLimit } from './cursors.mjs';
 import { configureHttpTransport, respondJson } from './http-transport.mjs';
 import { privateLoopback } from './mobile-session.mjs';
-import { referenceRates } from './reference-rates.mjs';
+import { exchangeRates } from './exchange-rates.mjs';
 import { worldBank } from './world-bank.mjs';
-import { resourceCatalog } from './resources.mjs';
+import { newsSourceCatalog } from './news-sources.mjs';
 import { createServer } from 'node:http';
 import { timingSafeEqual, randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
@@ -27,8 +27,8 @@ export class Gateway {
   metrics = new Metrics(); statusInFlight = null;
   approvals = new Map(); loaded = new Set(); lock = false; statusCache = null;
   startingRequestId = null;
-  constructor({ codex, store, token, cwd, events, sshMobile, readReferenceRates = referenceRates(), tradeData = worldBank(),
-    resources = resourceCatalog(), translateNews,
+  constructor({ codex, store, token, cwd, events, sshMobile, readExchangeRates = exchangeRates(), tradeData = worldBank(),
+    newsSources = newsSourceCatalog(), translateNews,
     projects = [{ id: 'default', name: '默认项目', path: cwd }], sharedWritableRoots = [], codexAccess = 'workspace-write' }) {
     if (!['workspace-write', 'danger-full-access'].includes(codexAccess)) {
       throw new Error('Invalid Codex access mode');
@@ -37,9 +37,9 @@ export class Gateway {
       throw new Error('Codex shared writable roots must be absolute paths');
     }
     Object.assign(this, { codex, store, token, cwd, events, sshMobile, projects, sharedWritableRoots, codexAccess });
-    this.readReferenceRates = readReferenceRates;
+    this.readExchangeRates = readExchangeRates;
     this.tradeData = tradeData;
-    this.resources = resources;
+    this.newsSources = newsSources;
     this.translateNews = translateNews;
     if (events) store.onChange = (id, overview) => events.notify(id, overview);
     codex.on('notification', m => { if (!this.closing) this.onNotification(m); });
@@ -102,10 +102,11 @@ export class Gateway {
         api: this.metrics.snapshot(), store: this.store.performanceSnapshot?.() || null,
       });
       if (this.extension && await this.extension.handle(req, res, path, respond)) return;
-      if (req.method === 'GET' && path === '/v1/server-data/ecb-rates') {
+      if (req.method === 'GET' && path === '/v1/server-data/exchange-rates') {
         if (!subject) throw fail(401, '此数据需通过已授权的 SSH 连接读取');
-        if (url.search) throw fail(400, '参考汇率接口不接受查询参数');
-        return respond(200, await this.readReferenceRates());
+        const refresh = url.searchParams.get('refresh');
+        if (url.search && (url.searchParams.size !== 1 || refresh !== '1')) throw fail(400, '无效的汇率刷新条件');
+        return respond(200, await this.readExchangeRates({ refresh: refresh === '1' }));
       }
       if (req.method === 'GET' && path === '/v1/server-data/world-bank/countries') {
         if (!subject) throw fail(401, '此数据需通过已授权的 SSH 连接读取');
@@ -118,20 +119,15 @@ export class Gateway {
             url.searchParams.getAll('year').length !== 1) throw fail(400, '请选择国家或经济体和年份');
         return respond(200, await this.tradeData.trade(url.searchParams.get('country'), url.searchParams.get('year')));
       }
-      if (req.method === 'GET' && path === '/v1/server-data/resources') {
-        if (!subject) throw fail(401, '资源目录需通过已授权的 SSH 连接读取');
-        if (url.search) throw fail(400, '资源目录不接受查询参数');
-        return respond(200, { sources: await this.resources.list() });
-      }
       if (req.method === 'GET' && path === '/v1/server-data/news') {
         if (!subject) throw fail(401, '资讯需通过已授权的 SSH 连接读取');
-        return respond(200, await this.resources.news(url.searchParams));
+        return respond(200, await this.newsSources.news(url.searchParams));
       }
       if (req.method === 'GET' && path === '/v1/server-data/news/article') {
         if (!subject) throw fail(401, '正文需通过已授权的 SSH 连接读取');
         const id = url.searchParams.get('id');
         if (url.searchParams.size !== 1 || !id) throw fail(400, '请选择资讯条目');
-        return respond(200, await this.resources.article(id));
+        return respond(200, await this.newsSources.article(id));
       }
       if (req.method === 'POST' && ['/v1/server-data/news/translate', '/v1/server-data/news/translate-batch'].includes(path)) {
         if (!subject) throw fail(401, '资讯翻译需通过已授权的 SSH 连接');
@@ -140,11 +136,6 @@ export class Gateway {
         const batch = path.endsWith('/translate-batch');
         const input = await this.body(req, (batch ? 24 : 8) * 1024);
         return respond(200, await (batch ? this.translateNews.batch(input) : this.translateNews.one(input)));
-      }
-      const resource = /^\/v1\/server-data\/resources\/([a-z][a-z0-9-]{0,47})$/.exec(path);
-      if (req.method === 'GET' && resource) {
-        if (!subject) throw fail(401, '资源需通过已授权的 SSH 连接获取');
-        return respond(200, await this.resources.download(resource[1], url.searchParams));
       }
       if (req.method === 'GET' && path === '/v1/status') return respond(200, await this.status(url.searchParams.get('refresh') === '1'));
       if (req.method === 'GET' && path === '/v1/projects') return respond(200, { projects: this.projects });
