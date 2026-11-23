@@ -19,7 +19,7 @@ class Fake extends EventEmitter {
 async function fixture(t) {
   const directory = await mkdtemp(join(tmpdir(), 'workbench-browser-'));
   const codex = new Fake(); const g = new Gateway({ codex, store: new Store(':memory:'), token: 'phone-token', cwd: directory });
-  g.extension = new Releases(g, directory);
+  g.extension = new Releases(directory);
   await new Promise(r => g.http.listen(0, '127.0.0.1', r));
   t.after(async () => { await g.close(); await rm(directory, { recursive: true, force: true }); });
   const call = async (path, body, token = 'phone-token') => {
@@ -49,7 +49,7 @@ test('retired release and upgrade routes deny access even with legacy data prese
     CREATE TABLE releases(id TEXT PRIMARY KEY, versionCode INTEGER NOT NULL);
     INSERT INTO releases VALUES('abcd', 3);`);
   await mkdir(join(directory, 'upgrade-workspaces', 'abcd'), { recursive: true });
-  g.extension = new Releases(g, directory);
+  g.extension = new Releases(directory);
   assert.deepEqual((await call('/v1/projects')).body.projects.map(project => project.id), ['default']);
   assert.equal((await call('/v1/threads', { projectId: 'upgrade-abcd' })).status, 400);
   // A database upgraded in place can still contain receipts from older versions.

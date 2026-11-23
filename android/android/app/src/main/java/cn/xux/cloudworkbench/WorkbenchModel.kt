@@ -75,8 +75,15 @@ class WorkbenchModel internal constructor(
     var reconnecting by mutableStateOf(false); private set
     var busy by mutableStateOf(false); private set
     var error by mutableStateOf<String?>(null); private set
-    var status by mutableStateOf<JSONObject?>(null); private set
+    internal var serverOverview by mutableStateOf(prefs.getString(OVERVIEW_CACHE, null)?.let {
+        runCatching { ServerOverview.parse(JSONObject(it)) }.getOrNull()
+    }); private set
     internal var overviewUnavailable by mutableStateOf(false); private set
+    internal var overviewRefreshing by mutableStateOf(false); private set
+    private var overviewFresh by mutableStateOf(false)
+    private var manualOverview: Job? = null
+    internal val overviewLive get() = connected && !connecting && !reconnecting && overviewFresh && !overviewUnavailable
+    internal val canRefreshOverview get() = connected && !connecting && !reconnecting && !overviewRefreshing
     var threads by mutableStateOf<List<JSONObject>>(emptyList()); private set
     var historyThreads by mutableStateOf<List<JSONObject>>(emptyList()); private set
     private var historyThreadsBefore by mutableStateOf<String?>(null)
@@ -348,6 +355,7 @@ class WorkbenchModel internal constructor(
         defaultNetwork = handle
         if (routeChanged && foreground && reconnectAutomatically && connectionBlock == null && configured) {
             hostOnline = false
+            overviewFresh = false
             if (!busy && !connecting) {
                 stopMonitoring()
                 monitorConnection()
@@ -409,6 +417,7 @@ class WorkbenchModel internal constructor(
             credentials = updated
             connected = true
             hostOnline = false
+            overviewFresh = false
             lastOverviewCheck = null
             lastProjects = 0L
         } finally {
@@ -432,9 +441,11 @@ class WorkbenchModel internal constructor(
     }
 
     private fun resetTransport() {
+        manualOverview?.cancel()
         connection.disconnect()
         connected = false
         hostOnline = false
+        overviewFresh = false
     }
 
     private fun sshConnectionBlock(e: Exception): SshConnectionBlock? {
@@ -509,8 +520,8 @@ class WorkbenchModel internal constructor(
                                 val now = SystemClock.elapsedRealtime()
                                 val last = lastOverviewCheck
                                 val interval = if (overviewUnavailable) 5_000L else 30_000L
-                                if ((tab == WorkbenchPage.Cloud || status == null) && (last == null || now - last >= interval)) {
-                                    refreshOverview(transport, now)
+                                if ((tab == WorkbenchPage.Cloud || serverOverview == null) && (last == null || now - last >= interval)) {
+                                    refreshOverview(transport)
                                 }
                                 delay(5_000L)
                             }
@@ -565,24 +576,34 @@ class WorkbenchModel internal constructor(
             }
         }
     }
-    private suspend fun refreshOverview(transport: WorkbenchConnection, now: Long) {
-        lastOverviewCheck = now
+    internal fun refreshOverviewNow() {
+        if (!canRefreshOverview) return
+        val transport = connection
+        manualOverview = viewModelScope.launch { refreshOverview(transport, force = true) }
+    }
+
+    private suspend fun refreshOverview(transport: WorkbenchConnection, force: Boolean = false) {
+        if (overviewRefreshing) return
+        overviewRefreshing = true
         try {
-            val sample = transport.sync("/v1/status")
-            sample.getJSONArray("services").objects()
-            sample.getJSONArray("load").getDouble(0)
-            sample.getJSONObject("memory").apply { getDouble("used"); getDouble("total") }
-            sample.getJSONObject("disk").apply { getDouble("total"); getDouble("available") }
-            sample.getJSONObject("swap").getDouble("used")
-            sample.getInt("cpus")
-            sample.getLong("uptime")
-            sample.getLong("timestamp")
-            status = sample
-            overviewUnavailable = false
+            val path = if (force) "/v1/status?refresh=1" else "/v1/status"
+            val overview = ServerOverview.parse(transport.sync(path))
+            if (transport === connection && connected) {
+                serverOverview = overview
+                overviewUnavailable = false
+                overviewFresh = true
+                lastOverviewCheck = SystemClock.elapsedRealtime()
+                prefs.edit().putString(OVERVIEW_CACHE, overview.metrics.toString()).apply()
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
-            overviewUnavailable = true
+            if (transport === connection && connected) {
+                overviewUnavailable = true
+                lastOverviewCheck = SystemClock.elapsedRealtime()
+            }
+        } finally {
+            overviewRefreshing = false
         }
     }
 
@@ -1057,6 +1078,7 @@ class WorkbenchModel internal constructor(
     }
 
     private companion object {
+        const val OVERVIEW_CACHE = "last-server-overview"
         const val BACKGROUND_SYNC_GRACE_MS = 30_000L
         const val PROJECTS_INTERVAL_MS = 30000L
         const val SUBMISSION_UNCONFIRMED = "发送结果待确认。连接恢复后会核对会话，如未收到可手动重试。"

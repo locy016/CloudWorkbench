@@ -174,6 +174,54 @@ class ReconnectionTest {
     }
 
     @Test
+    fun overviewRefreshShowsNewTimeAndKeepsLastSampleAndIncidentsWhenDisconnected() {
+        val captured = 1_750_000_000_000L
+        onMain {
+            gateway.overviewSample = gateway.overview(captured)
+            recreateModel()
+        }
+        await { model.overviewLive }
+        val activity = instrument.startActivitySync(Intent(app, MainActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as MainActivity
+        try {
+            onMain { activity.setContent { WorkbenchTheme { Workbench(model) } } }
+            val time = compose.onNodeWithTag("overviewSampleTime")
+            val initial = time.fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsProperties.Text].single().text
+            fun serviceY(name: String) = compose.onNodeWithTag("service-$name").fetchSemanticsNode().positionInRoot.y
+            assertTrue(serviceY("tuned") < serviceY("chrony"))
+            assertTrue(serviceY("chrony") < serviceY("ssh"))
+            compose.onNodeWithTag("overviewIncidents").performScrollTo().assertExists()
+            val refresh = compose.onNodeWithTag("overviewRefresh")
+            onMain { gateway.overviewSample = gateway.overview(captured + 20_000L) }
+            refresh.performScrollTo().performClick()
+            await { model.serverOverview?.sampledAt == captured + 20_000L && model.overviewLive }
+            onMain { assertEquals(1, gateway.manualMetricsRequests) }
+            val updated = time.fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsProperties.Text].single().text
+            assertTrue(updated != initial)
+            onMain { gateway.metrics = CompletableDeferred<JSONObject>().also { it.completeExceptionally(GatewayException(503, "Metrics failed")) } }
+            refresh.performScrollTo().performClick()
+            await { model.overviewUnavailable && !model.overviewRefreshing }
+            compose.onNodeWithTag("overviewStale").assertTextEquals("上次采集状态")
+            time.assertTextEquals(updated)
+            onMain {
+                model.disconnect()
+                recreateModel()
+                activity.setContent { WorkbenchTheme { Workbench(model) } }
+            }
+            compose.onNodeWithTag("overviewStale").assertTextEquals("上次采集状态")
+            time.assertTextEquals(updated)
+            compose.onNodeWithTag("overviewRefresh").assertIsNotEnabled()
+            onMain {
+                assertFalse(model.overviewLive)
+                assertEquals("tuned", model.serverOverview?.incidents?.single()?.service?.name)
+            }
+        } finally {
+            onMain { activity.finish() }
+            instrument.waitForIdleSync()
+        }
+    }
+
+    @Test
     fun homeOpensTheExactApprovalAndTheLatestResultInOneTap() {
         onMain {
             gateway.overviewApprovals = JSONArray().put(gateway.approval("first-approval", "第一项检查"))
@@ -481,6 +529,8 @@ class ReconnectionTest {
         var businessFailure: Exception? = null
         var metrics: CompletableDeferred<JSONObject>? = null
         var metricsRequests = 0
+        var manualMetricsRequests = 0
+        var overviewSample: JSONObject? = null
         var hasRecentResult = false
         var historyFixture = false
         val historyPaths = mutableListOf<String>()
@@ -555,7 +605,11 @@ class ReconnectionTest {
                         .put("approvals", overviewApprovals)
                 }
                 return when (path) {
-                    "/v1/status" -> { metricsRequests++; metrics?.await() ?: JSONObject() }
+                    "/v1/status", "/v1/status?refresh=1" -> {
+                        metricsRequests++
+                        if (path.endsWith("?refresh=1")) manualMetricsRequests++
+                        metrics?.await() ?: overviewSample ?: JSONObject()
+                    }
                     "/v1/projects" -> JSONObject().put("projects", JSONArray().put(JSONObject().put("id", "default"))
                         .put(JSONObject().put("id", OTHER_PROJECT).put("name", "项目乙")))
                     "/v1/threads" -> JSONObject().put("threads", JSONArray().put(thread()).apply {
@@ -604,6 +658,16 @@ class ReconnectionTest {
         fun approval(id: String, reason: String) = JSONObject().put("id", id).put("threadId", OTHER_THREAD)
             .put("method", "item/commandExecution/requestApproval")
             .put("params", JSONObject().put("reason", reason).put("command", "printf audit"))
+        fun overview(timestamp: Long): JSONObject {
+            fun service(name: String, state: String) = JSONObject().put("name", name).put("state", state)
+            return JSONObject().put("timestamp", timestamp).put("cpus", 2).put("uptime", 3600L)
+                .put("load", JSONArray(listOf(0.15)))
+                .put("memory", JSONObject().put("used", 20).put("total", 80))
+                .put("swap", JSONObject().put("used", 0))
+                .put("disk", JSONObject().put("total", 100).put("available", 80))
+                .put("services", JSONArray(listOf(service("ssh", "active"), service("chrony", "inactive"), service("tuned", "failed"))))
+                .put("incidents", JSONArray().put(service("tuned", "failed").put("observedAt", timestamp - 2_000L)))
+        }
         fun message(id: String, text: String, created: Long) = JSONObject().put("id", id).put("role", "assistant")
             .put("text", text).put("created", created)
         fun update(cursor: String, messages: List<JSONObject>, more: Boolean = false, historyBefore: String? = null,

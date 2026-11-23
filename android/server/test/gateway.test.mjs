@@ -56,6 +56,47 @@ test('authentication, origin and unknown thread are rejected', async t => {
   assert.equal((await call('/v1/threads', undefined, { Origin: 'https://evil.test' })).status, 403);
   assert.equal((await call('/v1/threads/not-ours')).status, 404);
 });
+test('manual overview refresh bypasses the cache and shares an in-flight collection', async t => {
+  const { g, call } = await fixture(t);
+  let collections = 0;
+  let pending;
+  let markEntered;
+  g.collectStatus = async () => {
+    collections++;
+    if (pending) { markEntered(); await pending; }
+    return g.statusCache = { timestamp: Date.now(), collections };
+  };
+  assert.equal((await call('/v1/status')).body.collections, 1);
+  assert.equal((await call('/v1/status')).body.collections, 1);
+  let complete;
+  pending = new Promise(resolve => { complete = resolve; });
+  const entered = new Promise(resolve => { markEntered = resolve; });
+  const first = call('/v1/status?refresh=1');
+  await entered;
+  const second = g.status(true);
+  complete();
+  assert.deepEqual((await first).body, await second);
+  assert.equal(g.metrics.snapshot().counters.statusCoalesced, 1);
+  assert.equal(collections, 2);
+  assert.equal((await call('/v1/status?refresh=1', undefined, { Authorization: 'Bearer wrong' })).status, 401);
+});
+test('overview keeps bounded recent state changes, including a recovered service', async t => {
+  const { store } = await fixture(t);
+  const now = Date.now();
+  const sample = (state, time) => store.observeOverviewServices([{ name: 'ssh', state }], time);
+  assert.deepEqual(sample('active', now), []);
+  assert.deepEqual(sample('failed', now + 1).map(row => ({ ...row })), [{ name: 'ssh', state: 'failed', observedAt: now + 1 }]);
+  assert.equal(sample('failed', now + 2).length, 1);
+  assert.equal(sample('active', now + 3).length, 1);
+  assert.deepEqual(sample('inactive', now + 4).map(row => row.state), ['inactive', 'failed']);
+  for (let i = 0; i < 105; i++) {
+    sample('active', now + 5 + i * 2);
+    sample('failed', now + 6 + i * 2);
+  }
+  assert.equal(sample('active', now + 220).length, 6);
+  assert.equal(store.prepare('SELECT COUNT(*) AS total FROM overview_incidents').get().total, 100);
+  assert.deepEqual(sample('active', now + 86_400_500), []);
+});
 test('the workbench API accepts the local SSH path and rejects requests from web ingress', async t => {
   const sshMobile = req => req.headers.authorization === 'Bearer mobile-fixture' ? 'mobile' : null;
   const { call } = await fixture(t, { sshMobile });

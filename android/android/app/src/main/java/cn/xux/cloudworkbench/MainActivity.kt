@@ -276,6 +276,7 @@ class MainActivity : ComponentActivity() {
 }
 private fun bytes(n: Double): String = if (n >= 1073741824) String.format(Locale.US, "%.1f GB", n / 1073741824) else String.format(Locale.US, "%.0f MB", n / 1048576)
 private fun whenText(ms: Long) = SimpleDateFormat("MM-dd HH:mm", Locale.CHINA).format(Date(ms))
+private fun overviewTime(ms: Long) = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.CHINA).format(Date(ms))
 private fun stateText(s: String) = mapOf("idle" to "已完成", "running" to "执行中", "starting" to "准备中", "approval" to "等待确认", "failed" to "失败", "interrupted" to "已中断")[s] ?: s
 
 @Composable private fun Dashboard(vm: WorkbenchModel) {
@@ -319,7 +320,7 @@ private fun stateText(s: String) = mapOf("idle" to "已完成", "running" to "�
                 if (drafts.size > 3) TextButton(onClick = { showAllDrafts = true }) { Text("查看全部 ${drafts.size} 条草稿") }
             }
         }
-        if (vm.connecting) {
+        if (vm.connecting && vm.serverOverview == null) {
             ConnectingDevice(vm.hostName)
             return@PageColumn
         }
@@ -337,30 +338,7 @@ private fun stateText(s: String) = mapOf("idle" to "已完成", "running" to "�
                 results.forEach { ContinuationRow(vm, it) }
             }
         }
-        val status = vm.status
-        val live = vm.connected && vm.hostOnline && !vm.overviewUnavailable
-        if (vm.overviewUnavailable && vm.hostOnline) {
-            Text("运行指标暂不可用", color = Muted, style = MaterialTheme.typography.bodySmall)
-        }
-        val services: @Composable (Modifier) -> Unit = { modifier ->
-            Column(modifier, verticalArrangement = Arrangement.spacedBy(16.dp)) {
-
-                status?.let { CoreServices(it.getJSONArray("services").objects(), live) }
-            }
-        }
-        BoxWithConstraints(Modifier.fillMaxWidth()) {
-            if (maxWidth >= 840.dp) {
-                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    services(Modifier.weight(1f))
-                    DashboardMetrics(status, live, Modifier.weight(1f))
-                }
-            } else {
-                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    services(Modifier.fillMaxWidth())
-                    DashboardMetrics(status, live, Modifier.fillMaxWidth())
-                }
-            }
-        }
+        ServerOverviewPanel(vm)
     }
     if (showAllDrafts && drafts.isNotEmpty()) {
         AlertDialog(onDismissRequest = { showAllDrafts = false }, title = { Text("未发送的草稿") }, text = {
@@ -371,6 +349,75 @@ private fun stateText(s: String) = mapOf("idle" to "已完成", "running" to "�
                 } }
             }
         }, confirmButton = { TextButton(onClick = { showAllDrafts = false }) { Text("关闭") } })
+    }
+}
+
+@Composable private fun ServerOverviewPanel(vm: WorkbenchModel) {
+    val sample = vm.serverOverview
+    val live = vm.overviewLive
+    Panel(Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("服务器概览", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+            TextButton(onClick = vm::refreshOverviewNow, enabled = vm.canRefreshOverview,
+                modifier = Modifier.testTag("overviewRefresh")) {
+                Icon(Icons.Outlined.Refresh, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(4.dp))
+                Text(if (vm.overviewRefreshing) "正在采集" else "刷新")
+            }
+        }
+        if (sample != null) {
+            if (!live) Text("上次采集状态", Modifier.testTag("overviewStale"), color = Amber,
+                style = MaterialTheme.typography.labelLarge)
+            Text("采集于 ${overviewTime(sample.sampledAt)}", Modifier.testTag("overviewSampleTime"),
+                color = Muted, style = MaterialTheme.typography.bodySmall)
+        }
+        if (vm.overviewUnavailable && vm.connected && !vm.reconnecting) {
+            Text("本次采集失败，可手动刷新", color = Amber, style = MaterialTheme.typography.bodySmall)
+        } else if (sample == null && !vm.overviewRefreshing) {
+            Text(if (vm.hostOnline) "等待首次采集" else "连接服务器后采集状态",
+                color = Muted, style = MaterialTheme.typography.bodySmall)
+        }
+    }
+    if (sample != null) {
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            if (maxWidth >= 840.dp) {
+                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    CoreServices(sample.services, Modifier.weight(1f))
+                    DashboardMetrics(sample.metrics, live, Modifier.weight(1f))
+                }
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    CoreServices(sample.services, Modifier.fillMaxWidth())
+                    DashboardMetrics(sample.metrics, live, Modifier.fillMaxWidth())
+                }
+            }
+        }
+        RecentOverviewIncidents(sample.incidents, live)
+    }
+}
+
+@Composable private fun RecentOverviewIncidents(incidents: List<OverviewIncident>?, live: Boolean) {
+    Panel(Modifier.fillMaxWidth().testTag("overviewIncidents")) {
+        Text("最近异常", style = MaterialTheme.typography.titleMedium)
+        if (incidents == null) {
+            Text("当前服务器暂未提供异常摘要", color = Muted, style = MaterialTheme.typography.bodySmall)
+            return@Panel
+        }
+        Text(if (live) "近 24 小时 · systemd 定时采集" else "上次采集时的近 24 小时 · systemd",
+            color = Muted, style = MaterialTheme.typography.bodySmall)
+        if (incidents.isEmpty()) Text("未记录到异常状态", color = Muted)
+        incidents.forEach { incident ->
+            Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(Modifier.weight(1f)) {
+                    Text(serviceDetails[incident.service.name]?.title ?: incident.service.name,
+                        style = MaterialTheme.typography.bodyMedium)
+                    Text("发现于 ${overviewTime(incident.observedAt)}", color = Muted,
+                        style = MaterialTheme.typography.bodySmall)
+                }
+                StatusPill(serviceStates[incident.service.state] ?: "状态未知", false)
+            }
+        }
     }
 }
 
@@ -419,22 +466,18 @@ private fun stateText(s: String) = mapOf("idle" to "已完成", "running" to "�
     }
 }
 
-@Composable private fun DashboardMetrics(s: JSONObject?, live: Boolean, modifier: Modifier) {
+@Composable private fun DashboardMetrics(s: JSONObject, live: Boolean, modifier: Modifier) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (s == null) {
-            Text("连接服务器后显示运行指标", style = MaterialTheme.typography.bodyMedium, color = Muted)
-        } else {
-            val memory = s.getJSONObject("memory")
-            val disk = s.getJSONObject("disk")
-            Text(if (live) "运行指标" else "上次运行指标", style = MaterialTheme.typography.titleMedium)
-            MetricGrid(listOf(
-                MetricValue("内存", bytes(memory.getDouble("used")), "共 ${bytes(memory.getDouble("total"))}", (memory.getDouble("used") / memory.getDouble("total")).toFloat()),
-                MetricValue("磁盘", bytes(disk.optDouble("used", disk.getDouble("total") - disk.getDouble("available"))), "共 ${bytes(disk.getDouble("total"))}", (disk.optDouble("used", disk.getDouble("total") - disk.getDouble("available")) / disk.getDouble("total")).toFloat()),
-                MetricValue("系统负载", String.format(Locale.US, "%.2f", s.getJSONArray("load").getDouble(0)), "${s.getInt("cpus")} 核 · 最近 1 分钟", null),
-                MetricValue("运行时间", "${s.getLong("uptime") / 3600} 小时", "交换空间 ${bytes(s.getJSONObject("swap").getDouble("used"))}", null)
-            ))
-            Text("更新于 ${whenText(s.getLong("timestamp"))}", style = MaterialTheme.typography.bodySmall, color = Muted)
-        }
+        val memory = s.getJSONObject("memory")
+        val disk = s.getJSONObject("disk")
+        val diskUsed = disk.optDouble("used", disk.getDouble("total") - disk.getDouble("available"))
+        Text(if (live) "运行指标" else "上次运行指标", style = MaterialTheme.typography.titleMedium)
+        MetricGrid(listOf(
+            MetricValue("内存", bytes(memory.getDouble("used")), "共 ${bytes(memory.getDouble("total"))}", (memory.getDouble("used") / memory.getDouble("total")).toFloat()),
+            MetricValue("磁盘", bytes(diskUsed), "共 ${bytes(disk.getDouble("total"))}", (diskUsed / disk.getDouble("total")).toFloat()),
+            MetricValue("系统负载", String.format(Locale.US, "%.2f", s.getJSONArray("load").getDouble(0)), "${s.getInt("cpus")} 核 · 最近 1 分钟", null),
+            MetricValue("运行时间", "${s.getLong("uptime") / 3600} 小时", "交换空间 ${bytes(s.getJSONObject("swap").getDouble("used"))}", null)
+        ))
     }
 }
 
@@ -467,8 +510,8 @@ private data class ServiceDetails(val title: String, val purpose: String, val im
 private val serviceDetails = mapOf(
     "ssh" to ServiceDetails(
         "SSH 安全连接",
-        "提供设备初始配对和加密远程维护。",
-        "新设备可能无法配对，电脑也可能无法通过 SSH 登录服务器。"
+        "提供 SSH 密钥鉴权和加密连接。",
+        "设备可能无法连接服务器。"
     ),
     "cloud-workbench" to ServiceDetails(
         "云端工作台网关",
@@ -501,6 +544,7 @@ private val serviceStates = mapOf(
     "active" to "运行中",
     "inactive" to "已停止",
     "failed" to "运行失败",
+    "not-found" to "未找到服务",
     "activating" to "启动中",
     "deactivating" to "停止中",
     "reloading" to "重载中",
@@ -508,20 +552,19 @@ private val serviceStates = mapOf(
     "refreshing" to "刷新中"
 )
 
-@Composable private fun CoreServices(services: List<JSONObject>, live: Boolean) {
-    val ordered = services.sortedBy {
-        when (it.optString("name")) {
+@Composable private fun CoreServices(services: List<OverviewService>, modifier: Modifier) {
+    val ordered = services.sortedWith(compareBy<OverviewService> { it.order }.thenBy {
+        when (it.name) {
             "ssh" -> 0
             "cloud-workbench" -> 1
             else -> 2
         }
-    }
-    Panel(Modifier.fillMaxWidth()) {
+    })
+    Panel(modifier) {
         Text("核心服务", style = MaterialTheme.typography.titleMedium)
-        if (!live) Text("上次采集的状态", style = MaterialTheme.typography.bodySmall, color = Muted)
         ordered.forEachIndexed { index, service ->
-            val name = service.getString("name")
-            val state = service.optString("state")
+            val name = service.name
+            val state = service.state
             val details = serviceDetails[name]
             key(name) {
                 var expanded by rememberSaveable { mutableStateOf(false) }
@@ -531,7 +574,7 @@ private val serviceStates = mapOf(
                     onClickLabel = if (expanded) "收起服务说明" else "展开服务说明"
                 ) { expanded = !expanded }
                 Row(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).then(toggle)
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).then(toggle).testTag("service-$name")
                         .heightIn(min = 48.dp).padding(horizontal = 4.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)

@@ -38,7 +38,7 @@ export async function readAppUpdate(directory) {
 }
 
 export class Releases {
-  constructor(_gateway, data) {
+  constructor(data) {
     this.data = data;
   }
   async file(req, res, file, expectedSize, sha256) {

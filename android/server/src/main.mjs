@@ -37,13 +37,17 @@ catch (error) {
   if (error.code !== 'ENOENT') console.error('SSH mobile session key unavailable');
 }
 const gateway = new Gateway({ codex: new Codex(), store: new Store(data + '/workbench.db'), token, cwd, events, sshMobile, projects, sharedWritableRoots, codexAccess });
-gateway.extension = new Releases(gateway, data);
+gateway.extension = new Releases(data);
 gateway.draining = () => access(data + '/transport-maintenance').then(() => true, () => false);
 gateway.http.requestTimeout = 1800000; gateway.http.headersTimeout = 10000;
 gateway.http.listen(Number(process.env.PORT || 8766), '127.0.0.1', () => console.log('云端工作台网关已启动'));
+const collectOverview = () => gateway.status().catch(() => console.error('服务器概览采集失败'));
+const overviewTimer = setInterval(collectOverview, 60_000).unref();
+void collectOverview();
 let stopping = false;
 for (const signal of ['SIGTERM', 'SIGINT']) process.on(signal, () => {
   if (stopping) return;
   stopping = true;
+  clearInterval(overviewTimer);
   gateway.close().finally(() => process.exit(0));
 });

@@ -93,7 +93,7 @@ export class Gateway {
         api: this.metrics.snapshot(), store: this.store.performanceSnapshot?.() || null,
       });
       if (this.extension && await this.extension.handle(req, res, path, respond)) return;
-      if (req.method === 'GET' && path === '/v1/status') return respond(200, await this.status());
+      if (req.method === 'GET' && path === '/v1/status') return respond(200, await this.status(url.searchParams.get('refresh') === '1'));
       if (req.method === 'GET' && path === '/v1/projects') return respond(200, { projects: this.projects });
       if (req.method === 'POST' && path === '/v1/attachments') {
         const b = await this.body(req, 8 * 1024 * 1024);
@@ -334,12 +334,12 @@ export class Gateway {
     if (![...this.approvals.values()].some(v => v.threadId === t.id)) this.store.state(t.id, 'running', t.turnId);
     return this.snapshot(t.id);
   }
-  async status() {
-    if (this.statusCache && Date.now() - this.statusCache.timestamp < 4000) return this.statusCache;
+  async status(refresh = false) {
     if (this.statusInFlight) {
       this.metrics.increment('statusCoalesced');
       return this.statusInFlight;
     }
+    if (!refresh && this.statusCache && Date.now() - this.statusCache.timestamp < 4000) return this.statusCache;
     const started = performance.now();
     this.metrics.increment('statusCollections');
     this.statusInFlight = Promise.resolve().then(() => this.collectStatus()).finally(() => {
@@ -353,10 +353,15 @@ export class Gateway {
     const fs = await statfs('/');
     const units = ['ssh', 'chrony', 'aliyun', 'cloudmonitor', 'tuned', 'cloud-workbench'];
     const services = await Promise.all(units.map(async name => {
-      try { const r = await exec('systemctl', ['is-active', name], { timeout: 3000 }); return { name, state: r.stdout.trim() }; }
-      catch (e) { return { name, state: e.stdout?.trim() || 'unknown' }; }
+      try {
+        const { stdout } = await exec('systemctl', ['show', '--property=LoadState,ActiveState', name], { timeout: 3000 });
+        const fields = new Map(stdout.trim().split('\n').map(line => line.split('=', 2)));
+        return { name, state: fields.get('LoadState') === 'not-found' ? 'not-found' : fields.get('ActiveState') || 'unknown' };
+      } catch { return { name, state: 'unknown' }; }
     }));
-    return this.statusCache = { timestamp: Date.now(), host: os.hostname(), platform: 'Ubuntu', cpus: os.cpus().length, load: os.loadavg(), uptime: os.uptime(), memory: { total: mem.MemTotal, available: mem.MemAvailable, used: mem.MemTotal - mem.MemAvailable }, swap: { total: mem.SwapTotal, used: mem.SwapTotal - mem.SwapFree }, disk: { total: fs.blocks * fs.bsize, available: fs.bavail * fs.bsize, used: (fs.blocks - fs.bfree) * fs.bsize }, services, codex: this.codex.process ? 'ready' : 'standby', running: this.store.list().filter(t => active(t.status)).length, workspace: this.cwd, version: '0.3.0' };
+    const timestamp = Date.now();
+    const incidents = this.store.observeOverviewServices(services, timestamp);
+    return this.statusCache = { timestamp, host: os.hostname(), platform: 'Ubuntu', cpus: os.cpus().length, load: os.loadavg(), uptime: os.uptime(), memory: { total: mem.MemTotal, available: mem.MemAvailable, used: mem.MemTotal - mem.MemAvailable }, swap: { total: mem.SwapTotal, used: mem.SwapTotal - mem.SwapFree }, disk: { total: fs.blocks * fs.bsize, available: fs.bavail * fs.bsize, used: (fs.blocks - fs.bfree) * fs.bsize }, services, incidents, codex: this.codex.process ? 'ready' : 'standby', running: this.store.list().filter(t => active(t.status)).length, workspace: this.cwd, version: '0.3.0' };
   }
   async close() {
     this.closing = true;
@@ -366,6 +371,7 @@ export class Gateway {
       this.http.close(r);
       this.http.closeIdleConnections?.();
     });
+    await this.statusInFlight?.catch(() => {});
     this.store.close();
   }
 }
