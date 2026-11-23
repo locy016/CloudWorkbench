@@ -122,6 +122,10 @@ export class Gateway {
         if (url.search) throw fail(400, '资源目录不接受查询参数');
         return respond(200, { sources: await this.resources.list() });
       }
+      if (req.method === 'GET' && path === '/v1/server-data/news') {
+        if (!subject) throw fail(401, '资讯需通过已授权的 SSH 连接读取');
+        return respond(200, await this.resources.news(url.searchParams));
+      }
       const resource = /^\/v1\/server-data\/resources\/([a-z][a-z0-9-]{0,47})$/.exec(path);
       if (req.method === 'GET' && resource) {
         if (!subject) throw fail(401, '资源需通过已授权的 SSH 连接获取');

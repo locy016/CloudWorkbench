@@ -3,6 +3,7 @@ import { open } from 'node:fs/promises';
 import { get } from 'node:https';
 import { BlockList, isIP } from 'node:net';
 import { decodeResource, feedFields, parseCsv, parseFeed, resourceTypes, sourceTime } from './resource-formats.mjs';
+import { aggregateNews } from './news-feed.mjs';
 
 const defaults = new URL('./resource-sources.json', import.meta.url);
 const keyPattern = /^[a-z][a-z0-9-]{0,47}$/;
@@ -170,6 +171,15 @@ function valueAt(value, path) {
     target && Object.hasOwn(target, part) ? target[part] : undefined, value) : value;
 }
 
+function resourceUrl(source, selected = {}) {
+  const url = new URL(source.url.href);
+  url.pathname = url.pathname.replace(placeholder, (_, encoded, raw) => selected[encoded || raw]);
+  for (const [name, template] of Object.entries(source.query)) {
+    url.searchParams.set(name, template.replace(placeholder, (_, encoded, raw) => selected[encoded || raw]));
+  }
+  return url;
+}
+
 function refine(parameters, source) {
   const selection = {};
   if (new Set(parameters.keys()).size !== parameters.size) throw fail(400, '筛选条件不能重复');
@@ -262,6 +272,12 @@ export function resourceCatalog({ configFile, getResource = getPayload, now = Da
       return [...(await sources()).values()].map(({ summary }) => summary)
         .sort((first, second) => categories.indexOf(first.category) - categories.indexOf(second.category));
     },
+    async news(parameters) {
+      return aggregateNews([...(await sources()).values()], parameters, async source => {
+        const url = resourceUrl(source);
+        return { ...(await response(url, source)), url };
+      });
+    },
     async download(id, parameters) {
       const source = (await sources()).get(id);
       if (!source) throw fail(404, '资源已下线或不存在');
@@ -277,11 +293,7 @@ export function resourceCatalog({ configFile, getResource = getPayload, now = Da
         }
         selected[filter.key] = values[0];
       }
-      const url = new URL(source.url.href);
-      url.pathname = url.pathname.replace(placeholder, (_, encoded, raw) => selected[encoded || raw]);
-      for (const [name, template] of Object.entries(source.query)) {
-        url.searchParams.set(name, template.replace(placeholder, (_, encoded, raw) => selected[encoded || raw]));
-      }
+      const url = resourceUrl(source, selected);
       try {
         const { data, fetched } = await response(url, source);
         return {

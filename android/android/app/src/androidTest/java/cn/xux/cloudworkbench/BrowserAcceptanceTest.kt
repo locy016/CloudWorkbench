@@ -210,12 +210,12 @@ class BrowserAcceptanceTest {
         }
     }
 
-    @Test fun opensHeadlinesFirstAndKeepsCurrentAffairsAndTradeEasyToFind() {
+    @Test fun singleSourceDirectoryKeepsHeadlinesCurrentAffairsAndTradeEasyToFind() {
         awaitVisibleConnection()
         compose.openWorkbenchTab("浏览")
         compose.onNodeWithTag("openServerData").performClick()
         awaitResourceCatalog()
-        compose.onNodeWithTag("openServerNews").assertIsSelected()
+        compose.onNodeWithTag("openSingleSource").assertIsSelected()
         compose.onNodeWithTag("resourceCategory-headlines").assertIsSelected()
         compose.onNodeWithTag("resourcePicker").assertTextContains("联合国日内瓦要闻", substring = true)
         compose.waitUntil(25000) { compose.onAllNodesWithTag("resourceResult").fetchSemanticsNodes().isNotEmpty() }
@@ -231,7 +231,45 @@ class BrowserAcceptanceTest {
         compose.onNodeWithTag("openEcbRates").assertIsNotSelected()
     }
 
+    @Test fun opensAggregatedNewsAndFiltersBySourceAndKeyword() {
+        awaitVisibleConnection()
+        compose.openWorkbenchTab("浏览")
+        compose.onNodeWithTag("openServerData").performClick()
+        compose.onNodeWithTag("openServerNews").assertIsSelected()
+        fun awaitSearch() {
+            compose.waitUntil(30000) {
+                compose.onAllNodes(hasTestTag("searchNews") and isEnabled()).fetchSemanticsNodes().isNotEmpty() &&
+                    compose.onAllNodesWithTag("newsCount").fetchSemanticsNodes().isNotEmpty()
+            }
+        }
+        awaitSearch()
+        compose.onNodeWithTag("pickNewsSource").assertTextContains("全部来源")
+        compose.runOnIdle { org.junit.Assert.assertNull(web(activity.window.decorView)) }
+        compose.onNodeWithTag("aggregatedNews").performScrollToNode(hasTestTag("newsHeadline"))
+        compose.onAllNodesWithTag("newsHeadline").onFirst().assertIsDisplayed()
+        compose.onAllNodesWithTag("newsHeadlineMetadata").onFirst().assertTextContains("UTC", substring = true)
+        compose.onAllNodesWithTag("newsHeadlineLink").onFirst().assertTextContains("复制原文地址")
+        compose.onNodeWithTag("aggregatedNews").performScrollToNode(hasTestTag("pickNewsSource"))
+        compose.onNodeWithTag("pickNewsSource").performClick()
+        compose.onNodeWithTag("newsSource-wto-trade-news").performClick()
+        awaitSearch()
+        compose.onNodeWithTag("pickNewsSource").assertTextContains("WTO 国际贸易新闻")
+        compose.onNodeWithTag("aggregatedNews").performScrollToNode(hasTestTag("newsHeadline"))
+        val headline = compose.onAllNodesWithTag("newsHeadline").onFirst().fetchSemanticsNode()
+            .config[androidx.compose.ui.semantics.SemanticsProperties.Text].single().text
+        val keyword = checkNotNull(Regex("""[\p{L}\p{N}]{4,}""").find(headline)).value
+        compose.onAllNodesWithTag("newsHeadlineMetadata").onFirst().assertTextContains("WTO news", substring = true)
+        compose.onNodeWithTag("aggregatedNews").performScrollToNode(hasTestTag("newsKeyword"))
+        compose.onNodeWithTag("newsKeyword").performTextReplacement(keyword)
+        compose.onNodeWithTag("searchNews").performClick()
+        awaitSearch()
+        compose.onNodeWithTag("aggregatedNews").performScrollToNode(hasTestTag("newsHeadline"))
+        compose.onAllNodesWithTag("newsHeadlineMetadata").onFirst().assertTextContains("WTO news", substring = true)
+        compose.onNodeWithText(headline).assertExists()
+    }
+
     private fun awaitResourceCatalog() {
+        compose.onNodeWithTag("openSingleSource").performClick()
         compose.waitUntil(25000) {
             compose.onAllNodesWithTag("resourcePicker").fetchSemanticsNodes().isNotEmpty() &&
                 compose.onAllNodes(hasTestTag("fetchResource") and isEnabled()).fetchSemanticsNodes().isNotEmpty()

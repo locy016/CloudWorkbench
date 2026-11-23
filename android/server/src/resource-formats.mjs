@@ -106,10 +106,13 @@ export function parseFeed(xml, format, endpoint) {
     }
     if (entry && names.length === depth) {
       if (rows.length >= 10000) throw new Error('Feed entry limit exceeded');
+      const explicitTime = [entry.published, entry.pubDate, entry.date, entry.sent].map(value => sourceTime(value)).find(Boolean);
+      const updatedTime = sourceTime(entry.updated);
       rows.push({
         title: cleanText(entry.title),
         summary: cleanText(entry.description || entry.summary),
-        published: sourceTime(entry.published || entry.pubDate || entry.date || entry.sent || entry.updated),
+        published: explicitTime ?? updatedTime,
+        timeKind: explicitTime ? 'published' : updatedTime ? 'updated' : null,
         link: linkUrl(entry.link, endpoint)
       });
       entry = undefined;

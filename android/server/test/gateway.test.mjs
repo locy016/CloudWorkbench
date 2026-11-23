@@ -108,6 +108,18 @@ test('resource catalog and fetch routes require SSH and reject input URLs', asyn
   assert.equal(status, 200);
   assert.ok(body.sources.some(entry => entry.id === 'github-project-search'));
 });
+
+test('aggregated news is restricted to the authenticated SSH transport', async t => {
+  const auth = { Authorization: 'SSH test' };
+  const { call } = await fixture(t, {
+    sshMobile: req => req.headers.authorization === auth.Authorization ? 'test-device' : null,
+    resources: { news: async query => ({ query: Object.fromEntries(query) }) }
+  });
+  const path = '/v1/server-data/news?q=trade&source=wto-trade-news';
+  assert.equal((await call(path)).status, 401);
+  assert.equal((await call(path, undefined, { ...auth, 'x-workbench-ingress': 'web' })).status, 404);
+  assert.deepEqual(await call(path, undefined, auth), { status: 200, body: { query: { q: 'trade', source: 'wto-trade-news' } } });
+});
 test('manual overview refresh bypasses the cache and shares an in-flight collection', async t => {
   const { g, call } = await fixture(t);
   let collections = 0;

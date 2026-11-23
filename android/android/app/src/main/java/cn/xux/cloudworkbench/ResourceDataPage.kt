@@ -309,21 +309,33 @@ internal fun ResourceDataPage(data: ResourceData, connected: Boolean, visible: B
 
 @Composable
 private fun ResourceHeadline(row: JSONObject, publisher: String, context: Context) {
-    Text(row.optString("headline").ifBlank { "未提供标题" }, Modifier.testTag("resourceHeadline"),
-        style = MaterialTheme.typography.titleMedium)
-    val date = row.optString("published").takeUnless { row.isNull("published") }?.let { value ->
-        runCatching {
-            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").withZone(ZoneOffset.UTC).format(Instant.parse(value)) + " UTC"
-        }.getOrNull()
+    fun text(key: String) = row.optString(key).takeUnless { row.isNull(key) || it.isBlank() }
+    FeedArticleCard(text("headline") ?: "未提供标题", publisher, text("published"), text("summary"), text("link"),
+        context, titleTag = "resourceHeadline")
+}
+
+private val feedTime = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").withZone(ZoneOffset.UTC)
+
+@Composable
+internal fun FeedArticleCard(title: String, publisher: String, time: String?, summary: String?, link: String?,
+    context: Context, titleTag: String, timeLabel: String? = null) {
+    Text(title, Modifier.testTag(titleTag), style = MaterialTheme.typography.titleMedium)
+    val date = time?.let { runCatching { feedTime.format(Instant.parse(it)) + " UTC" }.getOrNull() }
+    val timeText = when {
+        date != null && timeLabel != null -> "$timeLabel $date"
+        date != null -> date
+        timeLabel != null -> "未提供发布时间"
+        else -> null
     }
-    Text(listOfNotNull(publisher, date).joinToString(" · "), color = Muted, style = MaterialTheme.typography.bodySmall)
-    row.optString("summary").takeIf { !row.isNull("summary") && it.isNotBlank() }?.let {
+    Text(listOfNotNull(publisher, timeText).joinToString(" · "), color = Muted,
+        style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("${titleTag}Metadata"))
+    summary?.let {
         Text(it, maxLines = 4, overflow = TextOverflow.Ellipsis)
     }
-    row.optString("link").takeIf { !row.isNull("link") && it.isNotBlank() }?.let { link ->
+    link?.let {
         TextButton(onClick = {
-            context.getSystemService(ClipboardManager::class.java)?.setPrimaryClip(ClipData.newPlainText("原文地址", link))
-        }) { Text("复制原文地址") }
+            context.getSystemService(ClipboardManager::class.java)?.setPrimaryClip(ClipData.newPlainText("原文地址", it))
+        }, modifier = Modifier.testTag("${titleTag}Link")) { Text("复制原文地址") }
     }
 }
 

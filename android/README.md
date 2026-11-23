@@ -26,9 +26,9 @@ APP 短时切到后台时保留现有 SSH 连接和事件流。后台满 30 秒�
 
 ## 浏览页的服务器数据
 
-「服务器数据」默认打开「资讯」并载入要闻。资讯按要闻、时事、经贸、物流和其他来源分组。标题、来源、发布时间和摘要可直接阅读，并支持复制原文地址。[联合国日内瓦 RSS](https://www.ungeneva.org/en/news-media/rss) · [欧盟委员会新闻中心](https://ec.europa.eu/commission/presscorner/home/en) · [英国商业与贸易部门](https://www.gov.uk/government/organisations/department-for-business-innovation-science-and-trade)
+「服务器数据」默认打开「资讯」，经 SSH 读取要闻、时事和经贸的聚合结果。资讯按发布时间倒序显示，提供关键词和来源筛选。每条显示来源、时间和摘要，可以复制原文地址。只有更新时间的条目标为「更新」。来源未提供有效日期的条目排在末尾。[联合国日内瓦 RSS](https://www.ungeneva.org/en/news-media/rss) · [欧盟委员会新闻中心](https://ec.europa.eu/commission/presscorner/home/en) · [英国商业与贸易部门](https://www.gov.uk/government/organisations/department-for-business-innovation-science-and-trade)
 
-选择来源后，可展开「筛选条件」按关键词和 UTC 日期范围查询。日期范围包含所选首尾日期。页面分别显示匹配数、预览数和可保存条数。「保存 CSV」和「保存 JSON」可下载筛选后的记录。
+在「来源目录」选择单个来源后，可按关键词和 UTC 日期范围查询。日期范围包含所选首尾日期。页面分别显示匹配数、预览数和可保存条数。「保存 CSV」和「保存 JSON」可下载筛选后的记录。
 
 内置示例支持按时段获取全球地震动态、按项目获取发布记录，以及按自填关键词查询公开项目。[USGS GeoJSON 实时数据](https://earthquake.usgs.gov/earthquakes/feed/v1.0/geojson.php) · [GitHub 发布 API](https://docs.github.com/en/rest/releases/releases#list-releases) · [GitHub 搜索 API](https://docs.github.com/en/rest/search/search#search-repositories)
 

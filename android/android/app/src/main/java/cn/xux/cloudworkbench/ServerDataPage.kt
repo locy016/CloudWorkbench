@@ -1,9 +1,11 @@
 package cn.xux.cloudworkbench
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material3.*
@@ -24,7 +26,7 @@ import org.json.JSONObject
 import java.time.LocalDate
 
 internal data class ReferenceRate(val currency: String, val rate: String)
-private enum class ServerDataSection { Resources, Rates, Trade }
+private enum class ServerDataSection { News, Resources, Rates, Trade }
 
 internal data class ReferenceRates(val date: LocalDate, val rates: List<ReferenceRate>, val stale: Boolean) {
     companion object {
@@ -55,7 +57,7 @@ internal fun ServerDataPage(
     val rates = vm.ecbRates
     val loading = vm.referenceRatesLoading
     val scope = rememberCoroutineScope()
-    var section by rememberSaveable { mutableStateOf(ServerDataSection.Resources) }
+    var section by rememberSaveable { mutableStateOf(ServerDataSection.News) }
     BackHandler(enabled = visible, onBack = onBack)
     LaunchedEffect(visible, connected, section) {
         if (visible && connected && section == ServerDataSection.Rates) vm.refreshReferenceRates()
@@ -75,9 +77,13 @@ internal fun ServerDataPage(
             }
         }
         HorizontalDivider(color = Outline)
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-            FilterChip(selected = section == ServerDataSection.Resources, onClick = { section = ServerDataSection.Resources },
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.Center) {
+            FilterChip(selected = section == ServerDataSection.News, onClick = { section = ServerDataSection.News },
                 label = { Text("资讯") }, modifier = Modifier.testTag("openServerNews"))
+            Spacer(Modifier.width(8.dp))
+            FilterChip(selected = section == ServerDataSection.Resources, onClick = { section = ServerDataSection.Resources },
+                label = { Text("来源目录") }, modifier = Modifier.testTag("openSingleSource"))
             Spacer(Modifier.width(8.dp))
             FilterChip(selected = section == ServerDataSection.Trade, onClick = { section = ServerDataSection.Trade },
                 label = { Text("经贸指标") },
@@ -87,6 +93,10 @@ internal fun ServerDataPage(
                 label = { Text("参考汇率") }, modifier = Modifier.testTag("openEcbRates"))
         }
         when (section) {
+            ServerDataSection.News -> {
+                NewsFeedPage(vm.newsFeed, connected, visible)
+                return@Column
+            }
             ServerDataSection.Resources -> {
                 ResourceDataPage(vm.onDemandResources, connected, visible)
                 return@Column
