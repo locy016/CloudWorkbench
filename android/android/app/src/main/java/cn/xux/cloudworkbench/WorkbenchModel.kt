@@ -120,7 +120,6 @@ class WorkbenchModel internal constructor(
     var browserSaved: android.os.Bundle? = null
     internal val browserBookmarks = BrowserBookmarks(prefs)
     internal val serverDataConnected get() = connected && !connecting && !reconnecting
-    internal val worldBankTrade = WorldBankTrade(prefs) { connection.takeIf { serverDataConnected } }
     internal val newsFeed = NewsFeed(prefs) { connection.takeIf { serverDataConnected } }
     internal val liveExchangeRates = LiveExchangeRates(prefs) { connection.takeIf { serverDataConnected } }
     private val draftStore = DraftStore(prefs, File(app.noBackupFilesDir,
@@ -155,6 +154,9 @@ class WorkbenchModel internal constructor(
         set(value) { setDraftText(draftKey, value) }
 
     init {
+        if (prefs.contains("world-bank-country-catalog") || prefs.contains("world-bank-trade-observation")) {
+            prefs.edit().remove("world-bank-country-catalog").remove("world-bank-trade-observation").apply()
+        }
         val unused = draftStore.unusedFiles(drafts.values)
         if (unused.isNotEmpty()) viewModelScope.launch(Dispatchers.IO) { unused.forEach { it.delete() } }
     }

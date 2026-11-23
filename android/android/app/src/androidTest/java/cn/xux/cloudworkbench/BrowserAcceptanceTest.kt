@@ -66,30 +66,42 @@ class BrowserAcceptanceTest {
         compose.openWorkbenchTab("浏览")
         compose.onNodeWithTag("openSingleSource").assertDoesNotExist()
         compose.onNodeWithTag("openEcbRates").assertDoesNotExist()
+        compose.onNodeWithTag("openWorldBankTrade").assertDoesNotExist()
+        compose.onNodeWithText("贸易指标", useUnmergedTree = true).assertDoesNotExist()
+        val prefs = activity.getSharedPreferences("ui", android.content.Context.MODE_PRIVATE)
+        org.junit.Assert.assertFalse(prefs.contains("world-bank-country-catalog"))
+        org.junit.Assert.assertFalse(prefs.contains("world-bank-trade-observation"))
         openDataSection("openExchangeRates")
         compose.onNodeWithTag("serverDataPage").assertIsDisplayed()
         compose.onNodeWithTag("serverDataTitle").assertTextEquals("实时汇率")
-        compose.onNodeWithTag("openWorldBankTrade").assertDoesNotExist()
         compose.onNodeWithTag("browserView").assertDoesNotExist()
         compose.runOnIdle { org.junit.Assert.assertNull(web(activity.window.decorView)) }
         compose.waitUntil(25000) { compose.onAllNodesWithTag("exchangeRateResult").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("exchangeRateSource").assertTextEquals("来源：Coinbase")
         compose.onNodeWithTag("exchangeRateTime").assertTextContains("取得时间：", substring = true)
 
-        fun converted(target: String): Double {
-            val node = compose.onNodeWithTag("exchangeRateResult").assertTextContains(target, substring = true).fetchSemanticsNode()
-            return node.config[androidx.compose.ui.semantics.SemanticsProperties.Text].single().text.substringBefore(' ').toDouble()
+        fun assertConverted(from: String, to: String, amount: Double) {
+            fun text(tag: String): String {
+                val node = compose.onNodeWithTag(tag).fetchSemanticsNode()
+                return node.config[androidx.compose.ui.semantics.SemanticsProperties.Text].single().text
+            }
+            compose.waitUntil(10000) {
+                val unit = text("exchangeRateUnit")
+                val result = text("exchangeRateResult")
+                unit.startsWith("1 $from ≈ ") && unit.endsWith(" $to") && result.endsWith(" $to") &&
+                    kotlin.math.abs(result.substringBefore(' ').toDouble() -
+                        amount * unit.substringAfter("≈ ").substringBefore(' ').toDouble()) < 0.001
+            }
         }
-        val one = converted("CNY")
-        org.junit.Assert.assertTrue(one > 0)
+        assertConverted("USD", "CNY", 1.0)
         compose.onNodeWithTag("exchangeRateAmount").performTextReplacement("125.50")
-        org.junit.Assert.assertEquals(one * 125.50, converted("CNY"), 0.001)
+        assertConverted("USD", "CNY", 125.50)
         compose.onNodeWithTag("exchangeRateTo").performClick()
         compose.onNodeWithTag("exchangeRateCurrencySearch").performTextReplacement("EUR")
         compose.onNodeWithTag("exchangeRateCurrency-EUR").performClick()
-        val eur = converted("EUR")
+        assertConverted("USD", "EUR", 125.50)
         compose.onNodeWithTag("exchangeRateSwap").performClick()
-        org.junit.Assert.assertEquals(125.50 * 125.50 / eur, converted("USD"), 0.001)
+        assertConverted("EUR", "USD", 125.50)
         compose.onNodeWithTag("exchangeRateFrom").assertTextContains("EUR", substring = true)
         compose.waitUntil(25000) {
             compose.onAllNodes(hasTestTag("exchangeRateRefresh") and isEnabled()).fetchSemanticsNodes().isNotEmpty()
@@ -99,59 +111,6 @@ class BrowserAcceptanceTest {
             compose.onAllNodes(hasTestTag("exchangeRateRefresh") and isEnabled()).fetchSemanticsNodes().isNotEmpty()
         }
         compose.onNodeWithTag("exchangeRateStatus").assertDoesNotExist()
-        compose.onNodeWithContentDescription("返回浏览").performClick()
-        compose.onNodeWithTag("browserStart").assertIsDisplayed()
-    }
-
-    @Test fun serverDataFiltersWorldBankTradeByCountryAndYear() {
-        awaitVisibleConnection()
-        compose.openWorkbenchTab("浏览")
-        openDataSection("openWorldBankTrade")
-        compose.onNodeWithTag("serverDataTitle").assertTextEquals("贸易指标")
-        compose.onNodeWithTag("openExchangeRates").assertDoesNotExist()
-        compose.onNodeWithTag("tradeSource").assertTextContains("世界银行", substring = true)
-        compose.onNodeWithTag("browserView").assertDoesNotExist()
-        compose.runOnIdle { org.junit.Assert.assertNull(web(activity.window.decorView)) }
-
-        fun query(code: String, year: Int) {
-            compose.waitUntil(30000) {
-                compose.onAllNodes(hasTestTag("tradeCountry") and isEnabled()).fetchSemanticsNodes().isNotEmpty()
-            }
-            compose.onNodeWithTag("tradeCountry").performClick()
-            compose.onNodeWithTag("tradeCountrySearch").performTextReplacement(code)
-            compose.onNodeWithTag("tradeOption-$code").performClick()
-            compose.waitUntil(25000) {
-                compose.onAllNodes(hasTestTag("tradeYear") and isEnabled()).fetchSemanticsNodes().isNotEmpty()
-            }
-            compose.onNodeWithTag("tradeYear").performTextReplacement(year.toString())
-            compose.runOnUiThread {
-                val keyboard = activity.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
-                keyboard.hideSoftInputFromWindow(activity.window.decorView.windowToken, 0)
-                activity.currentFocus?.clearFocus()
-            }
-            compose.onNodeWithTag("tradeQuery").performClick()
-            compose.waitUntil(30000) {
-                compose.onAllNodes(hasTestTag("tradeDataYear") and hasText("统计年度：$year 年"))
-                    .fetchSemanticsNodes().isNotEmpty()
-            }
-            compose.onNodeWithTag("tradeCountry").assertTextContains(code, substring = true)
-            compose.onNodeWithTag("tradeUpdatedAt").assertTextContains("数据集更新：", substring = true)
-        }
-        query("CHN", 2023)
-        compose.onNodeWithTag("tradePercent").assertTextContains("%", substring = true)
-        compose.onNodeWithTag("tradeExports").assertTextContains("现价美元", substring = true)
-        compose.onNodeWithTag("tradeImports").assertTextContains("现价美元", substring = true)
-        query("USA", 2024)
-        compose.onNodeWithTag("tradePercent").assertTextContains("%", substring = true)
-        val currentYear = java.time.LocalDate.now().year
-        query("CHN", currentYear)
-        compose.onNodeWithTag("tradeNoData").assertIsDisplayed()
-        compose.onNodeWithTag("tradePreviousYear").assertTextEquals("查询 ${currentYear - 1} 年").performClick()
-        compose.waitUntil(30000) {
-            compose.onAllNodes(hasTestTag("tradeDataYear") and hasText("统计年度：${currentYear - 1} 年"))
-                .fetchSemanticsNodes().isNotEmpty()
-        }
-        compose.onNodeWithTag("tradePercent").assertTextContains("%", substring = true)
         compose.onNodeWithContentDescription("返回浏览").performClick()
         compose.onNodeWithTag("browserStart").assertIsDisplayed()
     }

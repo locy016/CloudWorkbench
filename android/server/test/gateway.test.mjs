@@ -150,32 +150,11 @@ test('automatic news translation batches share the single-article cache and pres
   assert.equal(calls.at(-1)[0], 'ja');
   assert.equal(calls.length, 2);
 });
-test('trade directory and observations accept only SSH and the country-year query', async t => {
-  const routes = '/v1/server-data/world-bank';
-  const auth = { Authorization: 'SSH test' };
-  const sample = { country: 'CHN', year: 2023, updatedAt: '2026-11-11', tradePercent: 36.7391 };
-  let reads = 0;
-  const { call } = await fixture(t, {
-    sshMobile: req => req.headers.authorization === auth.Authorization ? 'test-device' : null,
-    tradeData: {
-      countries: async () => { reads++; return { countries: [{ code: 'CHN' }] }; },
-      trade: async (country, year) => { reads++; assert.deepEqual([country, year], ['CHN', '2023']); return sample; }
-    }
-  });
-  assert.equal((await call(routes + '/countries')).status, 401);
-  assert.equal((await call(routes + '/trade?country=CHN&year=2023', undefined, { ...auth, 'x-workbench-ingress': 'web' })).status, 404);
-  assert.equal((await call(routes + '/countries?url=https://example.test', undefined, auth)).status, 400);
-  assert.equal((await call(routes + '/trade?country=CHN&country=USA', undefined, auth)).status, 400);
-  assert.equal((await call(routes + '/trade?country=CHN&year=2023&url=https://example.test', undefined, auth)).status, 400);
-  assert.equal(reads, 0);
-  assert.deepEqual((await call(routes + '/countries', undefined, auth)).body.countries, [{ code: 'CHN' }]);
-  assert.deepEqual(await call(routes + '/trade?year=2023&country=CHN', undefined, auth), { status: 200, body: sample });
-  assert.equal(reads, 2);
-});
-test('retired resource and ECB endpoints no longer respond', async t => {
+test('retired server data endpoints return 404 for authorized SSH sessions', async t => {
   const auth = { Authorization: 'SSH test' };
   const { call } = await fixture(t, { sshMobile: req => req.headers.authorization === auth.Authorization ? 'test-device' : null });
-  for (const path of ['resources', 'resources/usgs-earthquakes?period=day', 'ecb-rates']) {
+  for (const path of ['resources', 'resources/usgs-earthquakes?period=day', 'ecb-rates',
+    'world-bank/countries', 'world-bank/trade?country=CHN&year=2025']) {
     assert.equal((await call('/v1/server-data/' + path, undefined, auth)).status, 404);
   }
 });

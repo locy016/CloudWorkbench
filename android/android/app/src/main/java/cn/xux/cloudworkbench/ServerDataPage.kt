@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.Article
-import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material.icons.outlined.CurrencyExchange
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -17,7 +16,6 @@ import androidx.compose.ui.unit.dp
 
 internal enum class ServerDataSection(val title: String, val description: String, val tag: String, val icon: ImageVector) {
     News("国际资讯", "阅读要闻、时事和经贸动态", "openInternationalNews", Icons.AutoMirrored.Outlined.Article),
-    Trade("贸易指标", "按国家和年份查看世界银行贸易数据", "openWorldBankTrade", Icons.Outlined.BarChart),
     Rates("实时汇率", "获取当前汇率并换算金额", "openExchangeRates", Icons.Outlined.CurrencyExchange)
 }
 
@@ -38,7 +36,6 @@ internal fun ServerDataPage(
         HorizontalDivider(color = Outline)
         when (section) {
             ServerDataSection.News -> NewsFeedPage(vm.newsFeed, connected, visible)
-            ServerDataSection.Trade -> WorldBankTradePage(vm.worldBankTrade, connected, visible)
             ServerDataSection.Rates -> LiveExchangeRatesPage(vm.liveExchangeRates, visible, connected)
         }
     }
