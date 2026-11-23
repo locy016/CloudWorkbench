@@ -354,7 +354,7 @@ internal class Connection(
         val opened = openGateway(c.privateKey)
         gateway = opened
         try {
-            workbenchJsonCall(client, endpoint("/v1/status"))
+            workbenchJsonCall(client, endpoint("/v1/projects"))
         } catch (error: Throwable) {
             disconnect()
             throw error

@@ -318,25 +318,21 @@ private fun stateText(s: String) = mapOf("idle" to "已完成", "running" to "�
         if (continuations.isNotEmpty()) {
             Panel(Modifier.fillMaxWidth().testTag("taskContinuation")) {
                 Text("继续任务", style = MaterialTheme.typography.titleMedium)
-                continuations.forEach { item ->
-                    val enabled = (!vm.busy && vm.hostOnline) || (vm.currentId == item.id && vm.current != null)
-                    Row(Modifier.fillMaxWidth().clip(MaterialTheme.shapes.small)
-                        .clickable(enabled = enabled, role = Role.Button, onClickLabel = "打开会话") { vm.select(item.id) }
-                        .heightIn(min = 52.dp).padding(horizontal = 4.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Column(Modifier.weight(1f)) {
-                            Text(item.title, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            Text(vm.projectName(item.project), color = Muted, style = MaterialTheme.typography.bodySmall,
-                                maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        }
-                        StatusPill(item.state, item.state == "执行中")
-                        Icon(Icons.Outlined.ChevronRight, null, Modifier.size(18.dp), tint = Muted)
-                    }
-                }
+                continuations.forEach { ContinuationRow(vm, it) }
+            }
+        }
+        val results = vm.latestResults
+        if (results.isNotEmpty()) {
+            Panel(Modifier.fillMaxWidth().testTag("latestTaskResults")) {
+                Text("最近任务结果", style = MaterialTheme.typography.titleMedium)
+                results.forEach { ContinuationRow(vm, it) }
             }
         }
         val status = vm.status
-        val live = vm.connected && vm.hostOnline
+        val live = vm.connected && vm.hostOnline && !vm.overviewUnavailable
+        if (vm.overviewUnavailable && vm.hostOnline) {
+            Text("运行指标暂不可用", color = Muted, style = MaterialTheme.typography.bodySmall)
+        }
         val services: @Composable (Modifier) -> Unit = { modifier ->
             Column(modifier, verticalArrangement = Arrangement.spacedBy(16.dp)) {
 
@@ -356,6 +352,33 @@ private fun stateText(s: String) = mapOf("idle" to "已完成", "running" to "�
                 }
             }
         }
+    }
+}
+
+@Composable private fun ContinuationRow(vm: WorkbenchModel, item: Continuation) {
+    val enabled = !vm.busy && (vm.hostOnline || (item.approvalId == null && vm.currentId == item.id && vm.current != null))
+    val tag = when {
+        item.approvalId != null -> "home-approval-${item.approvalId}"
+        item.updated != null -> "home-result-${item.id}"
+        else -> "home-task-${item.id}"
+    }
+    val label = when {
+        item.approvalId != null -> "查看待处理请求"
+        item.updated != null -> "查看任务结果"
+        else -> "打开会话"
+    }
+    Row(Modifier.fillMaxWidth().clip(MaterialTheme.shapes.small).testTag(tag)
+        .clickable(enabled = enabled, role = Role.Button, onClickLabel = label) { vm.openContinuation(item) }
+        .heightIn(min = 52.dp).padding(horizontal = 4.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.weight(1f)) {
+            Text(item.title, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            val project = vm.projectName(item.project)
+            Text(item.updated?.takeIf { it > 0L }?.let { "$project · ${whenText(it)}" } ?: project,
+                color = Muted, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        StatusPill(item.state, item.state == "执行中" || item.state == "已完成")
+        Icon(Icons.Outlined.ChevronRight, null, Modifier.size(18.dp), tint = Muted)
     }
 }
 
@@ -545,7 +568,7 @@ private data class MetricValue(val label: String, val value: String, val hint: S
             val selected = vm.projectSection == section
             val pending = vm.pendingApprovals.size
             val label = if (section == "任务" && pending > 0) "任务 ($pending)" else section
-            Box(Modifier.heightIn(min = 48.dp).selectable(selected, role = Role.Tab) { vm.projectSection = section }
+            Box(Modifier.heightIn(min = 48.dp).selectable(selected, role = Role.Tab) { vm.openProject(section) }
                 .testTag("project-$section").padding(horizontal = 4.dp), contentAlignment = Alignment.Center) {
                 Text(label, Modifier.background(if (selected) AccentSurface else Color.Transparent, RoundedCornerShape(10.dp))
                     .padding(horizontal = 8.dp, vertical = 3.dp), color = if (selected) Accent else Muted,
@@ -820,6 +843,21 @@ private data class MetricValue(val label: String, val value: String, val hint: S
     val task = vm.activeThread
     val canAct = vm.hostOnline && !vm.busy && !vm.connecting
     PageColumn {
+        val focusedId = vm.focusedApprovalId
+        if (focusedId != null) {
+            Panel(Modifier.fillMaxWidth().testTag("focusedApproval")) {
+                Text(vm.conversationTitle, style = MaterialTheme.typography.titleMedium)
+                Text(vm.projectName(vm.threadProjectId(vm.current)), color = Muted, style = MaterialTheme.typography.bodySmall)
+                ActionRow {
+                    TextButton(onClick = { vm.openProject() }) { Text("查看会话") }
+                    TextButton(onClick = { vm.openProject("任务") }) { Text("查看全部任务") }
+                }
+            }
+            val approval = vm.approvals.firstOrNull { it.optString("id") == focusedId }
+            if (approval != null) key(focusedId) { ApprovalCard(approval, vm) }
+            else Text("此请求已处理或已失效", color = Muted, style = MaterialTheme.typography.bodyMedium)
+            return@PageColumn
+        }
         if (vm.pendingApprovals.isNotEmpty()) {
             Text("待你确认", style = MaterialTheme.typography.titleMedium)
             vm.pendingApprovals.forEach { a -> key(a.getString("id")) { ApprovalCard(a, vm) } }

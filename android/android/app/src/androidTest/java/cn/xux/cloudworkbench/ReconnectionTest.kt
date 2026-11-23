@@ -1,13 +1,19 @@
 package cn.xux.cloudworkbench
 
 import android.app.Application
+import android.content.Intent
 import android.graphics.Bitmap
 import android.os.SystemClock
+import android.view.WindowManager
+import androidx.activity.compose.setContent
+import androidx.compose.ui.test.*
+import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.core.content.FileProvider
 import androidx.lifecycle.ViewModelStore
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.CompletableDeferred
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.After
@@ -15,6 +21,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.IOException
@@ -22,6 +29,7 @@ import java.io.File
 
 @RunWith(AndroidJUnit4::class)
 class ReconnectionTest {
+    @get:Rule val compose = createEmptyComposeRule()
     private val instrument = InstrumentationRegistry.getInstrumentation()
     private val app = instrument.targetContext.applicationContext as Application
     private val prefs = app.getSharedPreferences("reconnect-test", 0)
@@ -67,7 +75,7 @@ class ReconnectionTest {
     }
 
     @Test
-    fun reconnectsAfterGatewayRestartAndLostSubmissionResponse() {
+    fun reconnectsAndUsesReceiptWhenExecutionFailedAndTheMessageIsOutsideTheWindow() {
         onMain {
             model.draft = "一条任务"
             gateway.dropNextResponse = true
@@ -78,15 +86,16 @@ class ReconnectionTest {
             assertEquals(THREAD, model.currentId)
             assertEquals("一条任务", model.draft)
             assertEquals(1, gateway.posted.size)
-            gateway.threadStatus = "interrupted"
+            gateway.threadStatus = "failed"
+            gateway.hideReceiptMessages = true
             gateway.available = true
             recreateModel()
         }
         await { model.hostOnline && !model.reconnecting }
         onMain {
             assertEquals(THREAD, model.currentId)
-            assertEquals("interrupted", model.current?.getString("status"))
-            assertEquals("u-${gateway.posted.single()}", model.messages.single().getString("id"))
+            assertEquals("failed", model.current?.getString("status"))
+            assertTrue(model.messages.isEmpty())
             assertEquals("", model.draft)
             assertEquals(1, gateway.posted.size)
             assertEquals("服务器已接收", model.submissionHint)
@@ -125,8 +134,8 @@ class ReconnectionTest {
             assertEquals("保留草稿", model.draft)
             assertEquals(imageId, model.draftImages.single().upload.localId)
             assertTrue(model.draftImages.single().upload.file.exists())
-            assertEquals("发送结果待确认", model.submissionHint)
-            assertEquals("发送待确认", model.continuations.single().state)
+            assertEquals("服务器未收到，可手动重试", model.submissionHint)
+            assertEquals("可重试", model.continuations.single().state)
             assertEquals(1, gateway.posted.size)
             assertTrue(model.messages.isEmpty())
             model.send()
@@ -138,6 +147,60 @@ class ReconnectionTest {
             assertEquals(1, gateway.uploads)
             assertEquals("", model.draft)
             assertEquals(emptyList<DraftImage>(), model.draftImages)
+        }
+    }
+
+    @Test
+    fun aStalledOrFailedOverviewDoesNotBlockConversationAndApprovalSync() {
+        val metrics = CompletableDeferred<JSONObject>()
+        onMain {
+            gateway.metrics = metrics
+            gateway.overviewApprovals = JSONArray().put(gateway.approval("other-approval", "只读检查"))
+            recreateModel()
+        }
+        await { gateway.metricsRequests > 0 && model.hostOnline && model.pendingApprovals.size == 1 }
+        metrics.completeExceptionally(GatewayException(503, "Metrics failed"))
+        await { model.overviewUnavailable }
+        onMain {
+            assertTrue(model.connected && model.hostOnline)
+            assertEquals("other-approval", model.pendingApprovals.single().getString("id"))
+            model.openContinuation(model.continuations.first())
+        }
+        await { model.focusedApprovalId == "other-approval" && !model.busy }
+        onMain { model.answer(model.approvals.single(), "decline") }
+        await { model.hostOnline && model.approvals.isEmpty() }
+        onMain { assertEquals(listOf("other-approval"), gateway.decisions) }
+    }
+
+    @Test
+    fun homeOpensTheExactApprovalAndTheLatestResultInOneTap() {
+        onMain {
+            gateway.overviewApprovals = JSONArray().put(gateway.approval("first-approval", "第一项检查"))
+                .put(gateway.approval("second-approval", "第二项检查"))
+            gateway.hasRecentResult = true
+        }
+        await { model.continuations.count { it.approvalId != null } == 2 && model.latestResults.size == 1 }
+        val activity = instrument.startActivitySync(Intent(app, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as MainActivity
+        try {
+            onMain {
+                activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                activity.setContent { WorkbenchTheme { Workbench(model) } }
+            }
+            compose.onNodeWithTag("home-approval-second-approval").performScrollTo().performClick()
+            compose.waitUntil(10_000) { compose.onAllNodesWithTag("focusedApproval").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithText("第二项检查").assertIsDisplayed()
+            compose.onNodeWithText("第一项检查").assertDoesNotExist()
+            compose.onNodeWithText("拒绝").performScrollTo().performClick()
+            compose.waitUntil(10_000) { compose.onAllNodesWithText("此请求已处理或已失效").fetchSemanticsNodes().isNotEmpty() }
+            assertEquals(listOf("second-approval"), onMain { gateway.decisions.toList() })
+            compose.openWorkbenchTab("云端")
+            compose.onNodeWithTag("home-approval-second-approval").assertDoesNotExist()
+            compose.onNodeWithTag("home-result-$RESULT_THREAD").performScrollTo().performClick()
+            compose.waitUntil(10_000) { compose.onAllNodesWithText("验收结果已就绪").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithTag("conversationTitle").assertTextEquals("最近完成的检查")
+        } finally {
+            onMain { activity.finish() }
+            instrument.waitForIdleSync()
         }
     }
 
@@ -348,6 +411,7 @@ class ReconnectionTest {
         var latestConnection: WorkbenchConnection? = null
         var dropNextResponse = false
         var dropNextBeforeReceipt = false
+        var hideReceiptMessages = false
         var threadStatus = "idle"
         var uploads = 0
         val posted = mutableListOf<String>()
@@ -356,6 +420,10 @@ class ReconnectionTest {
         var rejectCursor = false
         var overviewApprovals = JSONArray()
         var businessFailure: Exception? = null
+        var metrics: CompletableDeferred<JSONObject>? = null
+        var metricsRequests = 0
+        var hasRecentResult = false
+        val decisions = mutableListOf<String>()
         private val received = linkedMapOf<String, String>()
 
         fun newConnection(): WorkbenchConnection = object : WorkbenchConnection {
@@ -381,17 +449,32 @@ class ReconnectionTest {
                         rejectCursor = false
                         throw GatewayException(400, "分页参数无效")
                     }
-                    return pages.removeFirstOrNull() ?: if (path.endsWith("&cursor=done")) update("done", emptyList())
+                    val response = pages.removeFirstOrNull() ?: if (path.endsWith("&cursor=done")) update("done", emptyList())
                         else snapshot().put("cursor", "fixture-cursor").put("hasMore", false)
                             .put("reset", "&cursor=" !in path || threadStatus == "interrupted")
+                    path.substringAfter("&requestId=", "").takeIf { it.isNotEmpty() }?.let { id ->
+                        response.put("receipt", JSONObject().put("requestId", id).put("state", if (id in received) "accepted" else "missing"))
+                    }
+                    return response
                 }
                 if (path.startsWith("/v1/threads/$OTHER_THREAD/updates?")) {
                     val approvals = overviewApprovals.objects().filter { it.optString("threadId") == OTHER_THREAD }
                     return JSONObject().put("thread", otherThread()).put("cursor", "other-fixture-cursor")
                         .put("hasMore", false).put("reset", true).put("messages", JSONArray()).put("approvals", JSONArray(approvals))
                 }
+                if (path.startsWith("/v1/threads/$RESULT_THREAD/updates?")) {
+                    return update("result-cursor", listOf(message("latest-result", "验收结果已就绪", 50)), reset = true)
+                        .put("thread", resultThread())
+                }
+                if (path.startsWith("/v1/approvals/")) {
+                    val id = path.substringAfterLast('/')
+                    decisions.add(id)
+                    overviewApprovals = JSONArray(overviewApprovals.objects().filterNot { it.getString("id") == id })
+                    return JSONObject().put("thread", otherThread()).put("messages", JSONArray())
+                        .put("approvals", overviewApprovals)
+                }
                 return when (path) {
-                    "/v1/status" -> JSONObject()
+                    "/v1/status" -> { metricsRequests++; metrics?.await() ?: JSONObject() }
                     "/v1/projects" -> JSONObject().put("projects", JSONArray().put(JSONObject().put("id", "default"))
                         .put(JSONObject().put("id", OTHER_PROJECT)))
                     "/v1/threads" -> JSONObject().put("threads", JSONArray().put(thread()).apply {
@@ -399,6 +482,7 @@ class ReconnectionTest {
                     })
                         .put("projectsWithEmptyThreads", JSONArray())
                         .put("approvals", overviewApprovals)
+                        .put("recentResults", if (hasRecentResult) JSONArray().put(resultThread()) else JSONArray())
                     "/v1/threads?limit=40" -> JSONObject().put("threads", JSONArray().put(thread())).put("hasMore", false)
                     "/v1/threads/$THREAD/history?limit=40&before=older" -> JSONObject()
                         .put("messages", JSONArray(listOf(message("old", "更早", 10), message("new", "旧内容", 20))))
@@ -424,7 +508,7 @@ class ReconnectionTest {
                             available = false
                             throw IOException("写入后回执丢失")
                         }
-                        snapshot()
+                        snapshot().put("receipt", JSONObject().put("requestId", id).put("state", "accepted"))
                     }
                     else -> error("Unexpected API path $path")
                 }
@@ -434,6 +518,11 @@ class ReconnectionTest {
 
         private fun thread() = JSONObject().put("id", THREAD).put("status", threadStatus).put("projectId", "default")
         private fun otherThread() = JSONObject().put("id", OTHER_THREAD).put("status", "approval").put("projectId", OTHER_PROJECT)
+        private fun resultThread() = JSONObject().put("id", RESULT_THREAD).put("title", "最近完成的检查")
+            .put("status", "idle").put("projectId", "default").put("updated", 50)
+        fun approval(id: String, reason: String) = JSONObject().put("id", id).put("threadId", OTHER_THREAD)
+            .put("method", "item/commandExecution/requestApproval")
+            .put("params", JSONObject().put("reason", reason).put("command", "printf audit"))
         fun message(id: String, text: String, created: Long) = JSONObject().put("id", id).put("role", "assistant")
             .put("text", text).put("created", created)
         fun update(cursor: String, messages: List<JSONObject>, more: Boolean = false, historyBefore: String? = null,
@@ -442,7 +531,7 @@ class ReconnectionTest {
             .put("historyBefore", historyBefore ?: JSONObject.NULL)
 
         private fun snapshot() = JSONObject().put("thread", thread())
-            .put("messages", JSONArray(received.map { (id, text) ->
+            .put("messages", JSONArray(received.filter { !hideReceiptMessages }.map { (id, text) ->
                 JSONObject().put("id", "u-$id").put("role", "user").put("text", text)
             })).put("approvals", JSONArray())
     }
@@ -450,6 +539,7 @@ class ReconnectionTest {
     private companion object {
         const val THREAD = "reconnect-test-thread"
         const val OTHER_THREAD = "reconnect-test-other-thread"
+        const val RESULT_THREAD = "reconnect-test-result-thread"
         const val OTHER_PROJECT = "fixture-project"
     }
 }

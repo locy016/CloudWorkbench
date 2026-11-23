@@ -10,8 +10,17 @@ internal fun threadPagePath(before: String? = null): String =
 internal fun historyPagePath(id: String, before: String): String =
     "/v1/threads/$id/history?limit=$PAGE_SIZE&before=$before"
 
-internal fun updatesPath(id: String, cursor: String? = null, limit: Int = PAGE_SIZE): String =
-    "/v1/threads/$id/updates?limit=$limit" + (cursor?.let { "&cursor=$it" } ?: "")
+internal fun updatesPath(id: String, cursor: String? = null, limit: Int = PAGE_SIZE, requestId: String? = null): String =
+    "/v1/threads/$id/updates?limit=$limit" + (cursor?.let { "&cursor=$it" } ?: "") +
+        (requestId?.let { "&requestId=$it" } ?: "")
+
+internal data class SubmissionReceipt(val requestId: String, val state: String) {
+    companion object {
+        fun parse(body: JSONObject): SubmissionReceipt? = body.optJSONObject("receipt")?.let {
+            SubmissionReceipt(it.getString("requestId"), it.getString("state"))
+        }
+    }
+}
 
 internal data class ConversationPage(
     val entries: List<JSONObject>,
@@ -33,6 +42,7 @@ internal class ConversationUpdates(body: JSONObject) {
     val cursor = body.getString("cursor")
     val hasMore = body.getBoolean("hasMore")
     val historyBefore = if (reset && !body.isNull("historyBefore")) body.getString("historyBefore") else null
+    val receipt = SubmissionReceipt.parse(body)
 }
 
 internal fun mergeMessages(existing: List<JSONObject>, newer: List<JSONObject>): List<JSONObject> {

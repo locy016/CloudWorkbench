@@ -31,7 +31,8 @@ import java.util.UUID
 fun JSONArray.objects(): List<JSONObject> = (0 until length()).map { getJSONObject(it) }
 internal val activeTaskStates = setOf("starting", "running", "approval")
 internal const val MAX_DRAFT_LENGTH = 12000
-internal data class Continuation(val id: String, val title: String, val project: String, val state: String)
+internal data class Continuation(val id: String, val title: String, val project: String, val state: String,
+    val approvalId: String? = null, val updated: Long? = null)
 internal enum class SshConnectionBlock(val message: String) {
     CREDENTIALS("SSH 密钥验证失败，请确认公钥已在服务器授权"),
     HOST_IDENTITY("服务器身份校验失败，请联系管理员核对 SSH 主机密钥")
@@ -73,6 +74,7 @@ class WorkbenchModel internal constructor(
     var busy by mutableStateOf(false); private set
     var error by mutableStateOf<String?>(null); private set
     var status by mutableStateOf<JSONObject?>(null); private set
+    internal var overviewUnavailable by mutableStateOf(false); private set
     var threads by mutableStateOf<List<JSONObject>>(emptyList()); private set
     var historyThreads by mutableStateOf<List<JSONObject>>(emptyList()); private set
     private var historyThreadsBefore by mutableStateOf<String?>(null)
@@ -80,7 +82,7 @@ class WorkbenchModel internal constructor(
     private var historyBefore by mutableStateOf<String?>(null)
     val canLoadOlderMessages get() = historyBefore != null
     private var updateCursor: String? = null
-    private var lastOverview = 0L
+    private var lastOverviewCheck: Long? = null
     private var lastProjects = 0L
     var projects by mutableStateOf<List<JSONObject>>(emptyList()); private set
     private var projectsWithEmptyThreads by mutableStateOf(emptySet<String>())
@@ -93,6 +95,8 @@ class WorkbenchModel internal constructor(
     var loadingConversation by mutableStateOf<String?>(null); private set
     var approvals by mutableStateOf<List<JSONObject>>(emptyList()); private set
     private var otherApprovals by mutableStateOf<List<JSONObject>>(emptyList())
+    private var recentResults by mutableStateOf<List<JSONObject>>(emptyList())
+    internal var focusedApprovalId by mutableStateOf<String?>(null); private set
     var tab by mutableStateOf(WorkbenchPage.Cloud)
     var projectSection by mutableStateOf("对话")
     internal val browserReady get() =
@@ -105,6 +109,7 @@ class WorkbenchModel internal constructor(
         if (persistBinding) "workbench-drafts" else "workbench-test-drafts"))
     private val drafts = mutableStateMapOf<String, DraftRecord>().apply { putAll(draftStore.restore()) }
     private var receivedThread by mutableStateOf(draftStore.lastReceivedThread())
+    private val receipts = mutableStateMapOf<String, SubmissionReceipt>()
     private val attachmentErrors = mutableStateMapOf<String, String>()
     private var importingKey by mutableStateOf<String?>(null)
     internal val draftKey get() = currentId ?: "new:$projectId"
@@ -118,6 +123,10 @@ class WorkbenchModel internal constructor(
         record.attempt?.matches(record.messageText(), record.uploads.map { it.localId }) == true
     }
     internal val submissionHint get() = when {
+        retrySubmission && receipts[draftKey]?.state == "missing" -> "服务器未收到，可手动重试"
+        retrySubmission && receipts[draftKey]?.state == "failed" -> "任务启动失败，可手动重试"
+        retrySubmission && receipts[draftKey]?.state == "starting" -> "服务器正在受理"
+        retrySubmission && receipts[draftKey]?.state == "unknown" -> "受理结果未明，请核对会话"
         retrySubmission -> "发送结果待确认"
         drafts[draftKey]?.attempt != null -> "上一条发送待确认"
         currentId != null && currentId == receivedThread -> "服务器已接收"
@@ -251,26 +260,44 @@ class WorkbenchModel internal constructor(
     val activeThread get() = current?.takeIf { it.optString("status") in activeTaskStates }
         ?: threads.firstOrNull { it.optString("id") != currentId && it.optString("status") in activeTaskStates }
     val pendingApprovals get() = approvals + otherApprovals.filter { it.optString("threadId") != currentId }
+    internal val latestResults get() = recentResults.map { thread ->
+        Continuation(thread.getString("id"), threadTitle(thread), threadProjectId(thread),
+            when (thread.optString("status")) {
+                "failed" -> "执行失败"
+                "interrupted" -> "执行中断"
+                else -> "已完成"
+            }, updated = thread.optLong("updated"))
+    }
     internal val continuations: List<Continuation>
         get() {
             val summaries = (threads + listOfNotNull(current)).associateBy { it.getString("id") }
-            val items = linkedMapOf<String, Continuation>()
-            fun add(id: String, state: String, attempt: MessageAttempt? = null) {
-                if (id.isBlank() || id in items) return
+            val items = mutableListOf<Continuation>()
+            fun add(id: String, state: String, attempt: MessageAttempt? = null, approvalId: String? = null) {
+                if (id.isBlank() || approvalId == null && items.any { it.id == id }) return
                 val thread = summaries[id]
                 val title = thread?.let(::threadTitle) ?: attempt?.title ?: "会话"
                 val project = thread?.let(::threadProjectId) ?: attempt?.projectId.orEmpty()
-                items[id] = Continuation(id, title, project, state)
+                items += Continuation(id, title, project, state, approvalId)
             }
-            pendingApprovals.forEach { add(it.optString("threadId"), "待审批") }
+            pendingApprovals.distinctBy { it.getString("id") }.forEach {
+                add(it.getString("threadId"), if (it.optString("method").endsWith("requestUserInput")) "待回答" else "待审批",
+                    approvalId = it.getString("id"))
+            }
             summaries.values.filter { it.optString("status") in activeTaskStates }.forEach {
                 add(it.getString("id"), if (it.optString("status") == "approval") "待审批" else "执行中")
             }
-            drafts.forEach { (id, record) -> record.attempt?.let { add(id, "发送待确认", it) } }
-            current?.takeIf { it.optString("status") in setOf("failed", "interrupted") }?.let {
+            drafts.forEach { (id, record) -> record.attempt?.let {
+                val state = when (receipts[id]?.state) {
+                    "missing", "failed" -> "可重试"
+                    "starting" -> "受理中"
+                    else -> "发送待确认"
+                }
+                add(id, state, it)
+            } }
+            if (recentResults.isEmpty()) current?.takeIf { it.optString("status") in setOf("failed", "interrupted") }?.let {
                 add(it.getString("id"), if (it.optString("status") == "failed") "执行失败" else "执行中断")
             }
-            return items.values.toList()
+            return items
         }
 
     val running get() = current?.optString("status") in activeTaskStates
@@ -292,7 +319,7 @@ class WorkbenchModel internal constructor(
                 if (connected) resetTransport()
             }
             if (connectionMonitor?.isActive != true) {
-                lastOverview = 0L
+                lastOverviewCheck = null
                 lastProjects = 0L
             }
             monitorConnection()
@@ -367,7 +394,7 @@ class WorkbenchModel internal constructor(
             credentials = updated
             connected = true
             hostOnline = false
-            lastOverview = 0L
+            lastOverviewCheck = null
             lastProjects = 0L
         } finally {
             if (!installed) candidate.disconnect()
@@ -462,6 +489,17 @@ class WorkbenchModel internal constructor(
                                 }
                             }
                         }
+                        val metrics = launch {
+                            while (isActive) {
+                                val now = SystemClock.elapsedRealtime()
+                                val last = lastOverviewCheck
+                                val interval = if (overviewUnavailable) 5_000L else 30_000L
+                                if ((tab == WorkbenchPage.Cloud || status == null) && (last == null || now - last >= interval)) {
+                                    refreshOverview(transport, now)
+                                }
+                                delay(5_000L)
+                            }
+                        }
                         try {
                             transport.changes().collect { notice ->
                                 synchronize(notice)
@@ -472,6 +510,7 @@ class WorkbenchModel internal constructor(
                             throw IOException("事件连接已断开")
                         } finally {
                             overview.cancel()
+                            metrics.cancel()
                         }
                     }
                 } catch (e: CancellationException) {
@@ -511,6 +550,27 @@ class WorkbenchModel internal constructor(
             }
         }
     }
+    private suspend fun refreshOverview(transport: WorkbenchConnection, now: Long) {
+        lastOverviewCheck = now
+        try {
+            val sample = transport.sync("/v1/status")
+            sample.getJSONArray("services").objects()
+            sample.getJSONArray("load").getDouble(0)
+            sample.getJSONObject("memory").apply { getDouble("used"); getDouble("total") }
+            sample.getJSONObject("disk").apply { getDouble("total"); getDouble("available") }
+            sample.getJSONObject("swap").getDouble("used")
+            sample.getInt("cpus")
+            sample.getLong("uptime")
+            sample.getLong("timestamp")
+            status = sample
+            overviewUnavailable = false
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            overviewUnavailable = true
+        }
+    }
+
     private suspend fun refresh(notice: ChangeNotice) {
         val selectedId = currentId
         val now = SystemClock.elapsedRealtime()
@@ -523,21 +583,17 @@ class WorkbenchModel internal constructor(
                 activeProjects.firstOrNull()?.let { setProject(it.getString("id")) }
             }
         }
-        val overviewInterval = if (selectedId == null || projectSection == "任务") ACTIVE_OVERVIEW_INTERVAL_MS else OVERVIEW_INTERVAL_MS
         if (notice.overview || notice.catchUp) {
-            val refreshStatus = lastOverview == 0L || now - lastOverview >= overviewInterval
-            val serverStatus = if (refreshStatus) connection.sync("/v1/status") else status
             val summary = connection.sync("/v1/threads")
             val recent = summary.getJSONArray("threads").objects()
             val emptyProjects = summary.getJSONArray("projectsWithEmptyThreads")
             val pending = summary.getJSONArray("approvals").objects()
                 .filter { it.optString("threadId") != selectedId }
             if (busy || selectedId != currentId) return
-            status = serverStatus
             threads = recent
+            recentResults = summary.optJSONArray("recentResults")?.objects().orEmpty()
             projectsWithEmptyThreads = (0 until emptyProjects.length()).mapTo(mutableSetOf(), emptyProjects::getString)
             otherApprovals = pending
-            if (refreshStatus) lastOverview = now
         }
         if (selectedId != null && (notice.catchUp || notice.overview || selectedId in notice.threads)) {
             var hasMore: Boolean
@@ -563,9 +619,10 @@ class WorkbenchModel internal constructor(
 
     private suspend fun readUpdates(id: String, cursor: String? = null, foregroundRequest: Boolean = false): ConversationUpdates {
         // A larger bootstrap window makes the uncertain send receipt visible after a restart.
-        val limit = if (drafts[id]?.attempt != null) 160 else 40
+        val attempt = drafts[id]?.attempt
+        val limit = if (attempt != null) 160 else 40
         suspend fun load(from: String?): ConversationUpdates {
-            val path = updatesPath(id, from, limit)
+            val path = updatesPath(id, from, limit, attempt?.requestId)
             return ConversationUpdates(if (foregroundRequest) request(path) else connection.sync(path))
         }
         return try {
@@ -580,7 +637,7 @@ class WorkbenchModel internal constructor(
         updateCursor = update.cursor
         if (update.reset) historyBefore = update.historyBefore
         val window = if (update.reset) update.messages else mergeMessages(messages, update.messages)
-        applyConversation(update.thread, window, update.approvals)
+        applyConversation(update.thread, window, update.approvals, update.receipt)
     }
     fun selectProject(id: String) {
         if (busy || activeProjects.none { it.optString("id") == id } ||
@@ -615,7 +672,21 @@ class WorkbenchModel internal constructor(
         }
         return "未命名会话"
     }
-    fun openProject(section: String = "对话") { tab = WorkbenchPage.Sessions; projectSection = section }
+    fun openProject(section: String = "对话") {
+        tab = WorkbenchPage.Sessions
+        projectSection = section
+        focusedApprovalId = null
+    }
+
+    internal fun openContinuation(item: Continuation) {
+        select(item.id, onSuccess = {
+            val approvalId = item.approvalId
+            if (approvalId != null) {
+                openProject("任务")
+                focusedApprovalId = approvalId
+            }
+        }, refresh = item.approvalId != null)
+    }
     private suspend fun request(path: String, body: JSONObject? = null) = connection.request(path, body)
     suspend fun browserImage(url: String, cookie: String, agent: String): ByteArray {
         check(browserReady) { browserStatus }
@@ -637,16 +708,26 @@ class WorkbenchModel internal constructor(
     }
     private fun snapshot(j: JSONObject) {
         applyConversation(j.getJSONObject("thread"), mergeMessages(messages, j.getJSONArray("messages").objects()),
-            j.getJSONArray("approvals").objects())
+            j.getJSONArray("approvals").objects(), SubmissionReceipt.parse(j))
     }
 
-    private fun applyConversation(thread: JSONObject, window: List<JSONObject>, pending: List<JSONObject>) {
+    private fun applyConversation(thread: JSONObject, window: List<JSONObject>, pending: List<JSONObject>, receipt: SubmissionReceipt?) {
         current = thread
         messages = window
         approvals = pending
         val id = thread.getString("id")
         threads = (listOf(thread) + threads.filter { it.optString("id") != id }).sortedByDescending { it.optLong("updated") }
         val attempt = drafts[id]?.attempt ?: return
+        if (receipt != null) {
+            if (receipt.requestId != attempt.requestId) return
+            if (receipt.state == "accepted") completeSubmission(id, attempt)
+            else {
+                receipts[id] = receipt
+                if (receipt.state in setOf("missing", "failed") && error == SUBMISSION_UNCONFIRMED) error = null
+            }
+            return
+        }
+        // Older gateways sent user messages as the only evidence of receipt.
         val threadStatus = thread.optString("status")
         if (threadStatus != "failed" && threadStatus != "starting" &&
             window.any { it.optString("id") == "u-${attempt.requestId}" }) {
@@ -673,8 +754,8 @@ class WorkbenchModel internal constructor(
             }
         }
     }
-    fun select(id: String, onSuccess: () -> Unit = {}, onFailure: (String) -> Unit = { error = it }) {
-        if (id == currentId && current != null) {
+    fun select(id: String, onSuccess: () -> Unit = {}, onFailure: (String) -> Unit = { error = it }, refresh: Boolean = false) {
+        if (!refresh && id == currentId && current != null) {
             openProject()
             onSuccess()
             return
@@ -718,7 +799,6 @@ class WorkbenchModel internal constructor(
                 ConversationPage.parse(request(historyPagePath(id, before)), "messages")
             } catch (e: GatewayException) {
                 if (e.status != 400 && e.status != 404) throw e
-                lastOverview = 0L
                 updateCursor = null
                 historyBefore = null
                 throw e
@@ -738,9 +818,10 @@ class WorkbenchModel internal constructor(
             if (currentId in ids) openDraft()
             threads = threads.filterNot { it.optString("id") in ids }
             historyThreads = historyThreads.filterNot { it.optString("id") in ids }
+            recentResults = recentResults.filterNot { it.optString("id") in ids }
             otherApprovals = otherApprovals.filterNot { it.optString("threadId") in ids }
             if (receivedThread in ids) receivedThread = null
-            ids.forEach { attachmentErrors.remove(it) }
+            ids.forEach { attachmentErrors.remove(it); receipts.remove(it) }
             saveDrafts(ids.associateWith { DraftRecord() })
             onSuccess(ids.size)
         }
@@ -758,7 +839,6 @@ class WorkbenchModel internal constructor(
             messages = emptyList()
             historyBefore = null
             updateCursor = null
-            lastOverview = 0L
         }
         currentId = id
         prefs.edit().putString("thread-cloud", id).apply()
@@ -783,7 +863,6 @@ class WorkbenchModel internal constructor(
         messages = emptyList()
         historyBefore = null
         updateCursor = null
-        lastOverview = 0L
         approvals = emptyList()
     }
     private fun keepPendingApprovals() {
@@ -814,6 +893,7 @@ class WorkbenchModel internal constructor(
         val body = JSONObject().put("text", text).put("requestId", requestId)
         record.browser?.let { body.put("browserContext", it.context) }
         receivedThread = null
+        receipts.remove(id)
         saveDraft(id, record.copy(attempt = attempt))
         ensureDraftSaved()
         if (images.isNotEmpty()) {
@@ -823,12 +903,13 @@ class WorkbenchModel internal constructor(
             saveDraft(id, draftRecord(id))
             ensureDraftSaved()
         }
-        try {
-            snapshot(request("/v1/threads/$id/messages", body))
+        val response = try {
+            request("/v1/threads/$id/messages", body)
         } catch (e: IOException) {
             throw IOException(SUBMISSION_UNCONFIRMED, e)
         }
-        if (drafts[id]?.attempt == attempt) completeSubmission(id, attempt)
+        snapshot(response)
+        if (!response.has("receipt") && drafts[id]?.attempt == attempt) completeSubmission(id, attempt)
     }
 
     private suspend fun ensureDraftSaved() {
@@ -841,6 +922,7 @@ class WorkbenchModel internal constructor(
         val images = record.images.filterNot { it.upload.localId in attempt.imageIds }
         if (images.isEmpty()) attachmentErrors.remove(id)
         if (text.isEmpty() && images.isEmpty()) receivedThread = id
+        receipts.remove(id)
         saveDraft(id, DraftRecord(text, images))
         if (error == SUBMISSION_UNCONFIRMED) error = null
     }
@@ -873,8 +955,6 @@ class WorkbenchModel internal constructor(
 
     private companion object {
         const val BACKGROUND_SYNC_GRACE_MS = 30_000L
-        const val ACTIVE_OVERVIEW_INTERVAL_MS = 4000L
-        const val OVERVIEW_INTERVAL_MS = 10000L
         const val PROJECTS_INTERVAL_MS = 30000L
         const val SUBMISSION_UNCONFIRMED = "发送结果待确认。连接恢复后会核对会话，如未收到可手动重试。"
     }

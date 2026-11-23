@@ -47,6 +47,12 @@ export class Store {
   local(codexId) { return this.prepare('SELECT id FROM threads WHERE codexId=? OR id=?').get(codexId, codexId)?.id; }
   thread(id) { return this.prepare('SELECT * FROM threads WHERE id=?').get(id); }
   list() { return this.prepare('SELECT * FROM threads ORDER BY updated DESC LIMIT 100').all(); }
+  recentResults() {
+    return this.prepare(`SELECT id,title,projectId,status,updated FROM threads
+      WHERE status IN ('idle','failed','interrupted')
+        AND EXISTS (SELECT 1 FROM messages WHERE threadId=threads.id)
+      ORDER BY updated DESC,id DESC LIMIT 5`).all();
+  }
   emptyThreads(projectId, defaultProjectId) {
     return this.prepare(`SELECT id FROM threads ${emptyThreadConditions}`)
       .all(defaultProjectId, projectId).map(row => row.id);
@@ -187,6 +193,9 @@ export class Store {
   messages(id) { this.flush(id); return this.prepare('SELECT id,threadId,role,text,status,created FROM (SELECT *,rowid AS seq FROM messages WHERE threadId=? ORDER BY created DESC,rowid DESC LIMIT 160) ORDER BY created,seq').all(id); }
   request(id) { return this.prepare('SELECT * FROM requests WHERE id=?').get(id); }
   beginRequest(id, threadId) { this.prepare('INSERT INTO requests VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET state=excluded.state,turnId=NULL').run(id, threadId, 'starting', null); }
-  finishRequest(id, state, turnId = null) { this.prepare('UPDATE requests SET state=?,turnId=? WHERE id=?').run(state, turnId, id); }
+  finishRequest(id, state, turnId = null) {
+    const row = this.prepare('UPDATE requests SET state=?,turnId=? WHERE id=? RETURNING threadId').get(state, turnId, id);
+    if (row) this.onChange?.(row.threadId, false);
+  }
   close() { this.flush(); if (this.timer) clearTimeout(this.timer); this.statements.clear(); this.db.close(); }
 }

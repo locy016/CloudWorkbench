@@ -62,6 +62,8 @@ class OfflineUpdateTest {
     }
 
     @Test fun restoreVerifiedDownloadWithNoConnection() {
+        val fixture = File(app.filesDir, "offline-fixture.apk")
+        val expectedVersion = checkNotNull(app.packageManager.getPackageArchiveInfo(fixture.path, 0)).longVersionCode
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
         lateinit var updates: AppUpdates
         try {
@@ -69,7 +71,7 @@ class OfflineUpdateTest {
                 updates = AppUpdates(app, scope) { error("Offline restore must not access a connection") }
             }
             await { !updates.checking && !updates.downloading && updates.ready }
-            assertEquals(40L, updates.release?.versionCode)
+            assertEquals(expectedVersion, updates.release?.versionCode)
             assertEquals("安装包校验通过", updates.status)
         } finally { scope.cancel() }
     }

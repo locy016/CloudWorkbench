@@ -106,6 +106,38 @@ test('approvals remain pending until explicit per-request answer; cannot replay'
   assert.deepEqual(codex.replies[0], { id: 5, result: { decision: 'decline' } });
   assert.equal((await call('/v1/approvals/' + s.approvals[0].id, { decision: 'accept' })).status, 409);
 });
+test('a submission receipt is scoped to its thread and survives failed execution and message pagination', async t => {
+  const { call, codex, store } = await fixture(t);
+  const id = (await call('/v1/threads', { title: '检查服务' })).body.thread.id;
+  const other = (await call('/v1/threads', {})).body.thread.id;
+  const requestId = 'request-receipt-01';
+  const receiptUrl = thread => `/v1/threads/${thread}/updates?limit=1&requestId=${requestId}`;
+  assert.equal((await call(receiptUrl(id))).body.receipt.state, 'missing');
+  assert.equal((await call(`/v1/threads/${id}/messages`, { text: '检查', requestId })).body.receipt.state, 'accepted');
+  const remoteId = store.thread(id).codexId;
+  store.message(id, 'latest-output', 'assistant', '检查失败');
+  codex.emit('notification', { method: 'turn/completed', params: { threadId: remoteId, turn: { status: 'failed' } } });
+  const update = (await call(receiptUrl(id))).body;
+  assert.deepEqual(update.receipt, { requestId, state: 'accepted' });
+  assert.equal(update.thread.status, 'failed');
+  assert.deepEqual(update.messages.map(message => message.id), ['latest-output']);
+  assert.equal((await call(receiptUrl(other))).body.receipt.state, 'missing');
+  assert.equal((await call(`/v1/threads/${id}/updates?requestId=invalid`)).status, 400);
+  assert.deepEqual((await call('/v1/threads')).body.recentResults.map(thread => [thread.id, thread.status]), [[id, 'failed']]);
+  assert.equal((await call(`/v1/threads/${id}/messages`, { text: '检查', requestId })).body.duplicate, true);
+  assert.equal(codex.calls.filter(call => call.method === 'turn/start').length, 1);
+});
+test('a duplicate cannot clear a draft when the original start has no confirmed receipt', async t => {
+  const { call, g, store } = await fixture(t);
+  const id = (await call('/v1/threads', {})).body.thread.id;
+  const requestId = 'request-pending-01';
+  store.beginRequest(requestId, id);
+  g.startingRequestId = requestId;
+  const path = `/v1/threads/${id}/messages`;
+  assert.equal((await call(path, { text: '检查', requestId })).body.receipt.state, 'starting');
+  g.startingRequestId = null;
+  assert.equal((await call(path, { text: '检查', requestId })).body.receipt.state, 'unknown');
+});
 test('user questions require each answer; permission grants require an explicit decision', async t => {
   const { call, codex } = await fixture(t);
   const id = (await call('/v1/threads', {})).body.thread.id;

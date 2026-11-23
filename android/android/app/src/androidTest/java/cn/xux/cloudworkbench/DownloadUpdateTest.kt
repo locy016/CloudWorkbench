@@ -323,7 +323,7 @@ private class UpdateRangeServer(
         val reader = socket.getInputStream().bufferedReader(Charsets.US_ASCII)
         // Cancellation may close a newly accepted socket before sending any headers.
         val requestLine = reader.readLine() ?: return
-        if (requestLine.startsWith("GET /v1/status ")) {
+        if (requestLine.startsWith("GET /v1/projects ")) {
             socket.getOutputStream().write("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}".toByteArray())
             return
         }

@@ -16,11 +16,13 @@ export const instructions = `你是用户的私人开发助手。使用中文。
 
 const textInput = text => [{ type: 'text', text, text_elements: [] }];
 const active = status => ['starting', 'running', 'approval'].includes(status);
+const validRequestId = id => typeof id === 'string' && /^[a-zA-Z0-9-]{12,100}$/.test(id);
 const fail = (status, message) => Object.assign(new Error(message), { status });
 
 export class Gateway {
   metrics = new Metrics(); statusInFlight = null;
   approvals = new Map(); loaded = new Set(); lock = false; statusCache = null;
+  startingRequestId = null;
   constructor({ codex, store, token, cwd, events, sshMobile, projects = [{ id: 'default', name: '默认项目', path: cwd }], sharedWritableRoots = [], codexAccess = 'workspace-write' }) {
     if (!['workspace-write', 'danger-full-access'].includes(codexAccess)) {
       throw new Error('Invalid Codex access mode');
@@ -121,15 +123,18 @@ export class Gateway {
         if (!thread) throw fail(404, '会话不存在');
         const limit = pageLimit(url.searchParams.get('limit'), 160);
         if (mode === 'history') return respond(200, this.store.messagePage(id, { limit, before: url.searchParams.get('before') }));
+        const requestId = url.searchParams.get('requestId');
+        if (requestId !== null && !validRequestId(requestId)) throw fail(400, '无效请求标识');
         return respond(200, { thread, approvals: [...this.approvals.values()].filter(a => a.threadId === id),
-          ...this.store.messageUpdates(id, { limit, cursor: url.searchParams.get('cursor') }) });
+          ...this.store.messageUpdates(id, { limit, cursor: url.searchParams.get('cursor') }),
+          ...(requestId === null ? {} : { receipt: this.receipt(id, requestId) }) });
       }
       if (req.method === 'GET' && path === '/v1/threads') {
         const projectsWithEmptyThreads = this.projects
           .filter(project => !project.archived && this.store.hasEmptyThreads(project.id, this.projects[0].id))
           .map(project => project.id);
         return respond(200, {
-          threads: this.store.list(), projectsWithEmptyThreads, approvals: [...this.approvals.values()],
+          threads: this.store.list(), projectsWithEmptyThreads, approvals: [...this.approvals.values()], recentResults: this.store.recentResults(),
         });
       }
       if (req.method === 'POST' && path === '/v1/threads/cleanup') {
@@ -179,11 +184,17 @@ export class Gateway {
     for (const id of ids) this.loaded.delete(id);
   }
   snapshot(id) { return { thread: this.store.thread(id), messages: this.store.messages(id), approvals: [...this.approvals.values()].filter(a => a.threadId === id) }; }
+  receipt(id, requestId) {
+    const record = this.store.request(requestId);
+    let state = record?.threadId === id ? record.state : 'missing';
+    if (state === 'starting' && this.startingRequestId !== requestId) state = 'unknown';
+    return { requestId, state };
+  }
   async message(id, b) {
     const thread = this.store.thread(id);
     if (!thread) throw fail(404, '会话不存在');
     if (typeof b.text !== 'string' || !b.text.trim() || b.text.length > 12000) throw fail(400, '请输入 1–12000 字的消息');
-    if (!/^[a-zA-Z0-9-]{12,100}$/.test(b.requestId || '')) throw fail(400, '缺少有效请求标识');
+    if (!validRequestId(b.requestId)) throw fail(400, '缺少有效请求标识');
     if (b.attachmentIds && (!Array.isArray(b.attachmentIds) || b.attachmentIds.length > 4)) throw fail(400, '最多发送四张图片');
     const attachments = (b.attachmentIds || []).map(key => this.store.getAttachment(String(key)));
     if (attachments.some(a => !a || a.threadId !== id)) throw fail(400, '图片不属于此会话');
@@ -195,16 +206,22 @@ export class Gateway {
     }
     const input = [...textInput(b.text + context), ...attachments.map(a => ({ type: 'localImage', path: a.path }))];
     const old = this.store.request(b.requestId);
-    if (old) { if (old.threadId !== id) throw fail(409, '请求标识已被使用'); if (old.state !== 'failed') return { ...this.snapshot(id), duplicate: true }; }
+    if (old) {
+      if (old.threadId !== id) throw fail(409, '请求标识已被使用');
+      if (old.state !== 'failed') return { ...this.snapshot(id), duplicate: true, receipt: this.receipt(id, b.requestId) };
+    }
     if (this.lock || this.store.list().some(t => active(t.status))) throw fail(409, '已有任务正在运行，请等待或取消后再发送');
     const project = this.projects.find(p => p.id === (thread.projectId || this.projects[0].id));
     if (!project) throw fail(409, '此会话的项目已撤销接入，请在电脑上检查项目配置');
     if (project.archived) throw fail(409, '此工作区已停用，仅可查看历史会话');
     const cwd = project.path;
-    this.lock = true; this.store.beginRequest(b.requestId, id); this.store.state(id, 'starting');
-    this.store.message(id, 'u-' + b.requestId, 'user', b.text + context + (attachments.length ? `\n[已附 ${attachments.length} 张图片]` : ''));
-    this.store.title(id, b.text);
+    this.lock = true;
+    this.startingRequestId = b.requestId;
     try {
+      this.store.beginRequest(b.requestId, id);
+      this.store.state(id, 'starting');
+      this.store.message(id, 'u-' + b.requestId, 'user', b.text + context + (attachments.length ? `\n[已附 ${attachments.length} 张图片]` : ''));
+      this.store.title(id, b.text);
       await this.codex.start();
       const fullAccess = this.codexAccess === 'danger-full-access';
       const approvalPolicy = fullAccess ? 'never' : 'on-request';
@@ -233,14 +250,17 @@ export class Gateway {
       const current = this.store.thread(id);
       if (current.status === 'starting') this.store.state(id, 'running', r.turn.id);
       this.store.finishRequest(b.requestId, 'accepted', r.turn.id);
-      return this.snapshot(id);
+      return { ...this.snapshot(id), receipt: this.receipt(id, b.requestId) };
     } catch (e) {
       const current = this.store.thread(id);
-      if (current.turnId && active(current.status)) { this.store.finishRequest(b.requestId, 'accepted', current.turnId); return this.snapshot(id); }
+      if (current.turnId && active(current.status)) {
+        this.store.finishRequest(b.requestId, 'accepted', current.turnId);
+        return { ...this.snapshot(id), receipt: this.receipt(id, b.requestId) };
+      }
       if (e.message.includes('超时')) this.codex.close();
       this.store.state(id, 'failed', null, e.message); this.store.finishRequest(b.requestId, 'failed'); throw e;
     }
-    finally { this.lock = false; }
+    finally { this.startingRequestId = null; this.lock = false; }
   }
   onNotification({ method, params: p = {} }) {
     const remote = p.threadId || p.thread?.id; const id = remote && this.store.local(remote); if (!id) return;
