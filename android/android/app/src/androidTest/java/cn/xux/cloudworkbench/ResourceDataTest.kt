@@ -1,0 +1,71 @@
+package cn.xux.cloudworkbench
+
+import android.content.Intent
+import android.net.Uri
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.compose.ui.test.*
+import androidx.compose.ui.test.junit4.createEmptyComposeRule
+import androidx.core.content.FileProvider
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
+import java.io.File
+import kotlinx.coroutines.runBlocking
+import org.json.JSONObject
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Rule
+import org.junit.Test
+import org.junit.runner.RunWith
+
+@RunWith(AndroidJUnit4::class)
+class ResourceDataTest {
+    @get:Rule val compose = createEmptyComposeRule()
+
+    @Test fun resourceCatalogRendersAKeywordFieldAndExportsTheRequestedRows() {
+        val instrument = InstrumentationRegistry.getInstrumentation()
+        val context = instrument.targetContext
+        val keyword = "国际 贸易 & feed"
+        val connection = object : WorkbenchConnection {
+            override val connected = true
+            override fun disconnect() = Unit
+            override suspend fun connect(c: Credentials) = Unit
+            override suspend fun request(path: String, body: JSONObject?, delete: Boolean): JSONObject {
+                if (path == "/v1/server-data/resources") return JSONObject("""{"sources":[
+                    {"id":"fixture","title":"测试资源","publisher":"测试站点","filters":[
+                    {"key":"keyword","label":"任意关键词","type":"text","maxLength":80}]}]}""")
+                val url = Uri.parse("https://localhost$path")
+                assertEquals("/v1/server-data/resources/fixture", url.path)
+                assertEquals(setOf("keyword"), url.queryParameterNames)
+                assertEquals(keyword, url.getQueryParameter("keyword"))
+                return JSONObject("""{"id":"fixture","fetchedAt":"2026-11-23T04:00:00Z","updatedAt":null,
+                    "columns":[{"key":"title","label":"名称"}],"rows":[{"title":"查询结果"}],
+                    "filters":{}}""").apply { getJSONObject("filters").put("keyword", keyword) }
+            }
+        }
+        val data = ResourceData { connection }
+        val activity = instrument.startActivitySync(Intent(context, ComponentActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as ComponentActivity
+        val file = File(context.filesDir, "app-updates/resource-fixture-test.json")
+        try {
+            compose.runOnUiThread { activity.setContent { WorkbenchTheme { ResourceDataPage(data, connected = true, visible = true) } } }
+            compose.waitUntil(10000) { runCatching {
+                compose.onAllNodesWithTag("resourceInput-keyword").fetchSemanticsNodes().isNotEmpty()
+            }.getOrDefault(false) }
+            compose.onNodeWithTag("resourceInput-keyword").performTextReplacement(keyword)
+            compose.onNodeWithTag("fetchResource").performClick()
+            compose.waitUntil(10000) { compose.onAllNodesWithTag("resourceResult").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithTag("exportResource").assertIsEnabled()
+            compose.runOnIdle { data.prepareExport(checkNotNull(data.result)) }
+            file.parentFile?.mkdirs()
+            val uri = FileProvider.getUriForFile(context, "${context.packageName}.updates", file)
+            assertTrue(runBlocking { data.saveExport(context, uri) })
+            val exported = JSONObject(file.readText())
+            assertEquals(keyword, exported.getJSONObject("filters").getString("keyword"))
+            assertEquals("查询结果", exported.getJSONArray("rows").getJSONObject(0).getString("title"))
+        } finally {
+            compose.runOnUiThread { activity.finish() }
+            file.delete()
+        }
+    }
+}

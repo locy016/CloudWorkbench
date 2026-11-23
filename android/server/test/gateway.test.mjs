@@ -96,6 +96,18 @@ test('trade directory and observations accept only SSH and the country-year quer
   assert.deepEqual(await call(routes + '/trade?year=2023&country=CHN', undefined, auth), { status: 200, body: sample });
   assert.equal(reads, 2);
 });
+test('resource catalog and fetch routes require SSH and reject input URLs', async t => {
+  const path = '/v1/server-data/resources';
+  const auth = { Authorization: 'SSH test' };
+  const { call } = await fixture(t, { sshMobile: req => req.headers.authorization === auth.Authorization ? 'test-device' : null });
+  assert.equal((await call(path)).status, 401);
+  assert.equal((await call(path + '/usgs-earthquakes?period=day', undefined, { ...auth, 'x-workbench-ingress': 'web' })).status, 404);
+  assert.equal((await call(path + '/usgs-earthquakes?url=https://example.test', undefined, auth)).status, 400);
+  assert.equal((await call(path + '/no-such-source', undefined, auth)).status, 404);
+  const { status, body } = await call(path, undefined, auth);
+  assert.equal(status, 200);
+  assert.ok(body.sources.some(entry => entry.id === 'github-project-search'));
+});
 test('manual overview refresh bypasses the cache and shares an in-flight collection', async t => {
   const { g, call } = await fixture(t);
   let collections = 0;

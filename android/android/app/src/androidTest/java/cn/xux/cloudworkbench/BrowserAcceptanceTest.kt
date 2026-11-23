@@ -61,9 +61,10 @@ class BrowserAcceptanceTest {
     }
 
     @Test fun serverDataShowsEcbReferenceRatesWithoutAWebView() {
-        compose.waitUntil(45000) { compose.onAllNodesWithText("已连接").fetchSemanticsNodes().isNotEmpty() }
+        awaitVisibleConnection()
         compose.openWorkbenchTab("浏览")
         compose.onNodeWithTag("openServerData").assertIsDisplayed().performClick()
+        compose.onNodeWithTag("openEcbRates").performClick()
         compose.onNodeWithTag("serverDataPage").assertIsDisplayed()
         compose.onNodeWithTag("browserView").assertDoesNotExist()
         compose.runOnIdle { org.junit.Assert.assertNull(web(activity.window.decorView)) }
@@ -89,7 +90,7 @@ class BrowserAcceptanceTest {
     }
 
     @Test fun serverDataFiltersWorldBankTradeByCountryAndYear() {
-        compose.waitUntil(45000) { compose.onAllNodesWithText("已连接").fetchSemanticsNodes().isNotEmpty() }
+        awaitVisibleConnection()
         compose.openWorkbenchTab("浏览")
         compose.onNodeWithTag("openServerData").performClick()
         compose.onNodeWithTag("openWorldBankTrade").performClick()
@@ -104,6 +105,9 @@ class BrowserAcceptanceTest {
             compose.onNodeWithTag("tradeCountry").performClick()
             compose.onNodeWithTag("tradeCountrySearch").performTextReplacement(code)
             compose.onNodeWithTag("tradeOption-$code").performClick()
+            compose.waitUntil(25000) {
+                compose.onAllNodes(hasTestTag("tradeYear") and isEnabled()).fetchSemanticsNodes().isNotEmpty()
+            }
             compose.onNodeWithTag("tradeYear").performTextReplacement(year.toString())
             compose.runOnUiThread {
                 val keyboard = activity.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
@@ -128,6 +132,57 @@ class BrowserAcceptanceTest {
         compose.onNodeWithTag("tradeNoData").assertIsDisplayed()
         compose.onNodeWithContentDescription("返回浏览").performClick()
         compose.onNodeWithTag("browserStart").assertIsDisplayed()
+    }
+
+    @Test fun downloadsAnOnDemandResourceByKeywordAndSavesTheActualResult() {
+        awaitVisibleConnection()
+        compose.openWorkbenchTab("浏览")
+        compose.onNodeWithTag("openServerData").performClick()
+        compose.waitUntil(25000) { compose.onAllNodesWithTag("resourcePicker").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("resourceInput-period").performClick()
+        compose.onNodeWithText("过去 24 小时").performClick()
+        compose.onNodeWithTag("fetchResource").performClick()
+        compose.waitUntil(25000) { compose.onAllNodesWithTag("resourceResult").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("来源更新时间：", substring = true).assertExists()
+        compose.onNodeWithTag("resourcePicker").performClick()
+        compose.onNodeWithText("公开开源项目搜索").performClick()
+        compose.onNodeWithTag("resourceInput-keyword").performTextReplacement("nodejs in:name")
+        compose.onNodeWithTag("fetchResource").performClick()
+        compose.runOnUiThread {
+            val keyboard = activity.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+            keyboard.hideSoftInputFromWindow(activity.window.decorView.windowToken, 0)
+            activity.currentFocus?.clearFocus()
+            org.junit.Assert.assertNull(web(activity.window.decorView))
+        }
+        compose.waitUntil(25000) { compose.onAllNodesWithTag("resourceResult").fetchSemanticsNodes().isNotEmpty() }
+        val file = java.io.File(activity.filesDir, "app-updates/resource-acceptance.json")
+        file.parentFile?.mkdirs()
+        val uri = androidx.core.content.FileProvider.getUriForFile(activity, "${activity.packageName}.updates", file)
+        val instrument = InstrumentationRegistry.getInstrumentation()
+        val filter = android.content.IntentFilter(Intent.ACTION_CREATE_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            addDataType("application/json")
+        }
+        val picker = instrument.addMonitor(filter,
+            android.app.Instrumentation.ActivityResult(android.app.Activity.RESULT_OK, Intent().setData(uri)), true)
+        try {
+            compose.onNodeWithTag("exportResource").assertIsEnabled().performClick()
+            compose.waitUntil(10000) { file.isFile && file.length() > 0 }
+            compose.onNodeWithText("已保存 JSON").assertExists()
+            val saved = org.json.JSONObject(file.readText())
+            org.junit.Assert.assertEquals("nodejs in:name", saved.getJSONObject("filters").getString("keyword"))
+            java.time.Instant.parse(saved.getString("fetchedAt"))
+            org.junit.Assert.assertTrue(saved.getJSONArray("rows").length() > 0)
+        } finally {
+            instrument.removeMonitor(picker)
+            file.delete()
+        }
+    }
+
+    private fun awaitVisibleConnection() {
+        compose.waitUntil(45000) {
+            runCatching { compose.onAllNodesWithText("已连接").fetchSemanticsNodes().isNotEmpty() }.getOrDefault(false)
+        }
     }
     @Test fun keyboardGoAndSelectedText() {
         browser()

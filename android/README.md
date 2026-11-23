@@ -26,6 +26,10 @@ APP 短时切到后台时保留现有 SSH 连接和事件流。后台满 30 秒�
 
 ## 浏览页的服务器数据
 
+「按需获取」从网关读取服务器资源目录。选择来源和条件后，点「获取数据」即可由网关发起请求。页面显示来源、获取时间及数据源提供的更新时间。「保存 JSON」可把本次记录、筛选条件和来源信息下载到设备选定的位置。目录刷新与获取数据分别触发。
+
+内置示例支持按时段获取全球地震动态、按项目获取发布记录，以及按自填关键词查询公开项目。[USGS GeoJSON 实时数据](https://earthquake.usgs.gov/earthquakes/feed/v1.0/geojson.php) · [GitHub 发布 API](https://docs.github.com/en/rest/releases/releases#list-releases) · [GitHub 搜索 API](https://docs.github.com/en/rest/search/search#search-repositories)
+
 在「浏览 → 服务器数据」查看欧元参考汇率。服务器读取欧洲央行的官方数据并经现有 SSH 连接返回结果。页面标明来源、数据日期和汇率基准。欧洲央行公布的参考汇率仅供参考。[欧洲央行官方汇率](https://www.ecb.europa.eu/stats/policy_and_exchange_rates/euro_reference_exchange_rates/html/index.en.html)
 
 网关缓存成功结果 15 分钟。数据源不可达时会标明服务器缓存，SSH 断线后仍可查看本机上次取得的数据。页面使用原生界面渲染文本，无需加载第三方页面或资源。

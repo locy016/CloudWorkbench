@@ -121,6 +121,7 @@ class WorkbenchModel internal constructor(
     internal val browserBookmarks = BrowserBookmarks(prefs)
     internal val serverDataConnected get() = connected && !connecting && !reconnecting
     internal val worldBankTrade = WorldBankTrade(prefs) { connection.takeIf { serverDataConnected } }
+    internal val onDemandResources = ResourceData { connection.takeIf { serverDataConnected } }
     internal var ecbRates by mutableStateOf(prefs.getString(ECB_RATES_CACHE, null)?.let {
         runCatching { ReferenceRates.parse(JSONObject(it)) }.getOrNull()
     }); private set

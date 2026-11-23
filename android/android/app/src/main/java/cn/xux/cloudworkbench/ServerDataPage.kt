@@ -24,6 +24,7 @@ import org.json.JSONObject
 import java.time.LocalDate
 
 internal data class ReferenceRate(val currency: String, val rate: String)
+private enum class ServerDataSection { Resources, Rates, Trade }
 
 internal data class ReferenceRates(val date: LocalDate, val rates: List<ReferenceRate>, val stale: Boolean) {
     companion object {
@@ -54,10 +55,10 @@ internal fun ServerDataPage(
     val rates = vm.ecbRates
     val loading = vm.referenceRatesLoading
     val scope = rememberCoroutineScope()
-    var showingTrade by rememberSaveable { mutableStateOf(false) }
+    var section by rememberSaveable { mutableStateOf(ServerDataSection.Resources) }
     BackHandler(enabled = visible, onBack = onBack)
-    LaunchedEffect(visible, connected, showingTrade) {
-        if (visible && connected && !showingTrade) vm.refreshReferenceRates()
+    LaunchedEffect(visible, connected, section) {
+        if (visible && connected && section == ServerDataSection.Rates) vm.refreshReferenceRates()
     }
     Column(Modifier.fillMaxSize().testTag("serverDataPage")) {
         Surface(color = MaterialTheme.colorScheme.surface) {
@@ -65,7 +66,7 @@ internal fun ServerDataPage(
                 menuButton?.invoke()
                 IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "返回浏览") }
                 Text("服务器数据", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
-                if (!showingTrade) {
+                if (section == ServerDataSection.Rates) {
                     TextButton(onClick = { scope.launch { vm.refreshReferenceRates() } }, enabled = connected && !loading,
                         modifier = Modifier.testTag("referenceRatesRefresh")) {
                         Text("刷新")
@@ -75,14 +76,26 @@ internal fun ServerDataPage(
         }
         HorizontalDivider(color = Outline)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-            FilterChip(selected = !showingTrade, onClick = { showingTrade = false }, label = { Text("欧元汇率") })
+            FilterChip(selected = section == ServerDataSection.Resources, onClick = { section = ServerDataSection.Resources },
+                label = { Text("按需获取") })
             Spacer(Modifier.width(8.dp))
-            FilterChip(selected = showingTrade, onClick = { showingTrade = true }, label = { Text("国际贸易") },
+            FilterChip(selected = section == ServerDataSection.Rates, onClick = { section = ServerDataSection.Rates },
+                label = { Text("欧元汇率") }, modifier = Modifier.testTag("openEcbRates"))
+            Spacer(Modifier.width(8.dp))
+            FilterChip(selected = section == ServerDataSection.Trade, onClick = { section = ServerDataSection.Trade },
+                label = { Text("国际贸易") },
                 modifier = Modifier.testTag("openWorldBankTrade"))
         }
-        if (showingTrade) {
-            WorldBankTradePage(vm.worldBankTrade, connected, visible)
-            return@Column
+        when (section) {
+            ServerDataSection.Resources -> {
+                ResourceDataPage(vm.onDemandResources, connected, visible)
+                return@Column
+            }
+            ServerDataSection.Trade -> {
+                WorldBankTradePage(vm.worldBankTrade, connected, visible)
+                return@Column
+            }
+            ServerDataSection.Rates -> Unit
         }
         if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
         LazyColumn(

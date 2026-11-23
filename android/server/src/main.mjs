@@ -1,11 +1,13 @@
 import { mkdirSync, readFileSync } from 'node:fs';
 import { access } from 'node:fs/promises';
+import { join } from 'node:path';
 import { Codex } from './codex.mjs';
 import { Store } from './store.mjs';
 import { Gateway } from './gateway.mjs';
 import { Releases } from './releases.mjs';
 import { Events } from './events.mjs';
 import { mobileSessionAuthorizer, readMobileKey } from './mobile-session.mjs';
+import { resourceCatalog } from './resources.mjs';
 process.umask(0o077);
 const data = process.env.DATA_DIR || '/home/xux/.local/share/cloud-workbench';
 mkdirSync(data, { recursive: true, mode: 0o700 });
@@ -36,7 +38,9 @@ try {
 catch (error) {
   if (error.code !== 'ENOENT') console.error('SSH mobile session key unavailable');
 }
-const gateway = new Gateway({ codex: new Codex(), store: new Store(data + '/workbench.db'), token, cwd, events, sshMobile, projects, sharedWritableRoots, codexAccess });
+const resources = resourceCatalog({ configFile: join(data, 'resource-sources.json') });
+const gateway = new Gateway({ codex: new Codex(), store: new Store(data + '/workbench.db'),
+  token, cwd, events, sshMobile, projects, sharedWritableRoots, codexAccess, resources });
 gateway.extension = new Releases(data);
 gateway.draining = () => access(data + '/transport-maintenance').then(() => true, () => false);
 gateway.http.requestTimeout = 1800000; gateway.http.headersTimeout = 10000;
