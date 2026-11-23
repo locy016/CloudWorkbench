@@ -2,7 +2,7 @@ import { lookup } from 'node:dns';
 import { open } from 'node:fs/promises';
 import { get } from 'node:https';
 import { BlockList, isIP } from 'node:net';
-import { decodeResource, feedFields, parseCsv, parseFeed, resourceTypes, sourceTime } from './resource-formats.mjs';
+import { decodeResource, feedFields, isCalendarDate, parseCsv, parseFeed, resourceTypes, sourceTime } from './resource-formats.mjs';
 import { aggregateNews } from './news-feed.mjs';
 
 const defaults = new URL('./resource-sources.json', import.meta.url);
@@ -189,8 +189,7 @@ function refine(parameters, source) {
     if (key === 'export' && value === '1' && source.exportLimit > source.limit) continue;
     if (key === 'q' && source.searchable && value.trim() && value.length <= 100 && !/[\x00-\x1f\x7f]/.test(value)) {
       selection.q = value.trim();
-    } else if (['from', 'to'].includes(key) && source.dateField && /^\d{4}-\d{2}-\d{2}$/.test(value) &&
-        sourceTime(value)?.slice(0, 10) === value) {
+    } else if (['from', 'to'].includes(key) && source.dateField && isCalendarDate(value)) {
       selection[key] = value;
     } else throw fail(400, '请检查关键词和日期筛选条件');
   }

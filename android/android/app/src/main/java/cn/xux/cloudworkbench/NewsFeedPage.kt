@@ -1,9 +1,11 @@
 package cn.xux.cloudworkbench
 
 import android.net.Uri
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
@@ -19,8 +21,9 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
-internal data class NewsQuery(val sourceId: String? = null, val keyword: String = "")
-internal data class NewsSource(val id: String, val title: String)
+internal data class NewsQuery(val sourceId: String? = null, val keyword: String = "",
+    val category: ResourceCategory? = null, val from: String? = null, val to: String? = null)
+internal data class NewsSource(val id: String, val title: String, val category: ResourceCategory)
 internal data class NewsArticle(val title: String, val publisher: String, val time: String?, val timeKind: String?,
     val summary: String?, val link: String?)
 internal data class NewsSnapshot(val query: NewsQuery, val sources: List<NewsSource>, val articles: List<NewsArticle>,
@@ -40,10 +43,13 @@ internal class NewsFeed(private val connection: () -> WorkbenchConnection?) {
             val builder = Uri.Builder()
             query.sourceId?.let { builder.appendQueryParameter("source", it) }
             if (query.keyword.isNotEmpty()) builder.appendQueryParameter("q", query.keyword)
+            query.category?.let { builder.appendQueryParameter("category", it.key) }
+            query.from?.let { builder.appendQueryParameter("from", it) }
+            query.to?.let { builder.appendQueryParameter("to", it) }
             val suffix = builder.build().encodedQuery?.let { "?$it" }.orEmpty()
             val response = transport.sync("/v1/server-data/news$suffix")
             val sources = response.getJSONArray("sources").objects().map {
-                NewsSource(it.getString("id"), it.getString("title"))
+                NewsSource(it.getString("id"), it.getString("title"), ResourceCategory.fromKey(it.optString("category")))
             }
             val payload = response.getJSONArray("articles")
             require(payload.length() <= 120)
@@ -76,20 +82,35 @@ internal fun NewsFeedPage(feed: NewsFeed, connected: Boolean, visible: Boolean) 
     val snapshot = feed.snapshot
     var keyword by rememberSaveable { mutableStateOf(snapshot?.query?.keyword.orEmpty()) }
     var sourceId by rememberSaveable { mutableStateOf(snapshot?.query?.sourceId) }
+    var category by rememberSaveable { mutableStateOf(snapshot?.query?.category) }
+    var from by rememberSaveable { mutableStateOf(snapshot?.query?.from) }
+    var to by rememberSaveable { mutableStateOf(snapshot?.query?.to) }
     var sourcesOpen by remember { mutableStateOf(false) }
+    var datesOpen by rememberSaveable { mutableStateOf(false) }
     var appliedKeyword by rememberSaveable { mutableStateOf(snapshot?.query?.keyword.orEmpty()) }
-    val query = NewsQuery(sourceId, appliedKeyword)
+    val query = NewsQuery(sourceId, appliedKeyword, category, from, to)
     val result = snapshot?.takeIf { it.query == query }
-    val sources = snapshot?.sources.orEmpty()
-    fun search(source: String? = sourceId) {
-        if (!connected || feed.loading) return
+    val sources = snapshot?.sources.orEmpty().filter { category == null || it.category == category }
+    val canSearch = connected && !feed.loading
+    fun search(next: NewsQuery = query) {
+        if (!canSearch) return
         focus.clearFocus()
-        sourceId = source
-        appliedKeyword = keyword.trim()
-        scope.launch { feed.refresh(NewsQuery(source, appliedKeyword)) }
+        val requested = next.copy(keyword = keyword.trim())
+        sourceId = requested.sourceId
+        category = requested.category
+        from = requested.from
+        to = requested.to
+        appliedKeyword = requested.keyword
+        scope.launch { feed.refresh(requested) }
     }
     LaunchedEffect(visible, connected) {
         if (visible && connected) feed.refresh(query)
+    }
+    if (datesOpen) {
+        NewsDateDialog(from.orEmpty(), to.orEmpty(), canSearch, onDismiss = { datesOpen = false }) { start, end ->
+            datesOpen = false
+            search(query.copy(from = start, to = end))
+        }
     }
     LazyColumn(
         Modifier.fillMaxSize().testTag("aggregatedNews"), horizontalAlignment = Alignment.CenterHorizontally,
@@ -98,28 +119,57 @@ internal fun NewsFeedPage(feed: NewsFeed, connected: Boolean, visible: Boolean) 
     ) {
         item {
             Panel(Modifier.widthIn(max = 640.dp).fillMaxWidth()) {
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    val categories = listOf(null) + ResourceCategory.entries.filter { it.isNews }
+                    categories.forEach { option ->
+                        FilterChip(selected = option == category, enabled = canSearch, onClick = {
+                            val retainedSource = sourceId?.takeIf { id ->
+                                option == null || snapshot?.sources?.any { it.id == id && it.category == option } == true
+                            }
+                            search(query.copy(category = option, sourceId = retainedSource))
+                        }, label = { Text(option?.label ?: "全部") },
+                            modifier = Modifier.testTag("newsCategory-${option?.key ?: "all"}"))
+                    }
+                }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically) {
                     OutlinedTextField(keyword, { keyword = it.take(100) }, label = { Text("搜索资讯") },
                         modifier = Modifier.weight(1f).testTag("newsKeyword"), singleLine = true,
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                         keyboardActions = KeyboardActions(onSearch = { search() }))
-                    Button(onClick = { search() }, enabled = connected && !feed.loading,
+                    Button(onClick = { search() }, enabled = canSearch,
                         modifier = Modifier.testTag("searchNews")) { Text("查询") }
                 }
-                Box {
-                    OutlinedButton(onClick = { sourcesOpen = true }, enabled = connected && !feed.loading && sources.isNotEmpty(),
-                        modifier = Modifier.testTag("pickNewsSource")) {
-                        Text(sources.firstOrNull { it.id == sourceId }?.title ?: "全部来源")
-                    }
-                    DropdownMenu(expanded = sourcesOpen, onDismissRequest = { sourcesOpen = false }) {
-                        DropdownMenuItem(text = { Text("全部来源") }, onClick = { sourcesOpen = false; search(null) })
-                        sources.forEach { source ->
-                            DropdownMenuItem(text = { Text(source.title) }, modifier = Modifier.testTag("newsSource-${source.id}"),
-                                onClick = { sourcesOpen = false; search(source.id) })
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.weight(1f, fill = false)) {
+                        OutlinedButton(onClick = { sourcesOpen = true }, enabled = canSearch && sources.isNotEmpty(),
+                            modifier = Modifier.testTag("pickNewsSource")) {
+                            Text(sources.firstOrNull { it.id == sourceId }?.title ?: "全部来源")
+                        }
+                        DropdownMenu(expanded = sourcesOpen, onDismissRequest = { sourcesOpen = false }) {
+                            DropdownMenuItem(text = { Text("全部来源") }, onClick = {
+                                sourcesOpen = false
+                                search(query.copy(sourceId = null))
+                            })
+                            sources.forEach { source ->
+                                DropdownMenuItem(text = { Text(source.title) }, modifier = Modifier.testTag("newsSource-${source.id}"),
+                                    onClick = { sourcesOpen = false; search(query.copy(sourceId = source.id)) })
+                            }
                         }
                     }
+                    OutlinedButton(onClick = { datesOpen = true }, enabled = canSearch,
+                        modifier = Modifier.testTag("pickNewsDates")) { Text("发布时间") }
                 }
+                val dateLabel = when {
+                    from != null && to != null -> "$from 至 $to（UTC）"
+                    from != null -> "$from 起（UTC）"
+                    to != null -> "截至 $to（UTC）"
+                    else -> null
+                }
+                dateLabel?.let { Text(it, color = Muted, style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.testTag("newsDates")) }
                 if (feed.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
                 val message = when {
                     !connected && result != null -> "SSH 未连接，显示上次资讯"
@@ -149,4 +199,33 @@ internal fun NewsFeedPage(feed: NewsFeed, connected: Boolean, visible: Boolean) 
             }
         }
     }
+}
+
+@Composable
+private fun NewsDateDialog(initialFrom: String, initialTo: String, canSearch: Boolean, onDismiss: () -> Unit,
+    onApply: (String?, String?) -> Unit) {
+    var fromText by rememberSaveable { mutableStateOf(initialFrom) }
+    var toText by rememberSaveable { mutableStateOf(initialTo) }
+    val from = filterDate(fromText)
+    val to = filterDate(toText)
+    val invalid = (fromText.isNotEmpty() && from == null) || (toText.isNotEmpty() && to == null) ||
+        (from != null && to != null && from > to)
+    AlertDialog(onDismissRequest = onDismiss, title = { Text("发布时间范围") }, text = {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("按 UTC 日期筛选，包含开始和结束当天。可只填一端。")
+            ResourceDateField(fromText, { fromText = it }, "开始日期", Modifier.fillMaxWidth().testTag("newsFrom"))
+            ResourceDateField(toText, { toText = it }, "结束日期", Modifier.fillMaxWidth().testTag("newsTo"))
+            if (invalid) Text("请输入有效的 YYYY-MM-DD，开始日期不得晚于结束日期",
+                color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+        }
+    }, confirmButton = {
+        TextButton(onClick = { onApply(from?.toString(), to?.toString()) }, enabled = canSearch && !invalid,
+            modifier = Modifier.testTag("applyNewsDates")) { Text("应用") }
+    }, dismissButton = {
+        Row {
+            TextButton(onClick = onDismiss) { Text("取消") }
+            TextButton(onClick = { onApply(null, null) }, enabled = canSearch,
+                modifier = Modifier.testTag("clearNewsDates")) { Text("清除日期") }
+        }
+    })
 }

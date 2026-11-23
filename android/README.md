@@ -26,7 +26,9 @@ APP 短时切到后台时保留现有 SSH 连接和事件流。后台满 30 秒�
 
 ## 浏览页的服务器数据
 
-「服务器数据」默认打开「资讯」，经 SSH 读取要闻、时事和经贸的聚合结果。资讯按发布时间倒序显示，提供关键词和来源筛选。每条显示来源、时间和摘要，可以复制原文地址。只有更新时间的条目标为「更新」。来源未提供有效日期的条目排在末尾。[联合国日内瓦 RSS](https://www.ungeneva.org/en/news-media/rss) · [欧盟委员会新闻中心](https://ec.europa.eu/commission/presscorner/home/en) · [英国商业与贸易部门](https://www.gov.uk/government/organisations/department-for-business-innovation-science-and-trade)
+「服务器数据」默认打开「资讯」，经 SSH 读取要闻、时事和经贸的聚合结果。分类、关键词、来源及 UTC 发布时间范围可以组合使用。日期包含起止当天，也可只填一端。每条显示来源、时间和摘要，可以复制原文地址。只有更新时间的条目标为「更新」，未提供有效日期的条目排在末尾。限定日期时仅收录来源提供发布时间的条目。
+
+经贸资讯包括 WTO、英国商业与贸易部、欧盟贸易总司、美国贸易代表办公室和英国贸易救济署。日期筛选作用于上游资讯流当前提供的条目。[WTO RSS](https://www.wto.org/english/res_e/webcas_e/rss_e.htm) · [英国商业与贸易部](https://www.gov.uk/government/organisations/department-for-business-innovation-science-and-trade) · [欧盟贸易总司](https://policy.trade.ec.europa.eu/news_en) · [美国贸易代表办公室](https://ustr.gov/about/policy-offices/press-office/news) · [英国贸易救济署](https://www.gov.uk/government/organisations/trade-remedies-authority)
 
 在「来源目录」选择单个来源后，可按关键词和 UTC 日期范围查询。日期范围包含所选首尾日期。页面分别显示匹配数、预览数和可保存条数。「保存 CSV」和「保存 JSON」可下载筛选后的记录。
 

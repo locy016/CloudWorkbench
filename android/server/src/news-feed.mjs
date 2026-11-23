@@ -1,20 +1,27 @@
-import { parseFeed } from './resource-formats.mjs';
+import { isCalendarDate, parseFeed } from './resource-formats.mjs';
 
 const newsCategories = new Set(['headlines', 'current', 'trade']);
+const queryKeys = new Set(['source', 'q', 'category', 'from', 'to']);
 const trackingKeys = new Set(['fbclid', 'gclid', 'dclid', 'msclkid', 'mc_cid', 'mc_eid']);
 const titleWindow = 48 * 60 * 60 * 1000;
 const maxArticles = 120;
 const normalize = value => value.normalize('NFKC').toLowerCase();
-const badQuery = () => Object.assign(new Error('请检查资讯关键词或选择已登记的来源'), { status: 400 });
+const badQuery = () => Object.assign(new Error('请检查资讯分类、来源、关键词和 UTC 日期范围'), { status: 400 });
 
 function readQuery(parameters, sources) {
-  if ([...parameters.keys()].some(key => key !== 'source' && key !== 'q') ||
+  if ([...parameters.keys()].some(key => !queryKeys.has(key)) ||
       new Set(parameters.keys()).size !== parameters.size) throw badQuery();
   const sourceId = parameters.get('source');
+  const category = parameters.get('category');
+  const from = parameters.get('from');
+  const to = parameters.get('to');
   const query = parameters.get('q') ?? '';
   if ((sourceId !== null && !sources.some(source => source.id === sourceId)) ||
+      (category !== null && !newsCategories.has(category)) ||
+      (from !== null && !isCalendarDate(from)) || (to !== null && !isCalendarDate(to)) ||
+      (from && to && from > to) ||
       query.length > 100 || /[\x00-\x1f\x7f]/.test(query)) throw badQuery();
-  return { sourceId, keyword: query.trim() };
+  return { sourceId, category, from, to, keyword: query.trim() };
 }
 
 function addressKey(link) {
@@ -48,14 +55,19 @@ function deduplicate(sorted) {
 export async function aggregateNews(catalog, parameters, readSource) {
   const sources = catalog.filter(source => newsCategories.has(source.summary.category) &&
     ['rss', 'atom'].includes(source.format) && source.filters.length === 0);
-  const { sourceId, keyword } = readQuery(parameters, sources);
-  const selected = sourceId === null ? sources : sources.filter(source => source.id === sourceId);
+  const { sourceId, category, from, to, keyword } = readQuery(parameters, sources);
+  const selected = sources.filter(source => (sourceId === null || source.id === sourceId) &&
+    (category === null || source.summary.category === category));
   const keywords = keyword ? normalize(keyword).split(/\s+/) : [];
   const results = await Promise.allSettled(selected.map(async source => {
     const { data, url } = await readSource(source);
     const feed = parseFeed(data, source.format, url);
     return feed.rows.filter(row => {
       if (!row.title) return false;
+      if (from || to) {
+        const day = row.published?.slice(0, 10);
+        if (row.timeKind !== 'published' || !day || (from && day < from) || (to && day > to)) return false;
+      }
       if (!keywords.length) return true;
       const searchable = normalize(row.title + ' ' + row.summary);
       return keywords.every(word => searchable.includes(word));
@@ -74,7 +86,7 @@ export async function aggregateNews(catalog, parameters, readSource) {
   articles.sort((a, b) => (b.time ?? '').localeCompare(a.time ?? ''));
   const unique = deduplicate(articles);
   return {
-    sources: sources.map(({ id, title, publisher }) => ({ id, title, publisher })),
+    sources: sources.map(({ id, title, publisher, summary: { category } }) => ({ id, title, publisher, category })),
     articles: unique.slice(0, maxArticles), matchedCount: unique.length, unavailable
   };
 }

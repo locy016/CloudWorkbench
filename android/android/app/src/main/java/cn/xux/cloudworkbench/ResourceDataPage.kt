@@ -340,12 +340,12 @@ internal fun FeedArticleCard(title: String, publisher: String, time: String?, su
 }
 
 @Composable
-private fun ResourceDateField(value: String, onChange: (String) -> Unit, label: String, modifier: Modifier) {
+internal fun ResourceDateField(value: String, onChange: (String) -> Unit, label: String, modifier: Modifier) {
     OutlinedTextField(value, { onChange(it.filter { ch -> ch in '0'..'9' || ch == '-' }.take(10)) },
         modifier = modifier, label = { Text(label) }, placeholder = { Text("YYYY-MM-DD") }, singleLine = true)
 }
 
-private fun filterDate(value: String): LocalDate? = if (value.length == 10) {
+internal fun filterDate(value: String): LocalDate? = if (value.length == 10) {
     runCatching { LocalDate.parse(value) }.getOrNull()
 } else null
 

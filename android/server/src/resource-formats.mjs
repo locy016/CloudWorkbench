@@ -39,6 +39,10 @@ export function sourceTime(value, format = 'timestamp') {
   return !utcMinute || iso.slice(0, 16) === normalized.slice(0, 16) ? iso : null;
 }
 
+export function isCalendarDate(value) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) && sourceTime(value)?.slice(0, 10) === value;
+}
+
 function cleanText(text = '') {
   return text.replace(/<(script|style)\b[^<>]*>[\s\S]*?<\/\1\s*>/gi, ' ')
     .replace(/<[^<>]*>|&nbsp;/gi, ' ').replace(/\s+/g, ' ').trim();

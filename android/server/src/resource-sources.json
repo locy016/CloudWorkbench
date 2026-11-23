@@ -91,6 +91,40 @@
       "limit": 30
     },
     {
+      "id": "eu-trade-policy",
+      "category": "trade",
+      "title": "欧盟贸易政策动态",
+      "publisher": "欧盟委员会贸易总司（DG Trade）",
+      "sourceUrl": "https://policy.trade.ec.europa.eu/news_en",
+      "endpoint": "https://policy.trade.ec.europa.eu/node/2/rss_en",
+      "format": "rss",
+      "cacheSeconds": 120,
+      "limit": 30
+    },
+    {
+      "id": "ustr-trade-news",
+      "category": "trade",
+      "title": "美国贸易代表办公室动态",
+      "publisher": "美国贸易代表办公室（USTR）",
+      "sourceUrl": "https://ustr.gov/about/policy-offices/press-office/news",
+      "endpoint": "https://ustr.gov/rss.xml",
+      "format": "rss",
+      "cacheSeconds": 120,
+      "limit": 30
+    },
+    {
+      "id": "uk-trade-remedies",
+      "category": "trade",
+      "title": "英国贸易救济动态",
+      "publisher": "英国贸易救济署（TRA）",
+      "sourceUrl": "https://www.gov.uk/government/organisations/trade-remedies-authority",
+      "endpoint": "https://www.gov.uk/search/news-and-communications.atom",
+      "format": "atom",
+      "query": { "organisations[]": "trade-remedies-authority" },
+      "cacheSeconds": 120,
+      "limit": 30
+    },
+    {
       "id": "nws-marine-alerts",
       "category": "logistics",
       "title": "海运气象警报",

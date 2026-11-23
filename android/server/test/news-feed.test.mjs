@@ -25,8 +25,14 @@ function fixture() {
           ['A different report edition', 'Mon, 23 Nov 2026 00:00:00 GMT', 'https://source.example/report?a=2']
         ]);
       case 'www.gov.uk':
+        if (url.searchParams.get('organisations[]') === 'trade-remedies-authority') {
+          return '<feed xmlns="http://www.w3.org/2005/Atom"/>';
+        }
         return '<feed xmlns="http://www.w3.org/2005/Atom"><entry><title>UK trade bulletin</title>' +
           '<updated>2026-11-23T05:00:00Z</updated><link href="https://www.gov.uk/news/1"/></entry></feed>';
+      case 'policy.trade.ec.europa.eu':
+      case 'ustr.gov':
+        return rss([]);
       case 'www.wto.org':
         throw new Error('Source unavailable');
       default:
@@ -39,9 +45,10 @@ function fixture() {
 test('news joins eligible sources, orders dates and deduplicates records without rewriting original links', async () => {
   const { catalog, hosts } = fixture();
   const news = await catalog.news(new URLSearchParams());
-  assert.equal(hosts.length, 4);
+  assert.equal(hosts.length, 7);
   assert.deepEqual(new Set(news.sources.map(source => source.id)),
-    new Set(['un-geneva-headlines', 'eu-commission-briefings', 'wto-trade-news', 'uk-business-trade']));
+    new Set(['un-geneva-headlines', 'eu-commission-briefings', 'wto-trade-news', 'uk-business-trade',
+      'eu-trade-policy', 'ustr-trade-news', 'uk-trade-remedies']));
   assert.deepEqual(news.unavailable, ['wto-trade-news']);
   assert.deepEqual(news.articles.map(article => article.title), [
     'UK trade bulletin', 'International supply chain report', 'Official trade meeting conclusions',
@@ -53,6 +60,31 @@ test('news joins eligible sources, orders dates and deduplicates records without
   assert.equal(news.articles[1].link, 'https://source.example/report?a=1&utm_medium=ref#note');
   assert.equal(news.articles[1].sourceId, 'un-geneva-headlines');
   assert.equal(news.articles.at(-1).time, null);
+});
+
+test('news category, inclusive UTC publication dates, source and keyword intersect before deduplication', async () => {
+  const { catalog, hosts } = fixture();
+  const news = await catalog.news(new URLSearchParams({
+    category: 'current', from: '2026-11-23', to: '2026-11-23', source: 'eu-commission-briefings', q: 'different report'
+  }));
+  assert.deepEqual(hosts, ['ec.europa.eu']);
+  assert.equal(news.sources.find(source => source.id === 'eu-commission-briefings').category, 'current');
+  assert.deepEqual(news.articles.map(article => article.time), ['2026-11-23T00:00:00.000Z']);
+
+  const since = await catalog.news(new URLSearchParams({ category: 'headlines', from: '2026-11-23' }));
+  assert.equal(since.articles.length, 2);
+  const until = await catalog.news(new URLSearchParams({ to: '2026-11-22', category: 'headlines' }));
+  assert.deepEqual(until.articles.map(article => article.link), ['https://source.example/archive']);
+  const updatedOnly = await catalog.news(new URLSearchParams({ from: '2026-11-23', category: 'trade', source: 'uk-business-trade' }));
+  assert.deepEqual(updatedOnly.articles, []);
+  assert.deepEqual(updatedOnly.unavailable, []);
+  const conflicting = await catalog.news(new URLSearchParams({ category: 'trade', source: 'un-geneva-headlines' }));
+  assert.equal(conflicting.matchedCount, 0);
+  for (const invalid of ['from=2026-02-29', 'from=', 'to=2026-11-31', 'from=2026-11-23&to=2026-11-22',
+    'category=logistics', 'category=', 'category=trade&category=current', 'to=2026-11-21&to=2026-11-21']) {
+    await assert.rejects(catalog.news(new URLSearchParams(invalid)), { status: 400 });
+  }
+  assert.deepEqual(hosts, ['ec.europa.eu', 'www.ungeneva.org', 'www.gov.uk']);
 });
 
 test('news keyword and selected source combine before deduplication', async () => {

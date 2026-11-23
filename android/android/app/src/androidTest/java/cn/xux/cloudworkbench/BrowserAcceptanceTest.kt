@@ -268,6 +268,70 @@ class BrowserAcceptanceTest {
         compose.onNodeWithText(headline).assertExists()
     }
 
+    @Test fun newsCategoriesAndPublicationRangeCombineWithSourceAndKeyword() {
+        awaitVisibleConnection()
+        compose.openWorkbenchTab("浏览")
+        compose.onNodeWithTag("openServerData").performClick()
+        val list = compose.onNodeWithTag("aggregatedNews")
+        fun awaitNews() = compose.waitUntil(30000) {
+            compose.onAllNodes(hasTestTag("searchNews") and isEnabled()).fetchSemanticsNodes().isNotEmpty() &&
+                compose.onAllNodesWithTag("newsCount").fetchSemanticsNodes().isNotEmpty()
+        }
+        fun metadata() = compose.onAllNodesWithTag("newsHeadlineMetadata").onFirst().fetchSemanticsNode()
+            .config[androidx.compose.ui.semantics.SemanticsProperties.Text].single().text
+
+        awaitNews()
+        for ((category, publisher) in listOf("headlines" to "UN Geneva", "current" to "European Commission")) {
+            list.performScrollToNode(hasTestTag("newsCategory-$category"))
+            compose.onNodeWithTag("newsCategory-$category").performClick().assertIsSelected()
+            awaitNews()
+            list.performScrollToNode(hasTestTag("newsHeadline"))
+            org.junit.Assert.assertTrue(metadata().contains(publisher))
+        }
+        list.performScrollToNode(hasTestTag("newsCategory-trade"))
+        compose.onNodeWithTag("newsCategory-trade").performClick().assertIsSelected()
+        awaitNews()
+        compose.onNodeWithTag("pickNewsSource").performClick()
+        compose.onNodeWithTag("newsSource-un-geneva-headlines").assertDoesNotExist()
+        compose.onNodeWithTag("newsSource-eu-trade-policy").assertExists()
+        compose.onNodeWithTag("newsSource-uk-trade-remedies").assertExists()
+        compose.onNodeWithTag("newsSource-ustr-trade-news").performClick()
+        awaitNews()
+        list.performScrollToNode(hasTestTag("newsHeadline"))
+        val headline = compose.onAllNodesWithTag("newsHeadline").onFirst().fetchSemanticsNode()
+            .config[androidx.compose.ui.semantics.SemanticsProperties.Text].single().text
+        val keyword = checkNotNull(Regex("""[\p{L}\p{N}]{4,}""").find(headline)).value
+        val date = checkNotNull(Regex("""发布 (\d{4}-\d{2}-\d{2}) """).find(metadata())).groupValues[1]
+
+        list.performScrollToNode(hasTestTag("newsKeyword"))
+        compose.onNodeWithTag("newsKeyword").performTextReplacement(keyword)
+        compose.onNodeWithTag("pickNewsDates").performClick()
+        compose.onNodeWithTag("newsFrom").performTextReplacement("2026-02-30")
+        compose.onNodeWithTag("applyNewsDates").assertIsNotEnabled()
+        compose.onNodeWithTag("newsFrom").performTextReplacement(date)
+        compose.onNodeWithTag("newsTo").performTextReplacement(date)
+        compose.onNodeWithTag("applyNewsDates").assertIsEnabled().performClick()
+        awaitNews()
+        compose.onNodeWithTag("newsDates").assertTextContains("$date 至 $date（UTC）")
+        compose.onNodeWithTag("pickNewsSource").assertTextContains("美国贸易代表办公室动态")
+        list.performScrollToNode(hasTestTag("newsHeadline"))
+        org.junit.Assert.assertTrue(metadata().contains("USTR") && metadata().contains("发布 $date"))
+        compose.onNodeWithText(headline).assertExists()
+
+        list.performScrollToNode(hasTestTag("pickNewsDates"))
+        compose.onNodeWithTag("pickNewsDates").performClick()
+        compose.onNodeWithTag("newsFrom").performTextReplacement("2000-01-01")
+        compose.onNodeWithTag("newsTo").performTextReplacement("2000-01-01")
+        compose.onNodeWithTag("applyNewsDates").performClick()
+        compose.waitUntil(30000) { compose.onAllNodesWithText("没有符合条件的资讯").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("pickNewsDates").performClick()
+        compose.onNodeWithTag("clearNewsDates").performClick()
+        awaitNews()
+        compose.onNodeWithTag("newsDates").assertDoesNotExist()
+        list.performScrollToNode(hasTestTag("newsHeadline"))
+        compose.onNodeWithText(headline).assertExists()
+    }
+
     private fun awaitResourceCatalog() {
         compose.onNodeWithTag("openSingleSource").performClick()
         compose.waitUntil(25000) {
