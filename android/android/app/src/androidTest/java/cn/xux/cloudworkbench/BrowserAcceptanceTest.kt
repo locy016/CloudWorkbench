@@ -76,11 +76,56 @@ class BrowserAcceptanceTest {
                 }
             }
         )
-        compose.onNodeWithTag("referenceRatesRefresh").assertIsEnabled().performClick()
+        compose.waitUntil(25000) {
+            compose.onAllNodes(hasTestTag("referenceRatesRefresh") and isEnabled()).fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithTag("referenceRatesRefresh").performClick()
         compose.waitUntil(25000) {
             compose.onAllNodes(hasTestTag("referenceRatesRefresh") and isEnabled()).fetchSemanticsNodes().isNotEmpty()
         }
         compose.onNodeWithTag("referenceRatesStatus").assertDoesNotExist()
+        compose.onNodeWithContentDescription("返回浏览").performClick()
+        compose.onNodeWithTag("browserStart").assertIsDisplayed()
+    }
+
+    @Test fun serverDataFiltersWorldBankTradeByCountryAndYear() {
+        compose.waitUntil(45000) { compose.onAllNodesWithText("已连接").fetchSemanticsNodes().isNotEmpty() }
+        compose.openWorkbenchTab("浏览")
+        compose.onNodeWithTag("openServerData").performClick()
+        compose.onNodeWithTag("openWorldBankTrade").performClick()
+        compose.onNodeWithTag("tradeSource").assertTextContains("世界银行", substring = true)
+        compose.onNodeWithTag("browserView").assertDoesNotExist()
+        compose.runOnIdle { org.junit.Assert.assertNull(web(activity.window.decorView)) }
+
+        fun query(code: String, year: Int) {
+            compose.waitUntil(30000) {
+                compose.onAllNodes(hasTestTag("tradeCountry") and isEnabled()).fetchSemanticsNodes().isNotEmpty()
+            }
+            compose.onNodeWithTag("tradeCountry").performClick()
+            compose.onNodeWithTag("tradeCountrySearch").performTextReplacement(code)
+            compose.onNodeWithTag("tradeOption-$code").performClick()
+            compose.onNodeWithTag("tradeYear").performTextReplacement(year.toString())
+            compose.runOnUiThread {
+                val keyboard = activity.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+                keyboard.hideSoftInputFromWindow(activity.window.decorView.windowToken, 0)
+                activity.currentFocus?.clearFocus()
+            }
+            compose.onNodeWithTag("tradeQuery").performClick()
+            compose.waitUntil(30000) {
+                compose.onAllNodes(hasTestTag("tradeDataYear") and hasText("统计年度：$year 年"))
+                    .fetchSemanticsNodes().isNotEmpty()
+            }
+            compose.onNodeWithTag("tradeCountry").assertTextContains(code, substring = true)
+            compose.onNodeWithTag("tradeUpdatedAt").assertTextContains("数据集更新：", substring = true)
+        }
+        query("CHN", 2023)
+        compose.onNodeWithTag("tradePercent").assertTextContains("%", substring = true)
+        compose.onNodeWithTag("tradeExports").assertTextContains("现价美元", substring = true)
+        compose.onNodeWithTag("tradeImports").assertTextContains("现价美元", substring = true)
+        query("USA", 2024)
+        compose.onNodeWithTag("tradePercent").assertTextContains("%", substring = true)
+        query("JPN", java.time.LocalDate.now().year)
+        compose.onNodeWithTag("tradeNoData").assertIsDisplayed()
         compose.onNodeWithContentDescription("返回浏览").performClick()
         compose.onNodeWithTag("browserStart").assertIsDisplayed()
     }

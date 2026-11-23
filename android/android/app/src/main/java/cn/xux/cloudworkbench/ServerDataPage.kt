@@ -10,6 +10,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -46,13 +50,14 @@ internal data class ReferenceRates(val date: LocalDate, val rates: List<Referenc
 internal fun ServerDataPage(
     vm: WorkbenchModel, visible: Boolean, menuButton: (@Composable () -> Unit)?, onBack: () -> Unit
 ) {
-    val connected = vm.referenceRatesConnected
+    val connected = vm.serverDataConnected
     val rates = vm.ecbRates
     val loading = vm.referenceRatesLoading
     val scope = rememberCoroutineScope()
+    var showingTrade by rememberSaveable { mutableStateOf(false) }
     BackHandler(enabled = visible, onBack = onBack)
-    LaunchedEffect(visible, connected) {
-        if (visible && connected) vm.refreshReferenceRates()
+    LaunchedEffect(visible, connected, showingTrade) {
+        if (visible && connected && !showingTrade) vm.refreshReferenceRates()
     }
     Column(Modifier.fillMaxSize().testTag("serverDataPage")) {
         Surface(color = MaterialTheme.colorScheme.surface) {
@@ -60,13 +65,25 @@ internal fun ServerDataPage(
                 menuButton?.invoke()
                 IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "返回浏览") }
                 Text("服务器数据", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
-                TextButton(onClick = { scope.launch { vm.refreshReferenceRates() } }, enabled = connected && !loading,
-                    modifier = Modifier.testTag("referenceRatesRefresh")) {
-                    Text("刷新")
+                if (!showingTrade) {
+                    TextButton(onClick = { scope.launch { vm.refreshReferenceRates() } }, enabled = connected && !loading,
+                        modifier = Modifier.testTag("referenceRatesRefresh")) {
+                        Text("刷新")
+                    }
                 }
             }
         }
         HorizontalDivider(color = Outline)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+            FilterChip(selected = !showingTrade, onClick = { showingTrade = false }, label = { Text("欧元汇率") })
+            Spacer(Modifier.width(8.dp))
+            FilterChip(selected = showingTrade, onClick = { showingTrade = true }, label = { Text("国际贸易") },
+                modifier = Modifier.testTag("openWorldBankTrade"))
+        }
+        if (showingTrade) {
+            WorldBankTradePage(vm.worldBankTrade, connected, visible)
+            return@Column
+        }
         if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
         LazyColumn(
             Modifier.fillMaxSize(),

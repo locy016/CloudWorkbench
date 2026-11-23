@@ -119,7 +119,8 @@ class WorkbenchModel internal constructor(
     var browserUrl by mutableStateOf("")
     var browserSaved: android.os.Bundle? = null
     internal val browserBookmarks = BrowserBookmarks(prefs)
-    internal val referenceRatesConnected get() = connected && !connecting && !reconnecting
+    internal val serverDataConnected get() = connected && !connecting && !reconnecting
+    internal val worldBankTrade = WorldBankTrade(prefs) { connection.takeIf { serverDataConnected } }
     internal var ecbRates by mutableStateOf(prefs.getString(ECB_RATES_CACHE, null)?.let {
         runCatching { ReferenceRates.parse(JSONObject(it)) }.getOrNull()
     }); private set
@@ -614,14 +615,14 @@ class WorkbenchModel internal constructor(
     }
 
     internal suspend fun refreshReferenceRates() {
-        if (!referenceRatesConnected || referenceRatesLoading) return
+        if (!serverDataConnected || referenceRatesLoading) return
         val transport = connection
         referenceRatesLoading = true
         referenceRatesUnavailable = false
         try {
             val payload = transport.sync("/v1/server-data/ecb-rates")
             val rates = ReferenceRates.parse(payload)
-            if (transport === connection && referenceRatesConnected) {
+            if (transport === connection && serverDataConnected) {
                 ecbRates = rates
                 prefs.edit().putString(ECB_RATES_CACHE, payload.toString()).apply()
             }

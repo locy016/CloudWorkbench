@@ -4,6 +4,7 @@ import { pageLimit } from './cursors.mjs';
 import { configureHttpTransport, respondJson } from './http-transport.mjs';
 import { privateLoopback } from './mobile-session.mjs';
 import { referenceRates } from './reference-rates.mjs';
+import { worldBank } from './world-bank.mjs';
 import { createServer } from 'node:http';
 import { timingSafeEqual, randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
@@ -25,7 +26,7 @@ export class Gateway {
   metrics = new Metrics(); statusInFlight = null;
   approvals = new Map(); loaded = new Set(); lock = false; statusCache = null;
   startingRequestId = null;
-  constructor({ codex, store, token, cwd, events, sshMobile, readReferenceRates = referenceRates(),
+  constructor({ codex, store, token, cwd, events, sshMobile, readReferenceRates = referenceRates(), tradeData = worldBank(),
     projects = [{ id: 'default', name: '默认项目', path: cwd }], sharedWritableRoots = [], codexAccess = 'workspace-write' }) {
     if (!['workspace-write', 'danger-full-access'].includes(codexAccess)) {
       throw new Error('Invalid Codex access mode');
@@ -35,6 +36,7 @@ export class Gateway {
     }
     Object.assign(this, { codex, store, token, cwd, events, sshMobile, projects, sharedWritableRoots, codexAccess });
     this.readReferenceRates = readReferenceRates;
+    this.tradeData = tradeData;
     if (events) store.onChange = (id, overview) => events.notify(id, overview);
     codex.on('notification', m => { if (!this.closing) this.onNotification(m); });
     codex.on('request', m => { if (!this.closing) this.onRequest(m); });
@@ -100,6 +102,17 @@ export class Gateway {
         if (!subject) throw fail(401, '此数据需通过已授权的 SSH 连接读取');
         if (url.search) throw fail(400, '参考汇率接口不接受查询参数');
         return respond(200, await this.readReferenceRates());
+      }
+      if (req.method === 'GET' && path === '/v1/server-data/world-bank/countries') {
+        if (!subject) throw fail(401, '此数据需通过已授权的 SSH 连接读取');
+        if (url.search) throw fail(400, '国家目录不接受查询参数');
+        return respond(200, await this.tradeData.countries());
+      }
+      if (req.method === 'GET' && path === '/v1/server-data/world-bank/trade') {
+        if (!subject) throw fail(401, '此数据需通过已授权的 SSH 连接读取');
+        if (url.searchParams.size !== 2 || url.searchParams.getAll('country').length !== 1 ||
+            url.searchParams.getAll('year').length !== 1) throw fail(400, '请选择国家或经济体和年份');
+        return respond(200, await this.tradeData.trade(url.searchParams.get('country'), url.searchParams.get('year')));
       }
       if (req.method === 'GET' && path === '/v1/status') return respond(200, await this.status(url.searchParams.get('refresh') === '1'));
       if (req.method === 'GET' && path === '/v1/projects') return respond(200, { projects: this.projects });
