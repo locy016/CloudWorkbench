@@ -19,7 +19,8 @@ test('resource directory exposes filters, retrieves fresh data and projects the 
   });
   const entries = await resources.list();
   assert.equal(entries[0].id, 'un-geneva-headlines');
-  assert.deepEqual([...new Set(entries.map(entry => entry.category))], ['headlines', 'current', 'trade', 'logistics', 'other']);
+  assert.deepEqual([...new Set(entries.map(entry => entry.category))],
+    ['headlines', 'current', 'trade', 'society', 'humanities', 'military', 'science', 'health', 'logistics', 'other']);
   const quakes = entries.find(entry => entry.id === 'usgs-earthquakes');
   assert.equal(quakes.endpoint, undefined);
   assert.equal(calls.length, 0);

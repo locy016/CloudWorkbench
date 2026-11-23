@@ -2,12 +2,12 @@ package cn.xux.cloudworkbench
 
 import android.content.SharedPreferences
 import android.net.Uri
-import androidx.compose.foundation.horizontalScroll
+import android.os.SystemClock
+import android.util.Log
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
@@ -21,18 +21,24 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import org.json.JSONException
+import org.json.JSONObject
+import java.io.IOException
+import java.io.InterruptedIOException
 
 internal data class NewsQuery(val sourceId: String? = null, val keyword: String = "",
     val category: ResourceCategory? = null, val from: String? = null, val to: String? = null)
 internal data class NewsSource(val id: String, val title: String, val category: ResourceCategory)
 internal data class NewsArticle(val title: String, val publisher: String, val time: String?, val timeKind: String?,
-    val summary: String?, val link: String?, val language: String?)
+    val summary: String?, val link: String?, val language: String?, val readerId: String?)
 internal data class NewsSnapshot(val query: NewsQuery, val sources: List<NewsSource>, val articles: List<NewsArticle>,
     val matchedCount: Int, val unavailable: Set<String>, val cached: Map<String, String>, val requestedSources: Int)
 
 internal class NewsFeed(prefs: SharedPreferences, private val connection: () -> WorkbenchConnection?) {
     val translations = NewsTranslations(prefs, connection)
+    private val articleCache = LinkedHashMap<String, NewsArticleBody>()
     var snapshot by mutableStateOf<NewsSnapshot?>(null); private set
     var loading by mutableStateOf(false); private set
     var refreshError by mutableStateOf<String?>(null); private set
@@ -42,6 +48,7 @@ internal class NewsFeed(prefs: SharedPreferences, private val connection: () -> 
         if (loading) return
         loading = true
         refreshError = null
+        val started = SystemClock.elapsedRealtime()
         try {
             val builder = Uri.Builder()
             query.sourceId?.let { builder.appendQueryParameter("source", it) }
@@ -50,7 +57,7 @@ internal class NewsFeed(prefs: SharedPreferences, private val connection: () -> 
             query.from?.let { builder.appendQueryParameter("from", it) }
             query.to?.let { builder.appendQueryParameter("to", it) }
             val suffix = builder.build().encodedQuery?.let { "?$it" }.orEmpty()
-            val response = transport.sync("/v1/server-data/news$suffix")
+            val response = readNews(transport, "/v1/server-data/news$suffix", started)
             val sources = response.getJSONArray("sources").objects().map {
                 NewsSource(it.getString("id"), it.getString("title"), ResourceCategory.fromKey(it.optString("category")))
             }
@@ -60,7 +67,8 @@ internal class NewsFeed(prefs: SharedPreferences, private val connection: () -> 
                 require(query.sourceId == null || query.sourceId == it.getString("sourceId"))
                 fun optional(key: String) = it.optString(key).takeUnless { text -> it.isNull(key) || text.isBlank() }
                 NewsArticle(it.getString("title"), it.getString("publisher"), optional("time"), optional("timeKind"),
-                    optional("summary"), optional("link"), optional("language"))
+                    optional("summary"), optional("link"), optional("language"),
+                    optional("readerId")?.takeIf { id -> id.matches(Regex("[0-9a-f]{64}")) })
             }
             val unavailable = response.getJSONArray("unavailable")
             val cached = response.optJSONArray("cached")?.objects()?.associate {
@@ -80,17 +88,65 @@ internal class NewsFeed(prefs: SharedPreferences, private val connection: () -> 
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            if (transport === connection()) refreshError = when ((e as? GatewayException)?.status) {
-                401, 403 -> "SSH 授权未通过，请重新连接"
-                else -> "服务器资讯请求失败"
+            if (transport === connection()) {
+                refreshError = when (e) {
+                    is GatewayException -> when (e.status) {
+                        400 -> "资讯筛选条件无效"
+                        401, 403 -> "SSH 授权未通过，请重新连接"
+                        else -> "服务器暂时无法返回资讯（HTTP ${e.status}）"
+                    }
+                    is InterruptedIOException -> "等待服务器资讯超时"
+                    is IOException -> "读取服务器资讯时连接中断"
+                    is GatewayPayloadException, is JSONException, is IllegalArgumentException -> "服务器返回的资讯格式异常"
+                    else -> "服务器资讯请求失败"
+                }
+                logReadFailure(e, started, "failed")
             }
         } finally {
             loading = false
         }
     }
 
+    fun cachedArticle(id: String?): NewsArticleBody? = id?.let(articleCache::get)
+
+    suspend fun readArticle(id: String): NewsArticleBody {
+        articleCache[id]?.let { return it }
+        val transport = connection() ?: throw IOException("SSH 连接已断开")
+        val response = transport.sync("/v1/server-data/news/article?id=$id")
+        check(transport === connection() && response.getString("id") == id)
+        val rows = response.getJSONArray("blocks")
+        require(rows.length() in 1..500)
+        val blocks = rows.objects().map { row ->
+            NewsBodyBlock(row.getString("kind"), row.getString("text")).also { require(it.text.isNotBlank()) }
+        }
+        require(blocks.sumOf { it.text.length } <= 80_000)
+        return NewsArticleBody(blocks, response.getBoolean("truncated")).also { body ->
+            articleCache[id] = body
+            if (articleCache.size > 12) articleCache.remove(articleCache.keys.first())
+        }
+    }
+
+    private suspend fun readNews(transport: WorkbenchConnection, path: String, started: Long): JSONObject {
+        try {
+            return transport.sync(path)
+        } catch (e: Exception) {
+            val transient = e is IOException || (e is GatewayException && e.status in 502..504)
+            if (!transient || SystemClock.elapsedRealtime() - started >= 8_000L ||
+                transport !== connection() || !transport.connected) throw e
+            logReadFailure(e, started, "retrying")
+            delay(350L)
+            if (transport !== connection() || !transport.connected) throw e
+            return transport.sync(path)
+        }
+    }
+
+    private fun logReadFailure(error: Exception, started: Long, action: String) {
+        val reason = if (error is GatewayException) "HTTP ${error.status}" else error.javaClass.simpleName
+        Log.w("WorkbenchNews", "News read $action ($reason, ${SystemClock.elapsedRealtime() - started} ms)")
+    }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun NewsFeedPage(feed: NewsFeed, connected: Boolean, visible: Boolean) {
     val context = LocalContext.current
@@ -108,6 +164,7 @@ internal fun NewsFeedPage(feed: NewsFeed, connected: Boolean, visible: Boolean) 
     var showOriginals by rememberSaveable { mutableStateOf(false) }
     var translationError by remember { mutableStateOf(false) }
     var translationRetry by remember { mutableIntStateOf(0) }
+    var reading by remember { mutableStateOf<NewsArticle?>(null) }
     val listState = rememberLazyListState()
     val preferredLanguage = feed.translations.preferredLanguage
     var appliedKeyword by rememberSaveable { mutableStateOf(snapshot?.query?.keyword.orEmpty()) }
@@ -144,7 +201,9 @@ internal fun NewsFeedPage(feed: NewsFeed, connected: Boolean, visible: Boolean) 
                 translationError = false
             } catch (e: CancellationException) {
                 throw e
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                val reason = if (e is GatewayException) "HTTP ${e.status}" else e.javaClass.simpleName
+                Log.w("WorkbenchNews", "Automatic translation failed ($reason)")
                 translationError = true
             }
         }
@@ -155,6 +214,7 @@ internal fun NewsFeedPage(feed: NewsFeed, connected: Boolean, visible: Boolean) 
             search(query.copy(from = start, to = end))
         }
     }
+    reading?.let { article -> NewsArticleReader(article, feed, connected) { reading = null } }
     LazyColumn(
         Modifier.fillMaxSize().testTag("aggregatedNews"), horizontalAlignment = Alignment.CenterHorizontally,
         state = listState,
@@ -183,8 +243,7 @@ internal fun NewsFeedPage(feed: NewsFeed, connected: Boolean, visible: Boolean) 
                     FilterChip(selected = showOriginals, onClick = { showOriginals = !showOriginals },
                         label = { Text("显示原文") }, modifier = Modifier.testTag("newsOriginals"))
                 }
-                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     val categories = listOf(null) + ResourceCategory.entries.filter { it.isNews }
                     categories.forEach { option ->
                         FilterChip(selected = option == category, enabled = canSearch, onClick = {
@@ -281,6 +340,11 @@ internal fun NewsFeedPage(feed: NewsFeed, connected: Boolean, visible: Boolean) 
                 if (translation != null && !showOriginals) {
                     TextButton(onClick = { showOriginal = !showOriginal }, modifier = Modifier.testTag("toggleNewsOriginal")) {
                         Text(if (showOriginal) "查看译文" else "查看原文")
+                    }
+                }
+                if (item.link != null) {
+                    OutlinedButton(onClick = { reading = item }, modifier = Modifier.testTag("readNewsArticle")) {
+                        Text("阅读全文")
                     }
                 }
             }

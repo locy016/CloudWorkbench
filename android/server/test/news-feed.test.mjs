@@ -25,13 +25,14 @@ function fixture() {
           ['A different report edition', 'Mon, 23 Nov 2026 00:00:00 GMT', 'https://source.example/report?a=2']
         ]);
       case 'www.gov.uk':
-        if (url.searchParams.get('organisations[]') === 'trade-remedies-authority') {
+        if (url.searchParams.get('organisations[]') !== 'department-for-business-innovation-science-and-trade') {
           return '<feed xmlns="http://www.w3.org/2005/Atom"/>';
         }
         return '<feed xmlns="http://www.w3.org/2005/Atom"><entry><title>UK trade bulletin</title>' +
           '<updated>2026-11-23T05:00:00Z</updated><link href="https://www.gov.uk/news/1"/></entry></feed>';
       case 'policy.trade.ec.europa.eu':
       case 'ustr.gov':
+      case 'www.nasa.gov':
         return rss([]);
       case 'www.wto.org':
         throw new Error('Source unavailable');
@@ -45,10 +46,11 @@ function fixture() {
 test('news joins eligible sources, orders dates and deduplicates records without rewriting original links', async () => {
   const { catalog, hosts } = fixture();
   const news = await catalog.news(new URLSearchParams());
-  assert.equal(hosts.length, 7);
+  assert.equal(hosts.length, 12);
   assert.deepEqual(new Set(news.sources.map(source => source.id)),
     new Set(['un-geneva-headlines', 'eu-commission-briefings', 'wto-trade-news', 'uk-business-trade',
-      'eu-trade-policy', 'ustr-trade-news', 'uk-trade-remedies']));
+      'eu-trade-policy', 'ustr-trade-news', 'uk-trade-remedies', 'uk-social-policy', 'historic-england-culture',
+      'uk-defence-news', 'nasa-science-news', 'uk-public-health']));
   assert.deepEqual(news.unavailable, ['wto-trade-news']);
   assert.deepEqual(news.articles.map(article => article.title), [
     'UK trade bulletin', 'International supply chain report', 'Official trade meeting conclusions',

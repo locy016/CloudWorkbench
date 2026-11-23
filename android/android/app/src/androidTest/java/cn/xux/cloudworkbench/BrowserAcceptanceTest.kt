@@ -392,6 +392,51 @@ class BrowserAcceptanceTest {
         }
     }
 
+    @Test fun opensOfficialArticleAndReadsFullTextWithoutABrowser() {
+        awaitVisibleConnection()
+        compose.openWorkbenchTab("浏览")
+        openDataSection("openInternationalNews")
+        compose.onNodeWithTag("newsOriginals").performClick()
+        compose.waitUntil(30000) { compose.onAllNodesWithTag("newsCount").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("pickNewsSource").performClick()
+        compose.onNodeWithTag("newsSource-ustr-trade-news").performClick()
+        compose.waitUntil(30000) { compose.onAllNodesWithTag("newsCount").fetchSemanticsNodes().isNotEmpty() }
+        val list = compose.onNodeWithTag("aggregatedNews")
+        list.performScrollToNode(hasTestTag("readNewsArticle"))
+        compose.onAllNodesWithTag("readNewsArticle").onFirst().performClick()
+        compose.onNodeWithTag("newsReader").assertIsDisplayed()
+        compose.waitUntil(35000) { compose.onAllNodesWithTag("newsReaderBlock").fetchSemanticsNodes().size >= 2 }
+        compose.onNodeWithTag("newsReaderTitle").assertIsDisplayed()
+        compose.onNodeWithTag("openOriginalNewsPage").assertIsDisplayed()
+        compose.runOnIdle { org.junit.Assert.assertNull(web(activity.window.decorView)) }
+        compose.onNodeWithContentDescription("返回资讯").performClick()
+        compose.onNodeWithTag("newsReader").assertDoesNotExist()
+        compose.onNodeWithTag("aggregatedNews").assertIsDisplayed()
+    }
+
+    @Test fun opensTheFiveAdditionalNewsSections() {
+        awaitVisibleConnection()
+        compose.openWorkbenchTab("浏览")
+        openDataSection("openInternationalNews")
+        compose.onNodeWithTag("newsOriginals").performClick()
+        val list = compose.onNodeWithTag("aggregatedNews")
+        val sections = listOf(
+            Triple("society", "社会", "DWP"), Triple("humanities", "人文", "Historic England"),
+            Triple("military", "军事", "MOD"), Triple("science", "科技", "NASA"), Triple("health", "健康", "DHSC")
+        )
+        for ((key, label, publisher) in sections) {
+            val tag = "newsCategory-$key"
+            list.performScrollToNode(hasTestTag(tag))
+            compose.waitUntil(30000) {
+                compose.onAllNodes(hasTestTag(tag) and isEnabled()).fetchSemanticsNodes().isNotEmpty()
+            }
+            compose.onNodeWithTag(tag).assertTextContains(label).performClick().assertIsSelected()
+            compose.waitUntil(30000) { compose.onAllNodesWithTag("newsCount").fetchSemanticsNodes().isNotEmpty() }
+            list.performScrollToNode(hasTestTag("newsHeadline"))
+            compose.onAllNodesWithTag("newsHeadlineMetadata").onFirst().assertTextContains(publisher, substring = true)
+        }
+    }
+
     private fun openDataSection(tag: String) {
         compose.onNodeWithTag("browserStart").performScrollToNode(hasTestTag(tag))
         compose.onNodeWithTag(tag).performClick()

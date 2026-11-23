@@ -35,9 +35,11 @@ internal data class ResourceOption(val value: String, val label: String)
 internal data class ResourceFilter(val key: String, val label: String, val options: List<ResourceOption>, val maxLength: Int?)
 internal enum class ResourceCategory(val key: String, val label: String) {
     Headlines("headlines", "要闻"), Current("current", "时事"), Trade("trade", "经贸"),
+    Society("society", "社会"), Humanities("humanities", "人文"), Military("military", "军事"),
+    Science("science", "科技"), Health("health", "健康"),
     Logistics("logistics", "物流"), Other("other", "其他");
 
-    val isNews get() = this == Headlines || this == Current || this == Trade
+    val isNews get() = this != Logistics && this != Other
 
     companion object {
         fun fromKey(key: String) = entries.firstOrNull { it.key == key } ?: Other

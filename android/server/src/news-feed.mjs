@@ -1,6 +1,7 @@
 import { isCalendarDate } from './resource-formats.mjs';
 
-const newsCategories = new Set(['headlines', 'current', 'trade']);
+export const newsCategoryKeys = ['headlines', 'current', 'trade', 'society', 'humanities', 'military', 'science', 'health'];
+const newsCategories = new Set(newsCategoryKeys);
 const queryKeys = new Set(['source', 'q', 'category', 'from', 'to']);
 const trackingKeys = new Set(['fbclid', 'gclid', 'dclid', 'msclkid', 'mc_cid', 'mc_eid']);
 const titleWindow = 48 * 60 * 60 * 1000;

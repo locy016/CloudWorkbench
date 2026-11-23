@@ -61,7 +61,8 @@ internal class NewsTranslations(private val prefs: SharedPreferences, private va
     }
 
     private suspend fun requestBatch(transport: WorkbenchConnection, body: JSONObject): JSONObject {
-        val pause = listOf(500L, 1_000L, 2_000L, 4_000L)
+        // A batch canceled by a source/language change can still be finishing on the server.
+        val pause = listOf(500L, 1_000L, 2_000L, 3_500L, 5_000L, 6_500L)
         for (wait in pause) {
             try {
                 return transport.request("/v1/server-data/news/translate-batch", body)

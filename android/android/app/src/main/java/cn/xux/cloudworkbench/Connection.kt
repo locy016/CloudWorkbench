@@ -404,8 +404,7 @@ internal class Connection(
         }
     }
     @Synchronized private fun gatewayCall(
-        path: String, body: JSONObject?, delete: Boolean, transfer: ConnectionTransfers.Operation,
-        readCallTimeoutSeconds: Long = 8
+        path: String, body: JSONObject?, delete: Boolean, transfer: ConnectionTransfers.Operation
     ): Call {
         val builder = endpoint(path).newBuilder()
         if (body != null || delete) {
@@ -436,9 +435,14 @@ internal class Connection(
                 override fun isOneShot() = true
             })
         }
-        val boundedRead = body == null && !delete && readCallTimeoutSeconds > 0
+        val boundedRead = body == null && !delete
         return (if (boundedRead) readClient else client).newCall(builder.build()).also {
             if (boundedRead) {
+                // News may wait for an upstream feed after refreshing its SSH credential.
+                val readCallTimeoutSeconds = when (path.substringBefore('?')) {
+                    "/v1/server-data/news", "/v1/server-data/news/article" -> 28L
+                    else -> 8L
+                }
                 it.timeout().timeout(readCallTimeoutSeconds, TimeUnit.SECONDS)
             }
         }

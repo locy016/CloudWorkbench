@@ -99,6 +99,21 @@ test('news translation requires SSH authorization and bounds the translation req
   assert.deepEqual(calls, [['zh', [article.title, article.summary]]]);
 });
 
+test('article reader accepts only a single article identifier and an authorized SSH session', async t => {
+  const route = '/v1/server-data/news/article';
+  const auth = { Authorization: 'SSH test' };
+  const id = 'b'.repeat(64);
+  const { call } = await fixture(t, {
+    sshMobile: req => req.headers.authorization === 'SSH test' ? 'test-device' : null,
+    resources: { article: async selected => { assert.equal(selected, id); return { id, blocks: [] }; } }
+  });
+  assert.equal((await call(route + '?id=' + id)).status, 401);
+  assert.equal((await call(route + '?id=' + id, undefined, { ...auth, 'x-workbench-ingress': 'web' })).status, 404);
+  assert.equal((await call(route + '?url=https://example.test', undefined, auth)).status, 400);
+  assert.equal((await call(route + '?id=' + id + '&id=' + id, undefined, auth)).status, 400);
+  assert.deepEqual(await call(route + '?id=' + id, undefined, auth), { status: 200, body: { id, blocks: [] } });
+});
+
 test('automatic news translation batches share the single-article cache and preserve article order', async t => {
   const legacy = '/v1/server-data/news/translate';
   const route = legacy + '-batch';

@@ -3,6 +3,7 @@
     {
       "id": "un-geneva-headlines",
       "language": "en",
+      "readerHosts": ["www.ungeneva.org"],
       "title": "联合国日内瓦要闻",
       "publisher": "联合国日内瓦办事处（UN Geneva）",
       "sourceUrl": "https://www.ungeneva.org/en/news-media/rss",
@@ -15,6 +16,7 @@
     {
       "id": "eu-commission-briefings",
       "language": "en",
+      "readerHosts": ["ec.europa.eu"],
       "title": "欧盟委员会时事通报",
       "publisher": "欧盟委员会（European Commission）",
       "sourceUrl": "https://ec.europa.eu/commission/presscorner/home/en",
@@ -72,6 +74,7 @@
     {
       "id": "wto-trade-news",
       "language": "en",
+      "readerHosts": ["www.wto.org"],
       "category": "trade",
       "title": "WTO 国际贸易新闻",
       "publisher": "WTO news",
@@ -84,6 +87,7 @@
     {
       "id": "uk-business-trade",
       "language": "en",
+      "readerHosts": ["www.gov.uk"],
       "title": "英国商业与贸易动态",
       "publisher": "GOV.UK",
       "sourceUrl": "https://www.gov.uk/government/organisations/department-for-business-innovation-science-and-trade",
@@ -97,6 +101,7 @@
     {
       "id": "eu-trade-policy",
       "language": "en",
+      "readerHosts": ["policy.trade.ec.europa.eu", "ec.europa.eu"],
       "category": "trade",
       "title": "欧盟贸易政策动态",
       "publisher": "欧盟委员会贸易总司（DG Trade）",
@@ -109,6 +114,7 @@
     {
       "id": "ustr-trade-news",
       "language": "en",
+      "readerHosts": ["ustr.gov", "www.ustr.gov"],
       "category": "trade",
       "title": "美国贸易代表办公室动态",
       "publisher": "美国贸易代表办公室（USTR）",
@@ -121,6 +127,7 @@
     {
       "id": "uk-trade-remedies",
       "language": "en",
+      "readerHosts": ["www.gov.uk"],
       "category": "trade",
       "title": "英国贸易救济动态",
       "publisher": "英国贸易救济署（TRA）",
@@ -130,6 +137,75 @@
       "query": { "organisations[]": "trade-remedies-authority" },
       "cacheSeconds": 120,
       "limit": 30
+    },
+    {
+      "id": "uk-social-policy",
+      "category": "society",
+      "language": "en",
+      "readerHosts": ["www.gov.uk"],
+      "title": "英国就业与社会保障资讯",
+      "publisher": "英国就业和养老金部（DWP）",
+      "sourceUrl": "https://www.gov.uk/government/organisations/department-for-work-pensions",
+      "endpoint": "https://www.gov.uk/search/news-and-communications.atom",
+      "format": "atom",
+      "query": { "organisations[]": "department-for-work-pensions" },
+      "cacheSeconds": 120,
+      "limit": 25
+    },
+    {
+      "id": "historic-england-culture",
+      "category": "humanities",
+      "language": "en",
+      "readerHosts": ["www.gov.uk", "historicengland.org.uk"],
+      "title": "历史文化与遗产动态",
+      "publisher": "英格兰历史遗产机构（Historic England）",
+      "sourceUrl": "https://www.gov.uk/government/organisations/historic-england",
+      "endpoint": "https://www.gov.uk/search/news-and-communications.atom",
+      "format": "atom",
+      "query": { "organisations[]": "historic-england" },
+      "cacheSeconds": 120,
+      "limit": 25
+    },
+    {
+      "id": "uk-defence-news",
+      "category": "military",
+      "language": "en",
+      "readerHosts": ["www.gov.uk"],
+      "title": "英国国防公开动态",
+      "publisher": "英国国防部（MOD）",
+      "sourceUrl": "https://www.gov.uk/government/organisations/ministry-of-defence",
+      "endpoint": "https://www.gov.uk/search/news-and-communications.atom",
+      "format": "atom",
+      "query": { "organisations[]": "ministry-of-defence" },
+      "cacheSeconds": 120,
+      "limit": 25
+    },
+    {
+      "id": "nasa-science-news",
+      "category": "science",
+      "language": "en",
+      "readerHosts": ["www.nasa.gov", "science.nasa.gov"],
+      "title": "NASA 科学与航天资讯",
+      "publisher": "美国国家航空航天局（NASA）",
+      "sourceUrl": "https://www.nasa.gov/rss-feeds/",
+      "endpoint": "https://www.nasa.gov/news-release/feed/",
+      "format": "rss",
+      "cacheSeconds": 120,
+      "limit": 25
+    },
+    {
+      "id": "uk-public-health",
+      "category": "health",
+      "language": "en",
+      "readerHosts": ["www.gov.uk"],
+      "title": "英国卫生与社会保健资讯",
+      "publisher": "英国卫生与社会保健部（DHSC）",
+      "sourceUrl": "https://www.gov.uk/government/organisations/department-of-health-and-social-care",
+      "endpoint": "https://www.gov.uk/search/news-and-communications.atom",
+      "format": "atom",
+      "query": { "organisations[]": "department-of-health-and-social-care" },
+      "cacheSeconds": 120,
+      "limit": 25
     },
     {
       "id": "nws-marine-alerts",

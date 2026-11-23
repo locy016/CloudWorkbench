@@ -3,14 +3,15 @@ import { open } from 'node:fs/promises';
 import { get } from 'node:https';
 import { BlockList, isIP } from 'node:net';
 import { decodeResource, feedFields, isCalendarDate, parseCsv, parseFeed, resourceTypes, sourceTime } from './resource-formats.mjs';
-import { aggregateNews } from './news-feed.mjs';
+import { aggregateNews, newsCategoryKeys } from './news-feed.mjs';
+import { newsReader } from './news-reader.mjs';
 
 const defaults = new URL('./resource-sources.json', import.meta.url);
 const keyPattern = /^[a-z][a-z0-9-]{0,47}$/;
 const optionPattern = /^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)?$/;
 const pathPattern = /^(?:[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*)?$/;
 const refinements = new Set(['q', 'from', 'to', 'export']);
-const categories = ['headlines', 'current', 'trade', 'logistics', 'other'];
+const categories = [...newsCategoryKeys, 'logistics', 'other'];
 const placeholder = /%7B([a-z][a-z0-9-]*)%7D|\{([a-z][a-z0-9-]*)\}/gi;
 const feedCacheLimit = 6 * 60 * 60 * 1000;
 const feedRetryDelay = 15_000;
@@ -32,7 +33,8 @@ function checkUrl(value, allowFragment = false) {
 }
 
 function normalizeSource(spec) {
-  const { id, title, publisher, sourceUrl, endpoint, rows, updated, language, format = 'json', filters = [], query = {}, limit = 50,
+  const { id, title, publisher, sourceUrl, endpoint, rows, updated, language, readerHosts = [],
+    format = 'json', filters = [], query = {}, limit = 50,
     exportLimit = limit, cacheSeconds = 0, category = 'other' } = spec;
   const feed = format === 'rss' || format === 'atom';
   const fields = feed ? feedFields : spec.fields;
@@ -41,6 +43,8 @@ function normalizeSource(spec) {
   const label = value => typeof value === 'string' && value.trim().length > 0 && value.length <= 100;
   if (!keyPattern.test(id ?? '') || !label(title) || !label(publisher) || !Object.hasOwn(resourceTypes, format) ||
       !categories.includes(category) || (language !== undefined && (!feed || !/^[a-z]{2,3}$/.test(language))) ||
+      !Array.isArray(readerHosts) || readerHosts.length > 4 || readerHosts.some(host =>
+        typeof host !== 'string' || !/^(?:[a-z0-9-]+\.)+[a-z]{2,}$/.test(host)) ||
       (format === 'json' && (typeof rows !== 'string' || !pathPattern.test(rows))) ||
       (updated !== undefined && !pathPattern.test(updated)) || typeof searchable !== 'boolean' ||
       !Number.isInteger(cacheSeconds) || cacheSeconds < 0 || cacheSeconds > 3600 ||
@@ -95,7 +99,7 @@ function normalizeSource(spec) {
   }
   return {
     id, title, publisher, sourceUrl, url, rows, updated, fields, filters, query, limit, exportLimit, format, dateField,
-    searchable, cacheSeconds, language,
+    searchable, cacheSeconds, language, readerHosts,
     summary: { id, title, publisher, category, format, searchable, dateFilter: !!dateField, fullDownload: exportLimit > limit,
       filters: filters.map(({ key, label, type = 'choice', options, maxLength }) =>
       type === 'text' ? { key, label, type, maxLength } :
@@ -235,8 +239,9 @@ function extractRows({ data: payload, feed }, source, filters, fullDownload) {
   return { rows: exported, matchedCount: matches.length, previewLimit: source.limit, updatedAt: latest };
 }
 
-export function resourceCatalog({ configFile, getResource = getPayload, now = Date.now } = {}) {
+export function resourceCatalog({ configFile, getResource = getPayload, getArticlePage, now = Date.now } = {}) {
   const cache = new Map();
+  const reader = newsReader({ lookup: publicLookup, getArticlePage, now });
   async function response(url, source, allowStale = false) {
     const isFeed = source.format === 'rss' || source.format === 'atom';
     const load = async () => {
@@ -250,7 +255,7 @@ export function resourceCatalog({ configFile, getResource = getPayload, now = Da
     if (entry.value && now() - entry.value.fetched < source.cacheSeconds * 1000) return entry.value;
     cache.delete(key);
     cache.set(key, entry);
-    if (cache.size > 12) cache.delete(cache.keys().next().value);
+    if (cache.size > 20) cache.delete(cache.keys().next().value);
     const fallback = () => {
       if (allowStale && entry.value && now() - entry.value.fetched <= feedCacheLimit) {
         return { ...entry.value, stale: true };
@@ -284,9 +289,17 @@ export function resourceCatalog({ configFile, getResource = getPayload, now = Da
         .sort((first, second) => categories.indexOf(first.category) - categories.indexOf(second.category));
     },
     async news(parameters) {
-      return aggregateNews([...(await sources()).values()], parameters, async source => {
+      const catalog = await sources();
+      const result = await aggregateNews([...catalog.values()], parameters, async source => {
         return response(resourceUrl(source), source, true);
       });
+      result.articles = result.articles.map(article => ({
+        ...article, readerId: reader.remember(article, catalog.get(article.sourceId))
+      }));
+      return result;
+    },
+    async article(id) {
+      return reader.read(id, await sources());
     },
     async download(id, parameters) {
       const source = (await sources()).get(id);

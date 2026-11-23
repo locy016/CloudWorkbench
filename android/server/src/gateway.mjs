@@ -127,6 +127,12 @@ export class Gateway {
         if (!subject) throw fail(401, '资讯需通过已授权的 SSH 连接读取');
         return respond(200, await this.resources.news(url.searchParams));
       }
+      if (req.method === 'GET' && path === '/v1/server-data/news/article') {
+        if (!subject) throw fail(401, '正文需通过已授权的 SSH 连接读取');
+        const id = url.searchParams.get('id');
+        if (url.searchParams.size !== 1 || !id) throw fail(400, '请选择资讯条目');
+        return respond(200, await this.resources.article(id));
+      }
       if (req.method === 'POST' && ['/v1/server-data/news/translate', '/v1/server-data/news/translate-batch'].includes(path)) {
         if (!subject) throw fail(401, '资讯翻译需通过已授权的 SSH 连接');
         if (url.search) throw fail(400, '翻译接口不接受查询参数');
