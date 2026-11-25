@@ -12,6 +12,7 @@ import androidx.activity.compose.setContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.lifecycle.ViewModelStore
@@ -55,11 +56,27 @@ class InterfaceReviewTest {
             compose.onAllNodes(hasTestTag("projectPicker") and isEnabled()).fetchSemanticsNodes().isNotEmpty()
         }
         compose.onNodeWithTag("projectPicker").performClick()
-        compose.onNodeWithText("云端助理 · 默认", useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithTag("workspacePickerMenu").assertWidthIsEqualTo(344.dp)
+        compose.onNodeWithTag("project-cloud-assistant").assertTextContains("云端助理")
+        compose.onNodeWithText("云端助理 · 默认", useUnmergedTree = true).assertDoesNotExist()
         for (name in listOf("cloud-assistant", "qiwuli-site", "server-ops")) {
             compose.onNodeWithText("/home/xux/projects/$name", useUnmergedTree = true).assertIsDisplayed()
         }
+        val gateway = compose.onNodeWithTag("project-server-gateway").assertTextContains("服务器网关")
+        compose.onNodeWithText("/home/xux/.local/lib/cloud-workbench", useUnmergedTree = true).assertIsDisplayed()
         screenshot("workspace-paths")
+        val activity = compose.activity
+        val prefs = activity.getSharedPreferences("ui", 0)
+        val saved = listOf("project", "preferred-workspace", "thread-cloud", "thread").associateWith { prefs.getString(it, null) }
+        try {
+            gateway.performClick()
+            compose.onNodeWithTag("projectPicker").assertTextContains("服务器网关")
+        } finally {
+            compose.runOnUiThread { activity.finish() }
+            val edit = prefs.edit()
+            saved.forEach { (key, value) -> edit.putString(key, value) }
+            edit.commit()
+        }
     }
 
     @Test fun navigationAndCredentialConfirmation() {

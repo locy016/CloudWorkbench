@@ -46,6 +46,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
@@ -205,6 +206,8 @@ class MainActivity : ComponentActivity() {
 @Composable private fun ProjectPicker(vm: WorkbenchModel, modifier: Modifier = Modifier) {
     var open by remember { mutableStateOf(false) }
     val id = vm.projectId
+    val windowWidth = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.width.toDp() }
+    val menuWidth = (windowWidth - 16.dp).coerceIn(1.dp, 344.dp)
     val canSwitch = vm.hostOnline && !vm.busy &&
         (vm.activeProjects.size > 1 || vm.selectedConversationArchived && vm.activeProjects.isNotEmpty())
     Box(modifier) {
@@ -217,16 +220,17 @@ class MainActivity : ComponentActivity() {
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (canSwitch) Icon(Icons.Outlined.ExpandMore, null, Modifier.size(16.dp), tint = Muted)
         }
-        DropdownMenu(expanded = open, onDismissRequest = { open = false }, modifier = Modifier.widthIn(min = 272.dp)) {
+        DropdownMenu(expanded = open, onDismissRequest = { open = false },
+            modifier = Modifier.width(menuWidth).testTag("workspacePickerMenu")) {
             vm.activeProjects.forEach { project ->
                 val id = project.getString("id")
                 DropdownMenuItem(
                     text = {
                         Column(Modifier.padding(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text(project.getString("name") + if (id == vm.defaultWorkspaceId) " · 默认" else "")
+                            Text(project.getString("name"))
                             project.optString("path").takeIf { it.isNotBlank() }?.let { path ->
                                 Text(path, style = MaterialTheme.typography.bodySmall, color = Muted,
-                                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+                                    fontFamily = FontFamily.Monospace)
                             }
                         }
                     },

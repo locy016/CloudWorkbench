@@ -32,7 +32,7 @@ class ConversationWorkspaceTest {
             compose.onNodeWithTag("projectPicker").performClick()
             compose.onNodeWithTag("project-qiwuli-site").assertExists()
             compose.onNodeWithTag("project-server-ops").assertExists()
-            compose.onNodeWithTag("project-cloud-assistant").assertTextContains("默认", substring = true).performClick()
+            compose.onNodeWithTag("project-cloud-assistant").assertTextContains("云端助理").performClick()
 
             val picker = compose.onNodeWithTag("conversationModelPicker")
             fun choose(id: String) {

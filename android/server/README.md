@@ -8,7 +8,7 @@
 
 - 程序目录为 `~/.local/lib/cloud-workbench`。业务数据位于 `~/.local/share/cloud-workbench`，其中 `workbench.db` 保存会话，`app-updates/` 保存已签名 APK。
 - 部署前确认活动任务已完成，对 SQLite 数据库做一致性备份，并检查附件目录和已签名版本。通过既有 `cloud-workbench-ops restart-workbench` 运维入口在空闲时重启。回退使用工作台版本及其配置。
-- 工作台域名的 HTTP 和 TLS 拒绝配置见 [Nginx 切换脚本](ops/close-workbench-web-ingress.sh)。生产工作区由数据目录的 `projects.json` 配置，包括栖物里网站、服务器运维和云端助理。
+- 工作台域名的 HTTP 和 TLS 拒绝配置见 [Nginx 切换脚本](ops/close-workbench-web-ingress.sh)。生产工作区由数据目录的 `projects.json` 配置，包括栖物里网站、服务器运维、云端助理和服务器网关。
 - 手机密钥的绑定规则见 [SSH 业务连接](ops/ssh-mobile.md)。
 
 退役清理通过 Nginx 配置、运行状态和旧规则检查验收。证书续期单独管理。关闭工作台域名的公网解析时，现有 HTTP-01 续期无法完成。如继续使用公开受信证书，采用 DNS-01 验证。
@@ -18,6 +18,8 @@
 ## 工作区与会话模型
 
 在 `projects.json` 的数组中登记 ID 为 `cloud-assistant` 的「云端助理」及其独立绝对路径。网关将此工作区设为新会话默认，并通过项目目录接口告知 APP。配置首项仍作为历史旧会话缺少工作区字段时的归属。
+
+「服务器网关」的项目 ID 为 `server-gateway`，目录对应 `cloud-workbench.service` 的运行目录 `/home/xux/.local/lib/cloud-workbench`。
 
 模型列表从服务器 Codex 的 `model/list` 读取，过滤隐藏项。网关验证选择并写入会话记录，下轮通过 `turn/start` 使用该模型。恢复同一 Codex 会话时继续应用该选择。已有工作区停用或会话正在执行时禁止切换。
 
