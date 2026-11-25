@@ -13,12 +13,84 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.platform.app.InstrumentationRegistry
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 
 class VoiceAcceptanceTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
+
+    @Test fun cloudAssistantContinuesTwoHandsFreeVoiceTurns() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val id = requireNotNull(InstrumentationRegistry.getArguments().getString("voiceAcceptanceThread"))
+        require(id.matches(Regex("[a-f0-9-]{36}")))
+        val activity = compose.activity
+        val prefs = activity.getSharedPreferences("ui", 0)
+        val previous = listOf("project", "thread-cloud", "thread").associateWith { prefs.getString(it, null) }
+        val audio = activity.getSystemService(AudioManager::class.java)
+        val volume = audio.getStreamVolume(AudioManager.STREAM_MUSIC)
+        val vm = ViewModelProvider(activity)[WorkbenchModel::class.java]
+        fun waitForListening() {
+            compose.waitUntil(90_000) {
+                if (compose.onAllNodes(hasTestTag("endVoiceChat") and hasText("返回对话")).fetchSemanticsNodes().isNotEmpty()) {
+                    val status = compose.onNodeWithTag("voiceChatStatus").fetchSemanticsNode()
+                        .config[androidx.compose.ui.semantics.SemanticsProperties.Text].joinToString()
+                    throw AssertionError(status)
+                }
+                compose.onAllNodes(hasTestTag("voiceChatStatus") and hasText("正在聆听")).fetchSemanticsNodes().isNotEmpty()
+            }
+        }
+        try {
+            instrumentation.uiAutomation.grantRuntimePermission(activity.packageName, Manifest.permission.RECORD_AUDIO)
+            compose.runOnUiThread { activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
+            compose.connectWorkbenchIfNeeded()
+            compose.openWorkbenchTab("会话")
+            compose.runOnIdle { vm.select(id) }
+            compose.waitUntil(30_000) {
+                compose.runOnIdle { vm.currentId == id } &&
+                    compose.onAllNodes(hasTestTag("startVoiceChat") and isEnabled()).fetchSemanticsNodes().isNotEmpty()
+            }
+            audio.setStreamVolume(AudioManager.STREAM_MUSIC, audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC) / 2, 0)
+            compose.onNodeWithTag("startVoiceChat").performClick()
+            waitForListening()
+            val phrases = listOf("你好，请简单地打个招呼。", "请用一句话和我说再见。")
+            for ((index, phrase) in phrases.withIndex()) {
+                runBlocking {
+                    withContext(Dispatchers.Main) {
+                        VoicePlayback(activity).use { source ->
+                            org.junit.Assert.assertTrue("An offline Chinese voice is required", source.prepare())
+                            org.junit.Assert.assertTrue("Playback must reach the microphone", source.speak(phrase))
+                        }
+                    }
+                }
+                compose.waitUntil(120_000) {
+                    compose.runOnIdle { vm.messages.count { it.optString("role") == "assistant" &&
+                        it.optString("status") == "completed" } >= index + 1 }
+                }
+                waitForListening()
+            }
+            compose.onNodeWithTag("endVoiceChat").performClick()
+            compose.onNodeWithTag("voiceChatStatus").assertDoesNotExist()
+            compose.waitUntil(10_000) {
+                compose.onAllNodes(hasTestTag("startVoiceChat") and isEnabled()).fetchSemanticsNodes().isNotEmpty()
+            }
+            compose.runOnIdle {
+                assertEquals(id, vm.currentId)
+                assertEquals(2, vm.messages.count { it.optString("role") == "user" })
+                org.junit.Assert.assertTrue(vm.messages.filter { it.optString("role") == "user" }
+                    .all { it.optString("text").contains(Regex("[\\u4e00-\\u9fff]")) })
+            }
+        } finally {
+            audio.setStreamVolume(AudioManager.STREAM_MUSIC, volume, 0)
+            compose.runOnUiThread { activity.finish() }
+            val edit = prefs.edit()
+            previous.forEach { (key, value) -> edit.putString(key, value) }
+            edit.commit()
+        }
+    }
 
     @Test fun offlineMicrophoneWritesEditableDraft() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()

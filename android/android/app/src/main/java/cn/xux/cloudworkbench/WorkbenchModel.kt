@@ -9,18 +9,24 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONException
 import org.json.JSONArray
 import org.json.JSONObject
@@ -35,6 +41,7 @@ internal data class Continuation(val id: String, val title: String, val project:
     val approvalId: String? = null, val updated: Long? = null)
 internal data class SavedDraft(val key: String, val title: String, val projectId: String?, val projectName: String,
     val preview: String, val images: Int, val updatedAt: Long)
+internal data class VoiceSubmission(val threadId: String, val requestId: String)
 internal enum class SshConnectionBlock(val message: String) {
     CREDENTIALS("SSH 密钥验证失败，请确认公钥已在服务器授权"),
     HOST_IDENTITY("服务器身份校验失败，请联系管理员核对 SSH 主机密钥")
@@ -299,6 +306,10 @@ class WorkbenchModel internal constructor(
     internal val canSendInConversation get() = if (currentId == null) {
         projects.isEmpty() || activeProjects.any { it.optString("id") == projectId }
     } else current != null && !selectedConversationArchived && !draftThreadMissing
+    internal val isCloudAssistant get() = projectId == "cloud-assistant" &&
+        (currentId == null || current?.let(::threadProjectId) == "cloud-assistant")
+    internal val canStartVoiceChat get() = isCloudAssistant && connected && hostOnline && !connecting && !reconnecting &&
+        canSendInConversation && !busy && activeThread == null && dictation.stage == null && !hasDraft && !importingAttachment
     val canCleanEmptyThreads get() = projectId in projectsWithEmptyThreads
     val activeThread get() = current?.takeIf { it.optString("status") in activeTaskStates }
         ?: threads.firstOrNull { it.optString("id") != currentId && it.optString("status") in activeTaskStates }
@@ -1065,22 +1076,61 @@ class WorkbenchModel internal constructor(
         if (!canSendInConversation || activeThread != null || importingAttachment || dictation.stage != null) return
         val draftAtSend = draftRecord(draftKey)
         val text = draftAtSend.messageText() ?: return
-        action {
-            val id = currentId ?: run {
-                val key = draftKey
-                val create = JSONObject().put("title", "新的对话").put("projectId", projectId)
-                draftModel?.let { create.put("model", it) }
-                val new = selectSnapshot(request("/v1/threads", create))
-                draftModel = null
-                prefs.edit().remove("draft-model:$projectId").apply()
-                saveDrafts(mapOf(key to DraftRecord(), new to draftRecord(key)))
-                attachmentErrors.remove(key)
-                new
-            }
-            submitMessage(id, text, draftAtSend.text)
-        }
+        action { submitDraft(text, draftAtSend.text) }
     }
-    private suspend fun submitMessage(id: String, text: String, draftAtSend: String) {
+
+    internal fun sendVoiceTurn(text: String): Deferred<VoiceSubmission> {
+        check(foreground && canStartVoiceChat) { "暂时无法发送语音，请查看连接和当前会话" }
+        setDraftText(draftKey, text)
+        val submission = CompletableDeferred<VoiceSubmission>()
+        action(onFailure = {
+            error = it
+            submission.completeExceptionally(IOException(it))
+        }) {
+            submission.complete(submitDraft(text, text))
+        }
+        return submission
+    }
+
+    internal suspend fun awaitVoiceReply(submission: VoiceSubmission): String {
+        return withTimeoutOrNull(180_000) {
+            snapshotFlow {
+                check(currentId == submission.threadId && isCloudAssistant) { "语音聊天已离开原会话" }
+                check(connected && hostOnline) { "连接已断开，可在会话中查看回复" }
+                val status = current?.optString("status")
+                when {
+                    status == "approval" || approvals.isNotEmpty() -> error("助理需要确认，请在任务页处理")
+                    status in setOf("failed", "interrupted", "cancelled") -> error("本轮任务已结束，请查看会话状态")
+                    status != "idle" -> null
+                    else -> {
+                        val sent = messages.indexOfFirst { it.optString("id") == "u-${submission.requestId}" }
+                        if (sent < 0) null else {
+                            val reply = messages.asSequence().drop(sent + 1).takeWhile { it.optString("role") != "user" }
+                                .lastOrNull { it.optString("role") == "assistant" && it.optString("status") == "completed" }
+                                ?.optString("text")?.takeIf(String::isNotBlank)
+                            reply ?: error("本轮没有可朗读的文字回复")
+                        }
+                    }
+                }
+            }.filterNotNull().first()
+        } ?: error("助理仍在处理，可回到会话查看进度")
+    }
+
+    private suspend fun submitDraft(text: String, draftAtSend: String): VoiceSubmission {
+        val id = currentId ?: run {
+            val key = draftKey
+            val create = JSONObject().put("title", "新的对话").put("projectId", projectId)
+            draftModel?.let { create.put("model", it) }
+            val new = selectSnapshot(request("/v1/threads", create))
+            draftModel = null
+            prefs.edit().remove("draft-model:$projectId").apply()
+            saveDrafts(mapOf(key to DraftRecord(), new to draftRecord(key)))
+            attachmentErrors.remove(key)
+            new
+        }
+        return VoiceSubmission(id, submitMessage(id, text, draftAtSend))
+    }
+    private suspend fun submitMessage(id: String, text: String, draftAtSend: String): String {
         val record = draftRecord(id)
         val images = record.uploads
         val localIds = images.map { it.localId }
@@ -1107,6 +1157,7 @@ class WorkbenchModel internal constructor(
         }
         snapshot(response)
         if (!response.has("receipt") && drafts[id]?.attempt == attempt) completeSubmission(id, attempt)
+        return requestId
     }
 
     private suspend fun ensureDraftSaved() {

@@ -710,7 +710,11 @@ private data class MetricValue(val label: String, val value: String, val hint: S
             }
         }
         if (!keyboardOpen && !floatingKeyboard && !vm.selectedConversationArchived) {
-            ConversationModelPicker(vm, Modifier.padding(start = LocalPagePadding.current))
+            Row(Modifier.fillMaxWidth().padding(horizontal = LocalPagePadding.current),
+                verticalAlignment = Alignment.CenterVertically) {
+                ConversationModelPicker(vm, Modifier.weight(1f))
+                if (vm.isCloudAssistant) VoiceChatControl(vm)
+            }
         }
         val list = key(vm.currentId) { rememberLazyListState() }
         if (vm.messages.isEmpty() && vm.currentId != null) {

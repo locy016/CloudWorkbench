@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.os.SystemClock
 import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -16,9 +17,11 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.coroutineContext
+import kotlin.coroutines.resume
 
 internal class OfflineDictation(private val context: Context, private val scope: CoroutineScope) {
     enum class Stage { Preparing, Listening, Finishing }
@@ -36,8 +39,19 @@ internal class OfflineDictation(private val context: Context, private val scope:
 
     fun clearError() { error = null }
 
-    fun start(draftKey: String, append: (String) -> Boolean) {
-        if (stage != null) return
+    fun start(draftKey: String, append: (String) -> Boolean) =
+        startRecording(draftKey, append = append)
+
+    suspend fun captureTurn(key: String): String? = suspendCancellableCoroutine { waiting ->
+        startRecording(key, onTurn = { text -> if (waiting.isActive) waiting.resume(text) })
+        waiting.invokeOnCancellation { scope.launch(Dispatchers.Main.immediate) { discard(key) } }
+    }
+
+    private fun startRecording(draftKey: String, append: ((String) -> Boolean)? = null, onTurn: ((String?) -> Unit)? = null) {
+        if (stage != null) {
+            onTurn?.invoke(null)
+            return
+        }
         error = null
         partial = ""
         stopping.set(false)
@@ -54,13 +68,14 @@ internal class OfflineDictation(private val context: Context, private val scope:
                         coroutineContext.ensureActive()
                         if (stopping.get()) return@use
                         engine.stream().use { stream ->
-                            record(stream, onPartial = { text ->
+                            record(stream, oneTurn = onTurn != null, onPartial = { text ->
                                 if (!discarding) partial = text.ifBlank { segments.lastOrNull().orEmpty() }
                             }, onSegment = { text ->
                                 if (!discarding && characters + text.length <= MAX_DRAFT_LENGTH) {
                                     segments.add(text)
                                     characters += text.length
                                     partial = text
+                                    if (onTurn != null) stop(draftKey)
                                 } else if (!discarding) {
                                     error = "草稿已达到长度上限"
                                     stop()
@@ -81,7 +96,7 @@ internal class OfflineDictation(private val context: Context, private val scope:
                 Log.w("OfflineDictation", "Local dictation failed", e)
                 if (!discarding) error = if (stage == Stage.Preparing) "语音识别启动失败，请重试" else "录音中断，请重试"
             } finally {
-                if (shouldCommit && !discarding) {
+                if (shouldCommit && !discarding && append != null) {
                     for (segment in segments) {
                         if (!append(segment)) {
                             error = "草稿已达到长度上限"
@@ -92,6 +107,9 @@ internal class OfflineDictation(private val context: Context, private val scope:
                 stage = null
                 partial = ""
                 owner = null
+                if (shouldCommit) onTurn?.invoke(
+                    segments.joinToString(" ").takeIf { !discarding && error == null && it.isNotBlank() }
+                )
             }
         }
     }
@@ -113,6 +131,7 @@ internal class OfflineDictation(private val context: Context, private val scope:
     @SuppressLint("MissingPermission")
     private suspend fun record(
         stream: StreamingSpeech.Stream,
+        oneTurn: Boolean,
         onPartial: (String) -> Unit,
         onSegment: (String) -> Unit
     ) {
@@ -137,6 +156,8 @@ internal class OfflineDictation(private val context: Context, private val scope:
             withContext(Dispatchers.Main.immediate) { stage = if (stopping.get()) Stage.Finishing else Stage.Listening }
             val pcm = ShortArray(blockSize)
             var previous = ""
+            val startedAt = SystemClock.elapsedRealtime()
+            var heardSpeech = false
             while (!stopping.get()) {
                 coroutineContext.ensureActive()
                 val count = microphone.read(pcm, 0, pcm.size, AudioRecord.READ_BLOCKING)
@@ -146,10 +167,14 @@ internal class OfflineDictation(private val context: Context, private val scope:
                 }
                 if (count == 0) continue
                 val text = stream.accept(FloatArray(count) { pcm[it] / 32768f })
+                heardSpeech = heardSpeech || text.isNotBlank()
+                val elapsed = SystemClock.elapsedRealtime() - startedAt
+                if (oneTurn && (elapsed >= 60_000 || !heardSpeech && elapsed >= 25_000)) break
                 if (stream.isEndpoint()) {
                     withContext(Dispatchers.Main.immediate) {
                         if (text.isNotBlank()) onSegment(text) else onPartial("")
                     }
+                    if (oneTurn && text.isNotBlank()) return
                     stream.reset()
                     previous = ""
                 } else if (text != previous) {

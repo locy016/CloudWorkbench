@@ -47,6 +47,37 @@ class InterfaceReviewTest {
 
     private fun tab(name: String) = compose.openWorkbenchTab(name)
 
+    @Test fun voiceChatEntryIsLimitedToTheCloudAssistantWorkspace() {
+        compose.waitUntil(90_000) {
+            compose.onAllNodesWithText("已连接").fetchSemanticsNodes().isNotEmpty()
+        }
+        tab("会话")
+        val activity = compose.activity
+        val prefs = activity.getSharedPreferences("ui", 0)
+        val previous = listOf("project", "preferred-workspace", "thread-cloud", "thread")
+            .associateWith { prefs.getString(it, null) }
+        fun select(id: String) {
+            compose.waitUntil(25_000) {
+                compose.onAllNodes(hasTestTag("projectPicker") and isEnabled()).fetchSemanticsNodes().isNotEmpty()
+            }
+            compose.onNodeWithTag("projectPicker").performClick()
+            compose.onNodeWithTag("project-$id").performClick()
+        }
+        try {
+            select("cloud-assistant")
+            compose.onNodeWithTag("startVoiceChat").assertIsDisplayed()
+            select("qiwuli-site")
+            compose.onNodeWithTag("startVoiceChat").assertDoesNotExist()
+            select("server-ops")
+            compose.onNodeWithTag("startVoiceChat").assertDoesNotExist()
+        } finally {
+            compose.runOnUiThread { activity.finish() }
+            val edit = prefs.edit()
+            previous.forEach { (key, value) -> edit.putString(key, value) }
+            edit.commit()
+        }
+    }
+
     @Test fun workspacePickerShowsEveryServerDirectory() {
         compose.waitUntil(90_000) {
             compose.onAllNodesWithText("已连接").fetchSemanticsNodes().isNotEmpty()
