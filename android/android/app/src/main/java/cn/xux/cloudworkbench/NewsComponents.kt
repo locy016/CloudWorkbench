@@ -2,6 +2,9 @@ package cn.xux.cloudworkbench
 
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -51,6 +54,22 @@ internal fun CopyNewsLink(link: String, modifier: Modifier = Modifier) {
         context.getSystemService(ClipboardManager::class.java)?.setPrimaryClip(ClipData.newPlainText("原文地址", link))
     }, modifier = modifier.testTag("newsHeadlineLink"), contentPadding = PaddingValues(horizontal = 8.dp)) {
         Text("复制链接", maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+@Composable
+internal fun OpenNewsOriginalLink(link: String, modifier: Modifier = Modifier) {
+    val uri = Uri.parse(link)
+    if (uri.scheme !in listOf("http", "https") || uri.host.isNullOrBlank() || !uri.userInfo.isNullOrEmpty()) return
+    val context = LocalContext.current
+    TextButton(onClick = {
+        try {
+            context.startActivity(Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_BROWSABLE))
+        } catch (_: android.content.ActivityNotFoundException) {
+            Toast.makeText(context, "设备上未找到能打开原网页的应用", Toast.LENGTH_SHORT).show()
+        }
+    }, modifier = modifier.testTag("openOriginalNewsPage"), contentPadding = PaddingValues(horizontal = 8.dp)) {
+        Text("打开原网页", maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 

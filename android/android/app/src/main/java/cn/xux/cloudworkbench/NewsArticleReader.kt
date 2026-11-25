@@ -1,10 +1,8 @@
 package cn.xux.cloudworkbench
 
-import android.content.Intent
-import android.net.Uri
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
@@ -13,7 +11,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -26,16 +23,9 @@ internal data class NewsArticleBody(val blocks: List<NewsBodyBlock>, val truncat
 @Composable
 internal fun NewsArticleReader(article: NewsArticle, feed: NewsFeed, connected: Boolean, initialOriginal: Boolean,
     onClose: () -> Unit) {
-    val context = LocalContext.current
     val id = article.readerId
-    val original = remember(article.link) {
-        article.link?.let(Uri::parse)?.takeIf {
-            it.scheme in listOf("http", "https") && !it.host.isNullOrBlank() && it.userInfo.isNullOrEmpty()
-        }
-    }
     var body by remember(article) { mutableStateOf(feed.cachedArticle(id)) }
     var error by remember(article) { mutableStateOf<String?>(null) }
-    var openingFailed by remember { mutableStateOf(false) }
     var retry by remember { mutableIntStateOf(0) }
     var showOriginal by remember(article) { mutableStateOf(initialOriginal) }
     var translationError by remember(article) { mutableStateOf(false) }
@@ -59,6 +49,7 @@ internal fun NewsArticleReader(article: NewsArticle, feed: NewsFeed, connected: 
                 } catch (e: Exception) {
                     when ((e as? GatewayException)?.status) {
                         404 -> "请刷新资讯后重新打开正文"
+                        429 -> "正文请求较多，请稍后重试"
                         401, 403 -> "SSH 授权未通过，请重新连接"
                         else -> "暂时无法读取正文，可打开原网页"
                     }
@@ -78,7 +69,7 @@ internal fun NewsArticleReader(article: NewsArticle, feed: NewsFeed, connected: 
             try {
                 val chunks = range.flatMap { index -> newsParagraphChunks(content[index].text) }
                 val title = if (range.first == 0 && feed.translations.get(article, target) == null) titleChunks else emptyList()
-                feed.translations.translateParagraphs(chunks + title, target)
+                feed.translations.translateParagraphs(title + chunks, target)
                 translationError = false
             } catch (e: CancellationException) {
                 throw e
@@ -92,19 +83,13 @@ internal fun NewsArticleReader(article: NewsArticle, feed: NewsFeed, connected: 
             Column {
                 Row(Modifier.fillMaxWidth().padding(end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = onClose) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "返回资讯") }
-                    Text(if (canTranslate && !showOriginal) "译文阅读" else "原文阅读",
+                    Text("资讯正文",
                         Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, maxLines = 1)
                     if (canTranslate) TextButton(onClick = { showOriginal = !showOriginal },
                         modifier = Modifier.testTag("toggleNewsReaderLanguage")) {
                         Text(if (showOriginal) "查看译文" else "查看原文", maxLines = 1)
                     }
-                    if (original != null) {
-                        TextButton(onClick = {
-                            openingFailed = runCatching {
-                                context.startActivity(Intent(Intent.ACTION_VIEW, original).addCategory(Intent.CATEGORY_BROWSABLE))
-                            }.isFailure
-                        }, modifier = Modifier.testTag("openOriginalNewsPage")) { Text("打开原网页") }
-                    }
+                    article.link?.let { OpenNewsOriginalLink(it) }
                 }
                 HorizontalDivider(color = Outline)
                 LazyColumn(Modifier.weight(1f).fillMaxWidth().testTag("newsReaderContent"),
@@ -120,7 +105,6 @@ internal fun NewsArticleReader(article: NewsArticle, feed: NewsFeed, connected: 
                             Text(title ?: article.title, Modifier.testTag("newsReaderTitle"), style = MaterialTheme.typography.headlineSmall)
                             val date = article.time?.take(16)?.replace('T', ' ')?.let { "$it UTC" }
                             Text(listOfNotNull(article.publisher, date).joinToString(" · "), color = Muted)
-                            if (openingFailed) Text("设备上未找到能打开原网页的应用", color = Amber)
                             if (body != null && canTranslate && !showOriginal) {
                                 Text("机器翻译 · ${newsLanguages.getValue(target)}，译文随阅读加载", color = Muted,
                                     style = MaterialTheme.typography.bodySmall)
@@ -136,10 +120,13 @@ internal fun NewsArticleReader(article: NewsArticle, feed: NewsFeed, connected: 
                             }
                         }
                     }
-                    items(content) { block ->
+                    itemsIndexed(content) { index, block ->
                         val chunks = remember(block.text) { newsParagraphChunks(block.text) }
-                        val translated = if (canTranslate && !showOriginal) feed.translations.paragraph(chunks, target) else null
-                        Box(Modifier.widthIn(max = 720.dp).fillMaxWidth()) {
+                        val translated = if (canTranslate && !showOriginal) feed.translations.paragraph(chunks, target)
+                            ?.takeUnless { it == chunks.joinToString(" ") } else null
+                        Box(Modifier.widthIn(max = 720.dp).fillMaxWidth().then(
+                            if (index == content.lastIndex) Modifier.testTag("newsReaderLastBlock") else Modifier
+                        )) {
                             SelectionContainer {
                                 val style = if (block.kind == "heading") MaterialTheme.typography.titleMedium
                                     else MaterialTheme.typography.bodyLarge

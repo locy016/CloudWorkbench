@@ -57,3 +57,33 @@ test('European Commission web shell is resolved through its publishing API', asy
   const body = await catalog.article(result.articles[0].readerId);
   assert.deepEqual(body.blocks.map(block => block.text), [paragraph, 'Second paragraph.']);
 });
+
+test('full text retains nested list and quote paragraphs and the article ending', async () => {
+  const catalog = newsSourceCatalog({
+    getResource: async () => rss('https://www.wto.org/news/release'),
+    getArticlePage: async () => '<html lang="en"><head><title>' + title + '</title></head><body><div id="contentarea">' +
+      '<p>' + paragraph + '</p><ul><li>First item<ul><li>Nested item</li></ul>Continued item</li></ul>' +
+      '<blockquote><p>First line<br>second line</p><p>Second paragraph of the quote</p></blockquote>' +
+      '<h6>Conclusion</h6><p>The last line.</p></div></body></html>'
+  });
+  const feed = await catalog.news(new URLSearchParams({ source: 'wto-trade-news' }));
+  const body = await catalog.article(feed.articles[0].readerId);
+  assert.deepEqual(body.blocks, [
+    { kind: 'paragraph', text: paragraph },
+    { kind: 'bullet', text: 'First item' },
+    { kind: 'bullet', text: 'Nested item' },
+    { kind: 'bullet', text: 'Continued item' },
+    { kind: 'quote', text: 'First line second line' },
+    { kind: 'quote', text: 'Second paragraph of the quote' },
+    { kind: 'heading', text: 'Conclusion' },
+    { kind: 'paragraph', text: 'The last line.' }
+  ]);
+  assert.equal(body.truncated, false);
+});
+
+test('a malformed EIA detail URL produces no reading or original link', async () => {
+  const catalog = newsSourceCatalog({ getResource: async () => rss('https://www.eia.gov/todayinenergy/detail.php?id=') });
+  const feed = await catalog.news(new URLSearchParams({ source: 'eia-energy-analysis' }));
+  assert.equal(feed.articles[0].link, null);
+  assert.equal(feed.articles[0].readerId, null);
+});

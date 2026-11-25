@@ -264,7 +264,7 @@
       "title": "MIT 科研与工程动态",
       "publisher": "麻省理工学院（MIT News）",
       "sourceUrl": "https://news.mit.edu/",
-      "endpoint": "https://news.mit.edu/rss/feed",
+      "endpoint": "https://news.mit.edu/rss/research",
       "format": "rss",
       "cacheSeconds": 180
     },

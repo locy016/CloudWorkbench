@@ -36,6 +36,8 @@ function linkUrl(text, endpoint) {
   if (!text?.trim()) return null;
   try {
     const url = new URL(text.trim(), endpoint);
+    if (url.hostname === 'www.eia.gov' && url.pathname === '/todayinenergy/detail.php' &&
+        !/^\d+$/.test(url.searchParams.get('id') ?? '')) return null;
     return ['https:', 'http:'].includes(url.protocol) && !url.username && !url.password ? url.href : null;
   } catch { return null; }
 }

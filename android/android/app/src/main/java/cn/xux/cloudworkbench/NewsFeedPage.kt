@@ -35,7 +35,17 @@ import java.io.IOException
 import java.io.InterruptedIOException
 
 internal data class NewsQuery(val sourceId: String? = null, val keyword: String = "",
-    val category: NewsCategory? = null, val from: String? = null, val to: String? = null)
+    val category: NewsCategory? = null, val from: String? = null, val to: String? = null) {
+    fun path(): String {
+        val uri = Uri.Builder().path("/v1/server-data/news")
+        sourceId?.let { uri.appendQueryParameter("source", it) }
+        if (keyword.isNotEmpty()) uri.appendQueryParameter("q", keyword)
+        category?.let { uri.appendQueryParameter("category", it.key) }
+        from?.let { uri.appendQueryParameter("from", it) }
+        to?.let { uri.appendQueryParameter("to", it) }
+        return uri.build().toString()
+    }
+}
 internal data class NewsSource(val id: String, val title: String, val category: NewsCategory?)
 internal data class NewsArticle(val title: String, val publisher: String, val time: String?, val timeKind: String?,
     val summary: String?, val link: String?, val language: String?, val readerId: String?)
@@ -56,14 +66,7 @@ internal class NewsFeed(prefs: SharedPreferences, private val connection: () -> 
         refreshError = null
         val started = SystemClock.elapsedRealtime()
         try {
-            val builder = Uri.Builder()
-            query.sourceId?.let { builder.appendQueryParameter("source", it) }
-            if (query.keyword.isNotEmpty()) builder.appendQueryParameter("q", query.keyword)
-            query.category?.let { builder.appendQueryParameter("category", it.key) }
-            query.from?.let { builder.appendQueryParameter("from", it) }
-            query.to?.let { builder.appendQueryParameter("to", it) }
-            val suffix = builder.build().encodedQuery?.let { "?$it" }.orEmpty()
-            val response = readNews(transport, "/v1/server-data/news$suffix", started)
+            val response = readNews(transport, query.path(), started)
             val sources = response.getJSONArray("sources").objects().map {
                 NewsSource(it.getString("id"), it.getString("title"), NewsCategory.fromKey(it.optString("category")))
             }
@@ -118,7 +121,26 @@ internal class NewsFeed(prefs: SharedPreferences, private val connection: () -> 
     suspend fun readArticle(id: String): NewsArticleBody {
         articleCache[id]?.let { return it }
         val transport = connection() ?: throw IOException("SSH 连接已断开")
-        val response = transport.sync("/v1/server-data/news/article?id=$id")
+        val path = "/v1/server-data/news/article?id=$id"
+        suspend fun read() = try {
+            transport.sync(path)
+        } catch (error: GatewayException) {
+            if (error.status != 429) throw error
+            delay(900)
+            if (transport !== connection() || !transport.connected) throw error
+            transport.sync(path)
+        }
+        val response = try {
+            read()
+        } catch (error: GatewayException) {
+            val current = snapshot ?: throw error
+            if (error.status != 404 || current.articles.none { it.readerId == id }) throw error
+            val refreshed = readNews(transport, current.query.path(), SystemClock.elapsedRealtime())
+            if (transport !== connection() || refreshed.getJSONArray("articles").objects().none {
+                    it.optString("readerId") == id
+                }) throw error
+            read()
+        }
         check(transport === connection() && response.getString("id") == id)
         val rows = response.getJSONArray("blocks")
         require(rows.length() in 1..500)
@@ -357,7 +379,9 @@ internal fun NewsFeedPage(feed: NewsFeed, connected: Boolean, visible: Boolean) 
         }
         items(articles) { item ->
             var showOriginal by rememberSaveable(item.title, item.summary, item.link, preferredLanguage) { mutableStateOf(false) }
-            val translation = feed.translations.get(item, preferredLanguage)
+            val translation = feed.translations.get(item, preferredLanguage)?.takeIf {
+                it.title != item.title || (it.summary.isNotBlank() && it.summary != item.summary)
+            }
             val translated = translation?.takeUnless { showOriginals || showOriginal }
             Panel(Modifier.widthIn(max = 640.dp).fillMaxWidth().testTag("newsArticle")) {
                 if (translated != null) Text("机器译文", Modifier.testTag("newsTranslated"), color = Muted,
@@ -374,12 +398,14 @@ internal fun NewsFeedPage(feed: NewsFeed, connected: Boolean, visible: Boolean) 
                             Text(if (showOriginal) "查看译文" else "查看原文", maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     }
-                    if (item.link != null) {
+                    if (item.readerId != null) {
                         TextButton(onClick = { reading = item to (showOriginals || showOriginal) },
                             modifier = actionSize.testTag("readNewsArticle"),
                             contentPadding = PaddingValues(horizontal = 8.dp)) {
                             Text("阅读全文", maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
+                    } else if (item.link != null) {
+                        OpenNewsOriginalLink(item.link, modifier = actionSize)
                     }
                 }
             }

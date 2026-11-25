@@ -11,10 +11,9 @@ const referenceLifetime = 3 * 60 * 60 * 1000;
 const cacheLifetime = 15 * 60 * 1000;
 const blockKinds = new Map([
   ['P', 'paragraph'], ['H2', 'heading'], ['H3', 'heading'], ['H4', 'heading'], ['H5', 'heading'],
-  ['LI', 'bullet'], ['BLOCKQUOTE', 'quote'], ['PRE', 'paragraph'], ['DT', 'heading'], ['DD', 'paragraph'],
+  ['H6', 'heading'], ['LI', 'bullet'], ['BLOCKQUOTE', 'quote'], ['PRE', 'paragraph'], ['DT', 'heading'], ['DD', 'paragraph'],
   ['TR', 'paragraph']
 ]);
-const blockSelector = [...blockKinds.keys()].join(',').toLowerCase();
 const text = value => value?.replace(/\s+/g, ' ').trim() ?? '';
 const fail = (status, message) => Object.assign(new Error(message), { status });
 const unavailable = () => fail(503, '来源暂未提供可读取的正文');
@@ -77,22 +76,44 @@ function titleMatches(expected, actual) {
   return tokens.length > 0 && tokens.filter(token => present.has(token)).length >= Math.ceil(tokens.length * 0.65);
 }
 
+function* readableBlocks(container, block = { kind: null, value: '' }) {
+  for (const node of container.childNodes) {
+    if (node.nodeType === 3) { if (block.kind) block.value += node.textContent; continue; }
+    if (node.nodeType !== 1) continue;
+    const tag = node.tagName;
+    if (tag === 'BR') { block.value += ' '; continue; }
+    const kind = blockKinds.get(tag);
+    if (!kind) {
+      yield* readableBlocks(node, block);
+      continue;
+    }
+    const before = text(block.value);
+    if (before) yield { kind: block.kind, text: before };
+    block.value = '';
+    if (tag === 'TR') {
+      const cells = [...node.querySelectorAll('th,td')].map(cell => text(cell.textContent)).filter(Boolean);
+      if (cells.length) yield { kind, text: cells.join(' · ') };
+    } else {
+      const nested = { kind: tag === 'P' && (block.kind === 'bullet' || block.kind === 'quote') ? block.kind : kind, value: '' };
+      yield* readableBlocks(node, nested);
+      const after = text(nested.value);
+      if (after) yield { kind: nested.kind, text: after };
+    }
+  }
+}
+
 function extractBlocks(container) {
   let chars = 0;
   let truncated = false;
   const blocks = [];
-  for (const node of container.querySelectorAll(blockSelector)) {
-    if (node.parentElement?.closest(blockSelector)) continue;
-    const value = node.tagName === 'TR' ?
-      [...node.querySelectorAll('th,td')].map(cell => text(cell.textContent)).filter(Boolean).join(' · ') :
-      text(node.textContent);
-    if (!value) continue;
+  for (const { kind, text: value } of readableBlocks(container)) {
     if (blocks.length === maxBlocks || chars === maxText) {
       truncated = true;
       break;
     }
     const remaining = maxText - chars;
-    blocks.push({ kind: blockKinds.get(node.tagName), text: value.slice(0, remaining) });
+    const end = /[\ud800-\udbff]/.test(value[remaining - 1] ?? '') ? remaining - 1 : remaining;
+    if (end > 0) blocks.push({ kind, text: value.slice(0, end) });
     chars += Math.min(remaining, value.length);
     if (value.length > remaining) {
       truncated = true;
@@ -144,8 +165,7 @@ export function newsReader({ lookup, getArticlePage = readPage, now = Date.now }
     remember(article, source) {
       const url = article.link && source && articleUrl(article.link, source.readerHosts);
       if (!url) return null;
-      if ((['www.bbc.co.uk', 'www.bbc.com'].includes(url.hostname) && url.pathname.startsWith('/news/videos/')) ||
-          (url.hostname === 'www.eia.gov' && url.pathname === '/todayinenergy/detail.php' && !url.searchParams.get('id'))) return null;
+      if (['www.bbc.co.uk', 'www.bbc.com'].includes(url.hostname) && url.pathname.startsWith('/news/videos/')) return null;
       const id = createHash('sha256').update(article.sourceId).update('\0').update(url.href).digest('hex');
       references.delete(id);
       references.set(id, { ...article, storedAt: now() });

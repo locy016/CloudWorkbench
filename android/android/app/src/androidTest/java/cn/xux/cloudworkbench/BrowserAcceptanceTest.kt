@@ -304,6 +304,11 @@ class BrowserAcceptanceTest {
         compose.waitUntil(35000) { compose.onAllNodesWithTag("newsReaderBlock").fetchSemanticsNodes().size >= 2 }
         compose.onNodeWithTag("newsReaderTitle").assertIsDisplayed()
         compose.onNodeWithTag("openOriginalNewsPage").assertIsDisplayed()
+        compose.onNodeWithText("资讯正文").assertIsDisplayed()
+        val reader = compose.onNodeWithTag("newsReaderContent")
+        reader.performScrollToNode(hasTestTag("newsReaderLastBlock"))
+        compose.onNodeWithTag("newsReaderLastBlock").assertIsDisplayed()
+        reader.performScrollToIndex(0)
         compose.onNodeWithTag("toggleNewsReaderLanguage").assertTextContains("查看译文").performClick()
         compose.waitUntil(45000) { compose.onAllNodesWithTag("newsReaderTranslatedBlock").fetchSemanticsNodes().isNotEmpty() }
         val translated = compose.onAllNodesWithTag("newsReaderTranslatedBlock").onFirst().fetchSemanticsNode()

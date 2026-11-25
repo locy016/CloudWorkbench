@@ -54,6 +54,41 @@ class NewsTransportTest {
         assertEquals(6, attempts)
     }
 
+    @Test fun busyAndExpiredArticleReferencesRecoverWithoutChangingFilters() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val prefs = context.getSharedPreferences("news-transport-fixture", Context.MODE_PRIVATE)
+        val id = "a".repeat(64)
+        val query = NewsQuery(sourceId = "fixture", category = NewsCategory.Trade)
+        val requests = mutableListOf<String>()
+        var reads = 0
+        val connection = object : WorkbenchConnection {
+            override val connected = true
+            override fun disconnect() = Unit
+            override suspend fun connect(c: Credentials) = Unit
+            override suspend fun request(path: String, body: JSONObject?, delete: Boolean): JSONObject {
+                requests.add(path)
+                if (path == query.path()) return JSONObject("""{"sources":[],"unavailable":[],"matchedCount":1,
+                    "articles":[{"title":"Title","publisher":"Fixture","sourceId":"fixture","readerId":"$id"}]}""")
+                assertEquals("/v1/server-data/news/article?id=$id", path)
+                return when (++reads) {
+                    1 -> throw GatewayException(429, "Busy")
+                    2 -> throw GatewayException(404, "Expired")
+                    else -> JSONObject("""{"id":"$id","blocks":[{"kind":"paragraph","text":"Final paragraph"}],
+                        "truncated":false,"language":"en"}""")
+                }
+            }
+        }
+        val feed = NewsFeed(prefs) { connection }
+        feed.refresh(query)
+        val prior = feed.snapshot
+        val article = feed.readArticle(id)
+        assertEquals("Final paragraph", article.blocks.single().text)
+        assertEquals(prior, feed.snapshot)
+        assertEquals(2, requests.count { it == query.path() })
+        assertEquals(article, feed.readArticle(id))
+        assertEquals(3, reads)
+    }
+
     @Test fun slowUpstreamAndTransientFailureDoNotDiscardTheNewsFeed() = runBlocking {
         NewsGatewayFixture().use { gateway ->
             val context = InstrumentationRegistry.getInstrumentation().targetContext
