@@ -52,34 +52,49 @@ class VoiceAcceptanceTest {
             compose.mainClock.advanceTimeBy(400)
             compose.waitForIdle()
         }
-        fun outerWavePixels(): Int {
+        data class Outline(val count: Int, val centerX: Float)
+        fun scanOutline(innerRadius: Float, outerRadius: Float): Outline {
             val pixels = compose.onNodeWithTag("voiceWaveRing").captureToImage().toPixelMap()
             val radius = minOf(pixels.width, pixels.height) / 2f
+            val inner = innerRadius * radius
+            val outer = outerRadius * radius
             var count = 0
+            var sumX = 0f
             for (y in 0 until pixels.height) for (x in 0 until pixels.width) {
                 val dx = x + .5f - pixels.width / 2f
                 val dy = y + .5f - pixels.height / 2f
                 val distance = dx * dx + dy * dy
-                if (distance in (.70f * radius) * (.70f * radius)..(.88f * radius) * (.88f * radius)) {
+                if (distance in inner * inner..outer * outer) {
                     val pixel = pixels[x, y]
-                    if (pixel.red < .72f && pixel.blue > pixel.red + .12f) count++
+                    if (pixel.red < .72f && pixel.blue > pixel.red + .12f) {
+                        count++
+                        sumX += dx
+                    }
                 }
             }
-            return count
+            return Outline(count, sumX / (count.coerceAtLeast(1) * radius))
         }
 
         settle()
         compose.onNodeWithTag("voiceChatStatus").assertTextEquals("正在聆听")
         compose.onNodeWithTag("voiceChatTranscript").assertIsDisplayed()
         compose.onNodeWithTag("voiceChatReply").assertIsDisplayed()
-        val quiet = outerWavePixels()
+        val quiet = scanOutline(.73f, .94f).count
         compose.runOnUiThread { level.floatValue = .85f }
         settle()
-        assertTrue("The waveform should expand with speech", outerWavePixels() > quiet)
-        captureReviewScreen("voice-window-066")
+        assertTrue("The waveform should expand with speech", scanOutline(.73f, .94f).count > quiet)
+        val pixels = compose.onNodeWithTag("voiceWaveRing").captureToImage().toPixelMap()
+        val interior = pixels[(pixels.width * .383f).toInt(), pixels.height / 2]
+        assertTrue("The center icon should have an unfilled background", interior.red > .90f && interior.green > .90f)
+        captureReviewScreen("voice-window-067")
         compose.onNodeWithText("说完了").performClick()
         settle()
         compose.onNodeWithTag("voiceChatStatus").assertTextEquals("正在等待回复")
+        val firstCenter = scanOutline(.49f, .80f).centerX
+        compose.mainClock.advanceTimeBy(2400)
+        compose.waitForIdle()
+        val secondCenter = scanOutline(.49f, .80f).centerX
+        assertTrue("The outer wave should drift around the stationary icon", kotlin.math.abs(secondCenter - firstCenter) > .025f)
         compose.runOnUiThread { phase.value = VoiceDialogPhase.Reading }
         settle()
         compose.onNodeWithTag("voiceChatStatus").assertTextEquals("正在朗读")

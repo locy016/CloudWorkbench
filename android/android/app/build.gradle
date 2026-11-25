@@ -10,8 +10,8 @@ android {
         applicationId 'cn.xux.cloudworkbench'
         minSdk 26
         targetSdk 35
-        versionCode = 79
-        versionName = '0.4.66'
+        versionCode = 80
+        versionName = '0.4.67'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }
     if (providers.gradleProperty('usbAcceptance').isPresent()) {

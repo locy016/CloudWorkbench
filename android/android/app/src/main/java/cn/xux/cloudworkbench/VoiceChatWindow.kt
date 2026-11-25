@@ -7,10 +7,8 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -22,7 +20,6 @@ import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -33,6 +30,8 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
@@ -120,13 +119,10 @@ private fun VoiceWaveRing(phase: VoiceDialogPhase, color: Color, level: () -> Fl
     val reactsToAudio = phase == VoiceDialogPhase.Listening || reading
     val amplitude by animateFloatAsState(if (reactsToAudio) level() else 0f, tween(155), label = "语音音量")
     val failed = phase == VoiceDialogPhase.Failed
-    val turn = if (failed) null else key(reactsToAudio, reading) {
-        val period = if (reading) 2700 else if (reactsToAudio) 3100 else 4800
-        rememberInfiniteTransition(label = "声纹圈").animateFloat(
-            initialValue = 0f, targetValue = fullTurn, animationSpec = infiniteRepeatable(tween(period, easing = LinearEasing)),
-            label = "声波沿圆周移动"
-        )
-    }
+    val turn = if (failed) null else rememberInfiniteTransition(label = "声纹圈").animateFloat(
+        initialValue = 0f, targetValue = fullTurn, animationSpec = infiniteRepeatable(tween(5000, easing = LinearEasing)),
+        label = "声波沿圆周移动"
+    )
     val colors = when (phase) {
         VoiceDialogPhase.Reading -> listOf(color, Color(0xFF087E9B), Color(0xFF3974BB))
         VoiceDialogPhase.Waiting, VoiceDialogPhase.Synthesizing -> listOf(color, Color(0xFF6258BE), Color(0xFF8D63C2))
@@ -145,19 +141,21 @@ private fun VoiceWaveRing(phase: VoiceDialogPhase, color: Color, level: () -> Fl
             val radius = size.minDimension / 2
             val spin = turn?.value ?: 0f
             val energy = amplitude
-            drawCircle(Brush.radialGradient(listOf(colors[1].copy(alpha = .10f), Color.Transparent),
-                center = center, radius = radius), radius)
+            val waveCenter = if (failed) center else center + Offset(
+                radius * (.048f + .020f * energy) * sin(spin),
+                radius * (.034f + .017f * energy) * cos(spin)
+            )
+            val movement = if (reading) spin else -spin
+            val waveGain = (if (reading) .87f else 1f) * (.024f + .22f * energy)
             trace.reset()
             directions.forEachIndexed { index, direction ->
                 val angle = fullTurn * index / directions.size
                 val displacement = when {
                     reactsToAudio -> {
-                        val movement = if (reading) spin else -spin
                         val spread = .72f + .19f * sin(2 * angle + .8f) + .09f * sin(3 * angle - 1.1f)
-                        val wave = .54f * sin(8 * angle + 3 * movement) + .29f * sin(15 * angle + 5 * movement + .52f) +
-                            .17f * cos(23 * angle + 9 * movement - .6f)
-                        val gain = if (reading) .87f else 1f
-                        .02f * sin(3 * angle) + gain * (.024f + .22f * energy) * spread * wave
+                        val wave = .54f * sin(8 * angle + movement) + .29f * sin(15 * angle + 2 * movement + .52f) +
+                            .17f * cos(23 * angle + 3 * movement - .6f)
+                        .02f * sin(3 * angle) + waveGain * spread * wave
                     }
                     failed -> 0f
                     else -> {
@@ -166,23 +164,30 @@ private fun VoiceWaveRing(phase: VoiceDialogPhase, color: Color, level: () -> Fl
                         .006f * sin(2 * angle + .3f) + crest * (.012f + .03f * sin(7 * travel))
                     }
                 }
-                val point = center + direction * (radius * (.64f + displacement))
+                val point = waveCenter + direction * (radius * (.64f + displacement))
                 if (index == 0) trace.moveTo(point.x, point.y) else trace.lineTo(point.x, point.y)
             }
             trace.close()
             drawPath(trace, Brush.linearGradient(colors, start = Offset(0f, size.height * .78f),
                 end = Offset(size.width, size.height * .18f)), style = Stroke(2.2.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
+
+            val breath = if (failed) 0f else .5f + .5f * sin(spin)
+            val iconRingRadius = 26.dp.toPx() * (1f + .035f * breath + .045f * energy)
+            rotate(degrees = spin * 360f / fullTurn) {
+                drawCircle(Brush.sweepGradient(listOf(color, colors.last(), color), center = center),
+                    radius = iconRingRadius, style = Stroke(1.7.dp.toPx()))
+            }
         }
-        Box(Modifier.size(52.dp).background(Brush.linearGradient(listOf(color, colors.last())), CircleShape),
-            contentAlignment = Alignment.Center) {
-            Icon(when (phase) {
-                VoiceDialogPhase.Listening -> Icons.Outlined.Mic
-                VoiceDialogPhase.Transcribing -> Icons.Outlined.GraphicEq
-                VoiceDialogPhase.Reading -> Icons.AutoMirrored.Outlined.VolumeUp
-                VoiceDialogPhase.Failed -> Icons.Outlined.Info
-                else -> Icons.Outlined.HourglassTop
-            }, contentDescription = null, tint = Color.White, modifier = Modifier.size(26.dp))
-        }
+        Icon(when (phase) {
+            VoiceDialogPhase.Listening -> Icons.Outlined.Mic
+            VoiceDialogPhase.Transcribing -> Icons.Outlined.GraphicEq
+            VoiceDialogPhase.Reading -> Icons.AutoMirrored.Outlined.VolumeUp
+            VoiceDialogPhase.Failed -> Icons.Outlined.Info
+            else -> Icons.Outlined.HourglassTop
+        }, contentDescription = null, tint = color, modifier = Modifier.size(26.dp).graphicsLayer {
+            scaleX = 1f + .07f * amplitude
+            scaleY = scaleX
+        })
     }
 }
 
