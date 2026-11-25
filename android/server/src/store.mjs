@@ -33,6 +33,7 @@ export class Store {
       this.db.exec('ALTER TABLE threads ADD COLUMN codexId TEXT; UPDATE threads SET codexId=id;');
     }
     if (!this.prepare('PRAGMA table_info(threads)').all().some(c => c.name === 'projectId')) this.db.exec('ALTER TABLE threads ADD COLUMN projectId TEXT;');
+    if (!this.prepare('PRAGMA table_info(threads)').all().some(c => c.name === 'model')) this.db.exec('ALTER TABLE threads ADD COLUMN model TEXT;');
     this.db.exec(`CREATE INDEX IF NOT EXISTS threads_updated_id ON threads(updated DESC,id DESC);
       CREATE INDEX IF NOT EXISTS threads_codex_id ON threads(codexId);
       CREATE INDEX IF NOT EXISTS attachments_thread ON attachments(threadId);`);
@@ -45,7 +46,16 @@ export class Store {
     }
     return statement;
   }
-  create(id, title) { const n = Date.now(); this.prepare('INSERT INTO threads(id,title,created,updated,status,turnId,error) VALUES(?,?,?,?,?,?,?)').run(id, title, n, n, 'idle', null, null); this.onChange?.(id, true); }
+  create(id, title, projectId = null, model = null) {
+    const n = Date.now();
+    this.prepare('INSERT INTO threads(id,title,created,updated,status,projectId,model) VALUES(?,?,?,?,?,?,?)')
+      .run(id, title, n, n, 'idle', projectId, model);
+    this.onChange?.(id, true);
+  }
+  setModel(id, model) {
+    this.prepare('UPDATE threads SET model=? WHERE id=?').run(model, id);
+    this.onChange?.(id, false);
+  }
   remote(id, codexId) { this.prepare('UPDATE threads SET codexId=? WHERE id=?').run(codexId, id); }
   project(id, projectId) { this.prepare('UPDATE threads SET projectId=? WHERE id=?').run(projectId, id); }
   attachment(id, threadId, path, mime) { this.prepare('INSERT INTO attachments VALUES(?,?,?,?,?)').run(id, threadId, path, mime, Date.now()); }

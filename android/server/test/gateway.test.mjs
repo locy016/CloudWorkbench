@@ -9,6 +9,11 @@ class Fake extends EventEmitter {
   async start() {}
   async rpc(method, params) {
     this.calls.push({ method, params });
+    if (method === 'model/list') return { data: [
+      { id: 'fast', model: 'fast', displayName: 'Fast', isDefault: true },
+      { id: 'deep-picker', model: 'deep', displayName: 'Deep' },
+      { model: 'internal', displayName: 'Internal', hidden: true },
+    ], nextCursor: null };
     if (method === 'thread/start') return { thread: { id: 'thread-' + ++this.count } };
     if (method === 'turn/start') return { turn: { id: 'turn-1' } };
     if (method === 'turn/interrupt') this.emit('notification', { method: 'turn/completed', params: { threadId: params.threadId, turn: { status: 'interrupted' } } });
@@ -28,6 +33,42 @@ async function fixture(t, options = {}) {
   };
   return { g, codex, store, call };
 }
+test('assistant defaults new threads while legacy workspaces and the selected model survive resume', async t => {
+  const { call, store, codex } = await fixture(t, { projects: [
+    { id: 'site', name: 'Website', path: '/test/site' },
+    { id: 'ops', name: 'Operations', path: '/test/ops' },
+    { id: 'cloud-assistant', name: '云端助理', path: '/test/assistant' },
+  ] });
+  store.create('old-chat', '旧会话');
+  assert.equal((await call('/v1/projects')).body.defaultProjectId, 'cloud-assistant');
+  assert.deepEqual((await call('/v1/threads?projectId=site')).body.threads.map(row => row.id), ['old-chat']);
+  assert.deepEqual((await call('/v1/models')).body.models, [
+    { id: 'fast', name: 'Fast', default: true }, { id: 'deep', name: 'Deep', default: false },
+  ]);
+  assert.equal((await call('/v1/models', undefined, { 'x-workbench-ingress': 'web' })).status, 404);
+  assert.equal((await call('/v1/threads', { model: 'internal' })).status, 400);
+  const { id, model, projectId } = (await call('/v1/threads', { model: 'fast' })).body.thread;
+  assert.deepEqual([model, projectId], ['fast', 'cloud-assistant']);
+  const messages = `/v1/threads/${id}/messages`;
+  const settings = `/v1/threads/${id}/model`;
+  const first = await call(messages, { text: '你好', requestId: 'request-model-01' });
+  assert.equal(first.status, 200);
+  assert.equal(codex.calls.find(call => call.method === 'thread/start').params.cwd, '/test/assistant');
+  assert.equal(codex.calls.find(call => call.method === 'turn/start').params.model, 'fast');
+  assert.equal((await call(settings, { model: 'deep' })).status, 409);
+  const remoteId = store.thread(id).codexId;
+  codex.emit('notification', { method: 'turn/completed', params: { threadId: remoteId, turn: { status: 'completed' } } });
+  assert.equal((await call(settings, { model: 'deep-picker' })).status, 400);
+  assert.equal((await call(settings, { model: 'deep' })).body.thread.model, 'deep');
+  assert.equal((await call(messages, { text: '你好', requestId: 'request-model-01' })).body.duplicate, true);
+  assert.equal(codex.calls.filter(call => call.method === 'turn/start').length, 1);
+  codex.emit('disconnected');
+  assert.equal((await call(messages, { text: '继续', requestId: 'request-model-02' })).status, 200);
+  assert.deepEqual(codex.calls.filter(call => call.method === 'turn/start').map(call => call.params.model), ['fast', 'deep']);
+  const resumed = codex.calls.find(call => call.method === 'thread/resume').params;
+  assert.deepEqual([resumed.threadId, resumed.cwd, resumed.model], [remoteId, '/test/assistant', 'deep']);
+  assert.equal((await call(`/v1/threads/${id}`)).body.thread.model, 'deep');
+});
 test('cleanup is project-scoped and deletion respects live tasks and removes history', async t => {
   const { call, store, codex } = await fixture(t, {
     projects: [{ id: 'a', name: 'A', path: '/test/a' }, { id: 'b', name: 'B', path: '/test/b' }]

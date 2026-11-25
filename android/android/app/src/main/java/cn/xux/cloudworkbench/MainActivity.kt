@@ -221,7 +221,7 @@ class MainActivity : ComponentActivity() {
             vm.activeProjects.forEach { project ->
                 val id = project.getString("id")
                 DropdownMenuItem(
-                    text = { Column { Text(project.getString("name")); Text(project.getString("path"), fontSize = 12.sp) } },
+                    text = { Text(project.getString("name") + if (id == vm.defaultWorkspaceId) " · 默认" else "") },
                     leadingIcon = { if (id == vm.projectId) Icon(Icons.Outlined.Check, "当前工作区") },
                     onClick = { open = false; vm.selectProject(id) },
                     modifier = Modifier.testTag("project-$id")
@@ -696,6 +696,9 @@ private data class MetricValue(val label: String, val value: String, val hint: S
                     Icon(Icons.Outlined.AddComment, "新对话")
                 }
             }
+        }
+        if (!keyboardOpen && !floatingKeyboard && !vm.selectedConversationArchived) {
+            ConversationModelPicker(vm, Modifier.padding(start = LocalPagePadding.current))
         }
         val list = key(vm.currentId) { rememberLazyListState() }
         if (vm.messages.isEmpty() && vm.currentId != null) {

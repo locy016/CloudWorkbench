@@ -100,6 +100,20 @@ class WorkbenchModel internal constructor(
     var projects by mutableStateOf<List<JSONObject>>(emptyList()); private set
     private var projectsWithEmptyThreads by mutableStateOf(emptySet<String>())
     var projectId by mutableStateOf(prefs.getString("project", "default") ?: "default"); private set
+    internal var defaultWorkspaceId by mutableStateOf<String?>(null); private set
+    private var workspaceInitialized = false
+    private var preferredWorkspace = prefs.getString("preferred-workspace", null)
+    private var draftModel by mutableStateOf(prefs.getString("draft-model:$projectId", null))
+    internal var models by mutableStateOf<List<ConversationModel>>(emptyList()); private set
+    internal var modelsLoading by mutableStateOf(false); private set
+    internal var modelError by mutableStateOf<String?>(null); private set
+    internal val conversationModel get() = if (currentId == null) draftModel else
+        current?.optString("model")?.takeUnless { it.isBlank() || it == "null" }
+    internal val conversationModelLabel get() = models.firstOrNull { it.id == conversationModel }?.name
+        ?: conversationModel ?: if (currentId != null) "沿用会话模型"
+        else models.firstOrNull { it.default }?.name ?: "默认模型"
+    internal val canChooseConversationModel get() =
+        connected && hostOnline && !connecting && !reconnecting && !busy && !running && canSendInConversation
     var hostOnline by mutableStateOf(false); private set
     val hostName = "阿里云 · Ubuntu"
     var currentId by mutableStateOf(prefs.getString("thread-cloud", prefs.getString("thread", null))); private set
@@ -279,6 +293,7 @@ class WorkbenchModel internal constructor(
     }
     val configured get() = credentials.configured
     val activeProjects get() = projects.filterNot { it.optBoolean("archived") }
+        .sortedByDescending { it.optString("id") == defaultWorkspaceId }
     val selectedConversationArchived get() = currentId != null &&
         projects.any { it.optString("id") == threadProjectId(current) && it.optBoolean("archived") }
     internal val canSendInConversation get() = if (currentId == null) {
@@ -617,14 +632,19 @@ class WorkbenchModel internal constructor(
         val selectedId = currentId
         val now = SystemClock.elapsedRealtime()
         if (lastProjects == 0L || now - lastProjects >= PROJECTS_INTERVAL_MS) {
-            val availableProjects = connection.sync("/v1/projects").getJSONArray("projects").objects()
+            val directory = connection.sync("/v1/projects")
+            val availableProjects = directory.getJSONArray("projects").objects()
             if (busy || selectedId != currentId) return
             projects = availableProjects
             lastProjects = now
-            if (activeProjects.none { it.optString("id") == projectId } &&
-                drafts["new:$projectId"]?.messageText() == null) {
-                activeProjects.firstOrNull()?.let { setProject(it.getString("id")) }
+            defaultWorkspaceId = directory.optString("defaultProjectId").takeIf { advertised ->
+                availableProjects.any { it.optString("id") == advertised && !it.optBoolean("archived") }
             }
+            if ((!workspaceInitialized && selectedId == null && defaultWorkspaceId != null) ||
+                (activeProjects.none { it.optString("id") == projectId } && drafts["new:$projectId"]?.messageText() == null)) {
+                preferredDraftWorkspace()?.let(::setProject)
+            }
+            workspaceInitialized = true
         }
         if (notice.overview || notice.catchUp) {
             val summary = connection.sync("/v1/threads")
@@ -686,11 +706,53 @@ class WorkbenchModel internal constructor(
         if (busy || activeProjects.none { it.optString("id") == id } ||
             (projectId == id && !selectedConversationArchived)) return
         setProject(id)
+        preferredWorkspace = id
+        prefs.edit().putString("preferred-workspace", id).apply()
         openDraft()
     }
+    private fun preferredDraftWorkspace(): String? =
+        preferredWorkspace?.takeIf { id -> activeProjects.any { it.optString("id") == id } }
+            ?: defaultWorkspaceId ?: activeProjects.firstOrNull()?.optString("id")
+
     private fun setProject(id: String) {
         projectId = id
+        draftModel = prefs.getString("draft-model:$id", null)
         prefs.edit().putString("project", id).apply()
+    }
+
+    internal fun loadConversationModels() {
+        if (!canChooseConversationModel || modelsLoading) return
+        val transport = connection
+        viewModelScope.launch {
+            modelsLoading = true
+            modelError = null
+            try {
+                val options = transport.sync("/v1/models").getJSONArray("models").objects().map {
+                    ConversationModel(it.getString("id"), it.getString("name"), it.optBoolean("default"))
+                }
+                if (transport === connection) models = options
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                if (transport === connection) modelError = "暂时无法读取模型，请重试"
+            } finally {
+                modelsLoading = false
+            }
+        }
+    }
+
+    internal fun chooseConversationModel(model: ConversationModel) {
+        if (!canChooseConversationModel || model !in models || model.id == conversationModel) return
+        val id = currentId
+        if (id == null) {
+            draftModel = model.id
+            prefs.edit().putString("draft-model:$projectId", model.id).apply()
+        } else action {
+            val changed = request("/v1/threads/$id/model", JSONObject().put("model", model.id)).getJSONObject("thread")
+            check(changed.getString("id") == id)
+            if (currentId == id) current = changed
+            threads = threads.map { if (it.optString("id") == id) changed else it }
+        }
     }
     fun projectName(id: String): String =
         projects.find { it.optString("id") == id }?.optString("name")
@@ -980,6 +1042,7 @@ class WorkbenchModel internal constructor(
     }
     fun newThread() {
         if (!busy) {
+            if (currentId != null && defaultWorkspaceId != null) preferredDraftWorkspace()?.let(::setProject)
             openDraft()
             openProject()
         }
@@ -1005,7 +1068,11 @@ class WorkbenchModel internal constructor(
         action {
             val id = currentId ?: run {
                 val key = draftKey
-                val new = selectSnapshot(request("/v1/threads", JSONObject().put("title", "新的对话").put("projectId", projectId)))
+                val create = JSONObject().put("title", "新的对话").put("projectId", projectId)
+                draftModel?.let { create.put("model", it) }
+                val new = selectSnapshot(request("/v1/threads", create))
+                draftModel = null
+                prefs.edit().remove("draft-model:$projectId").apply()
                 saveDrafts(mapOf(key to DraftRecord(), new to draftRecord(key)))
                 attachmentErrors.remove(key)
                 new

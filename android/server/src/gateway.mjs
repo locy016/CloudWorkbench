@@ -5,6 +5,7 @@ import { configureHttpTransport, respondJson } from './http-transport.mjs';
 import { privateLoopback } from './mobile-session.mjs';
 import { exchangeRates } from './exchange-rates.mjs';
 import { newsSourceCatalog } from './news-sources.mjs';
+import { codexModels } from './models.mjs';
 import { createServer } from 'node:http';
 import { timingSafeEqual, randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
@@ -36,6 +37,9 @@ export class Gateway {
       throw new Error('Codex shared writable roots must be absolute paths');
     }
     Object.assign(this, { codex, store, token, cwd, events, sshMobile, projects, sharedWritableRoots, codexAccess });
+    this.defaultProjectId = (projects.find(project => project.id === 'cloud-assistant' && !project.archived) ??
+      projects.find(project => !project.archived))?.id;
+    this.listModels = codexModels(codex);
     this.readExchangeRates = readExchangeRates;
     this.newsSources = newsSources;
     this.translateNews = translateNews;
@@ -125,7 +129,10 @@ export class Gateway {
         return respond(200, await (batch ? this.translateNews.batch(input) : this.translateNews.one(input)));
       }
       if (req.method === 'GET' && path === '/v1/status') return respond(200, await this.status(url.searchParams.get('refresh') === '1'));
-      if (req.method === 'GET' && path === '/v1/projects') return respond(200, { projects: this.projects });
+      if (req.method === 'GET' && path === '/v1/projects') {
+        return respond(200, { projects: this.projects, defaultProjectId: this.defaultProjectId ?? null });
+      }
+      if (req.method === 'GET' && path === '/v1/models') return respond(200, { models: await this.availableModels() });
       if (req.method === 'POST' && path === '/v1/attachments') {
         const b = await this.body(req, 8 * 1024 * 1024);
         const thread = this.store.thread(String(b.threadId || ''));
@@ -186,13 +193,13 @@ export class Gateway {
       }
       if (req.method === 'POST' && path === '/v1/threads') {
         const b = await this.body(req);
-        const project = this.projects.find(p => !p.archived && (b.projectId ? p.id === b.projectId : true));
+        const project = this.projects.find(p => !p.archived && p.id === (b.projectId || this.defaultProjectId));
         if (!project) throw fail(400, '项目未获准接入');
-        const id = randomUUID(); this.store.create(id, String(b.title || '新的对话').slice(0, 60));
-        this.store.project(id, project.id);
+        const model = b.model == null ? null : await this.checkedModel(b.model);
+        const id = randomUUID(); this.store.create(id, String(b.title || '新的对话').slice(0, 60), project.id, model);
         return respond(201, this.snapshot(id));
       }
-      const match = path.match(/^\/v1\/threads\/([a-zA-Z0-9-]+)(?:\/(messages|cancel))?$/);
+      const match = path.match(/^\/v1\/threads\/([a-zA-Z0-9-]+)(?:\/(messages|cancel|model))?$/);
       if (match) {
         const [, id, action] = match;
         const thread = this.store.thread(id);
@@ -205,6 +212,17 @@ export class Gateway {
         }
         if (!thread) throw fail(404, '会话不存在');
         if (req.method === 'GET' && !action) return respond(200, this.snapshot(id));
+        if (req.method === 'POST' && action === 'model') {
+          const body = await this.body(req, 2048);
+          const model = await this.checkedModel(body?.model);
+          const latest = this.store.thread(id);
+          if (!latest) throw fail(404, '会话不存在');
+          const project = this.projects.find(p => p.id === (latest.projectId || this.projects[0].id));
+          if (!project || project.archived) throw fail(409, '此工作区已停用，仅可查看历史会话');
+          if (active(latest.status)) throw fail(409, '此会话正在运行，任务结束后可切换模型');
+          this.store.setModel(id, model);
+          return respond(200, { thread: this.store.thread(id) });
+        }
         if (req.method === 'POST' && action === 'messages') return respond(200, await this.message(id, await this.body(req)));
         if (req.method === 'POST' && action === 'cancel') {
           const t = this.store.thread(id);
@@ -224,6 +242,15 @@ export class Gateway {
     for (const id of ids) this.loaded.delete(id);
   }
   snapshot(id) { return { thread: this.store.thread(id), messages: this.store.messages(id), approvals: [...this.approvals.values()].filter(a => a.threadId === id) }; }
+  async availableModels() {
+    try { return await this.listModels(); }
+    catch { throw fail(503, '暂时无法读取 Codex 模型目录，请重试'); }
+  }
+  async checkedModel(value) {
+    if (typeof value !== 'string' || !value.trim() || value.length > 120 ||
+        !(await this.availableModels()).some(model => model.id === value)) throw fail(400, '此模型当前不可选择');
+    return value;
+  }
   receipt(id, requestId) {
     const record = this.store.request(requestId);
     let state = record?.threadId === id ? record.state : 'missing';
@@ -265,8 +292,9 @@ export class Gateway {
       await this.codex.start();
       const fullAccess = this.codexAccess === 'danger-full-access';
       const approvalPolicy = fullAccess ? 'never' : 'on-request';
+      const modelOverride = thread.model ? { model: thread.model } : {};
       const options = {
-        cwd, approvalPolicy, approvalsReviewer: 'user', sandbox: this.codexAccess,
+        cwd, approvalPolicy, approvalsReviewer: 'user', sandbox: this.codexAccess, ...modelOverride,
         developerInstructions: fullAccess ? instructions
           : instructions + ' 遇到沙箱限制时通过审批工具请求授权。'
       };
@@ -283,7 +311,7 @@ export class Gateway {
         this.loaded.add(id);
       }
       const r = await this.codex.rpc('turn/start', {
-        threadId: remoteId, input, cwd, approvalPolicy, approvalsReviewer: 'user',
+        threadId: remoteId, input, cwd, approvalPolicy, approvalsReviewer: 'user', ...modelOverride,
         sandboxPolicy: fullAccess ? { type: 'dangerFullAccess' }
           : { type: 'workspaceWrite', writableRoots: [...new Set([cwd, ...this.sharedWritableRoots])], networkAccess: true },
       });
