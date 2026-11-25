@@ -10,6 +10,7 @@ import android.media.MediaRecorder
 import android.os.SystemClock
 import android.util.Log
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.CancellationException
@@ -33,6 +34,8 @@ internal class OfflineDictation(private val context: Context, private val scope:
     var error by mutableStateOf<String?>(null)
         private set
     var owner by mutableStateOf<String?>(null)
+        private set
+    var voiceLevel by mutableFloatStateOf(0f)
         private set
     private val stopping = AtomicBoolean()
     private var discarding = false
@@ -106,6 +109,7 @@ internal class OfflineDictation(private val context: Context, private val scope:
                 }
                 stage = null
                 partial = ""
+                voiceLevel = 0f
                 owner = null
                 if (shouldCommit) onTurn?.invoke(
                     segments.joinToString(" ").takeIf { !discarding && error == null && it.isNotBlank() }
@@ -125,6 +129,7 @@ internal class OfflineDictation(private val context: Context, private val scope:
     fun stop(draftKey: String? = null) {
         if (stage == null || (draftKey != null && owner != draftKey)) return
         stopping.set(true)
+        voiceLevel = 0f
         if (stage == Stage.Listening) stage = Stage.Finishing
     }
 
@@ -166,7 +171,14 @@ internal class OfflineDictation(private val context: Context, private val scope:
                     error("AudioRecord.read failed: $count")
                 }
                 if (count == 0) continue
-                val text = stream.accept(FloatArray(count) { pcm[it] / 32768f })
+                val samples = FloatArray(count) { pcm[it] / 32768f }
+                if (oneTurn) {
+                    val level = voiceWaveLevel((samples.sumOf { (it * it).toDouble() } / count).toFloat())
+                    withContext(Dispatchers.Main.immediate) {
+                        if (!stopping.get()) voiceLevel = level
+                    }
+                }
+                val text = stream.accept(samples)
                 heardSpeech = heardSpeech || text.isNotBlank()
                 val elapsed = SystemClock.elapsedRealtime() - startedAt
                 if (oneTurn && (elapsed >= 60_000 || !heardSpeech && elapsed >= 25_000)) break

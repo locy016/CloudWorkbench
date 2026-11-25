@@ -21,6 +21,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.util.Locale
 import java.util.UUID
 
@@ -42,13 +43,13 @@ internal class VoicePlayback(context: Context) : AutoCloseable {
         return local != null && speech.setVoice(local) == TextToSpeech.SUCCESS
     }
 
-    suspend fun speak(text: String): AudioDeviceInfo? {
+    suspend fun speak(text: String, onLevel: ((Float) -> Unit)? = null): AudioDeviceInfo? {
         val speech = engine ?: return null
         val spoken = voiceReadingText(text).takeIf(String::isNotBlank) ?: return null
         val audio = app.getSystemService(AudioManager::class.java) ?: return null
         val reading = synthesize(speech, spoken) ?: return null
         val output = audio.voiceOutput() ?: error("没有可用的朗读输出，可在会话中查看文字回复")
-        if (!play(audio, output, reading)) {
+        if (!play(audio, output, reading, onLevel)) {
             if (output.isBluetoothPlayback || audio.voiceOutput()?.isBluetoothPlayback == true) {
                 error("蓝牙朗读已中断，可在会话中查看文字回复")
             }
@@ -105,7 +106,7 @@ internal class VoicePlayback(context: Context) : AutoCloseable {
         }
     }
 
-    private suspend fun play(audio: AudioManager, output: AudioDeviceInfo, reading: Reading): Boolean =
+    private suspend fun play(audio: AudioManager, output: AudioDeviceInfo, reading: Reading, onLevel: ((Float) -> Unit)?): Boolean =
         withContext(Dispatchers.Main.immediate) {
             val format = reading.format
             val bytesPerSample = when (format.encoding) {
@@ -121,14 +122,14 @@ internal class VoicePlayback(context: Context) : AutoCloseable {
                 .setTransferMode(AudioTrack.MODE_STREAM).setBufferSizeInBytes(bufferSize).build()
             try {
                 if (!track.setPreferredDevice(output)) return@withContext false
-                playOnSelectedOutput(audio, track, output, reading, frameSize, bufferSize)
+                playOnSelectedOutput(audio, track, output, reading, frameSize, bufferSize, onLevel)
             } finally {
                 track.release()
             }
         }
 
     private suspend fun playOnSelectedOutput(audio: AudioManager, track: AudioTrack, output: AudioDeviceInfo,
-        reading: Reading, frameSize: Int, bufferSize: Int): Boolean {
+        reading: Reading, frameSize: Int, bufferSize: Int, onLevel: ((Float) -> Unit)?): Boolean {
         val handler = Handler(Looper.getMainLooper())
         var allowed = true
         var audible = false
@@ -171,14 +172,26 @@ internal class VoicePlayback(context: Context) : AutoCloseable {
             if (!allowed || audio.voiceOutput()?.id != output.id) return false
             audible = true
             track.setVolume(1f)
-            val pcm = ByteBuffer.wrap(reading.bytes)
-            val end = (primedBytes + reading.bytes.size) / frameSize
+            val pcm = ByteBuffer.wrap(reading.bytes).order(ByteOrder.nativeOrder())
+            val firstFrame = primedBytes / frameSize
+            val end = firstFrame + reading.bytes.size / frameSize
+            var nextLevelFrame = firstFrame
             withTimeoutOrNull(150_000) {
                 while (allowed && (pcm.hasRemaining() || track.playbackHeadPosition < end)) {
                     if (pcm.hasRemaining() && track.write(pcm, pcm.remaining(), AudioTrack.WRITE_NON_BLOCKING) < 0) return@withTimeoutOrNull false
+                    if (onLevel != null) {
+                        val frame = track.playbackHeadPosition
+                        if (frame >= nextLevelFrame) {
+                            onLevel(reading.levelAt(pcm, frame - firstFrame, frameSize))
+                            nextLevelFrame = frame + reading.format.sampleRate / 16
+                        }
+                    }
                     delay(20)
                 }
-                if (allowed) delay(250)
+                if (allowed) {
+                    onLevel?.invoke(0f)
+                    delay(250)
+                }
                 allowed && track.routedDevice?.id == output.id
             } == true
         } finally {
@@ -197,7 +210,24 @@ internal class VoicePlayback(context: Context) : AutoCloseable {
         engine = null
     }
 
-    private data class Reading(val format: AudioFormat, val bytes: ByteArray)
+    private data class Reading(val format: AudioFormat, val bytes: ByteArray) {
+        fun levelAt(pcm: ByteBuffer, frame: Int, frameSize: Int): Float {
+            val first = frame * frameSize
+            val last = minOf(bytes.size, first + format.sampleRate / 20 * frameSize)
+            var energy = 0f
+            var count = 0
+            for (offset in first until last step (frameSize * 4)) {
+                val sample = when (format.encoding) {
+                    AudioFormat.ENCODING_PCM_8BIT -> ((pcm.get(offset).toInt() and 0xff) - 128) / 128f
+                    AudioFormat.ENCODING_PCM_16BIT -> pcm.getShort(offset) / 32768f
+                    else -> pcm.getFloat(offset)
+                }
+                energy += sample * sample
+                count++
+            }
+            return if (count == 0) 0f else voiceWaveLevel(energy / count)
+        }
+    }
 }
 
 private val AudioDeviceInfo.isBluetoothPlayback: Boolean

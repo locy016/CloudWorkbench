@@ -4,8 +4,6 @@ import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material3.*
@@ -13,8 +11,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -79,11 +75,13 @@ private fun VoiceChatDialog(vm: WorkbenchModel, onClose: () -> Unit) {
     val context = LocalContext.current
     val playback = remember { VoicePlayback(context) }
     val owner = remember { "voice-chat-${UUID.randomUUID()}" }
-    var phase by remember { mutableStateOf("正在准备朗读") }
+    var phase by remember { mutableStateOf(VoiceDialogPhase.Preparing) }
     var heard by remember { mutableStateOf("") }
     var reply by remember { mutableStateOf("") }
-    var failed by remember { mutableStateOf(false) }
-    val listening = vm.dictation.owner == owner && vm.dictation.stage == OfflineDictation.Stage.Listening
+    var failure by remember { mutableStateOf<String?>(null) }
+    var playbackLevel by remember { mutableFloatStateOf(0f) }
+    val captureStage = vm.dictation.stage.takeIf { vm.dictation.owner == owner }
+    val listening = captureStage == OfflineDictation.Stage.Listening
     val partial = vm.dictation.partial.takeIf { listening && it.isNotBlank() }
     DisposableEffect(playback, owner) {
         onDispose {
@@ -101,18 +99,23 @@ private fun VoiceChatDialog(vm: WorkbenchModel, onClose: () -> Unit) {
                 },
                 exchange = { vm.awaitVoiceReply(vm.sendVoiceTurn(it).await()) },
                 speak = {
-                    check(playback.speak(it) != null) { "朗读已中断，可在会话中查看文字回复" }
+                    playbackLevel = 0f
+                    check(playback.speak(it) { level ->
+                        phase = VoiceDialogPhase.Reading
+                        playbackLevel = level
+                    } != null) { "朗读已中断，可在会话中查看文字回复" }
                 },
                 onStage = { stage, text ->
                     phase = when (stage) {
-                        VoiceChatStage.Preparing -> "正在准备麦克风"
+                        VoiceChatStage.Preparing -> VoiceDialogPhase.Preparing
                         VoiceChatStage.Waiting -> {
                             heard = text.orEmpty()
-                            "正在等待回复"
+                            reply = ""
+                            VoiceDialogPhase.Waiting
                         }
                         VoiceChatStage.Reading -> {
                             reply = text.orEmpty()
-                            "正在朗读"
+                            VoiceDialogPhase.Synthesizing
                         }
                     }
                 }
@@ -120,29 +123,16 @@ private fun VoiceChatDialog(vm: WorkbenchModel, onClose: () -> Unit) {
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            failed = true
-            phase = e.message ?: "语音聊天暂时不可用"
+            phase = VoiceDialogPhase.Failed
+            failure = e.message ?: "语音聊天暂时不可用"
         }
     }
-    AlertDialog(onDismissRequest = onClose, modifier = Modifier.testTag("voiceChat"),
-        title = { Text("语音聊天") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(if (listening) "正在聆听" else phase, Modifier.testTag("voiceChatStatus"),
-                    color = if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
-                (partial ?: heard).takeIf(String::isNotBlank)?.let {
-                    Text(it, Modifier.testTag("voiceChatTranscript"), maxLines = 4, overflow = TextOverflow.Ellipsis)
-                }
-                if (reply.isNotBlank()) Text(reply, Modifier.testTag("voiceChatReply"),
-                    color = Muted, maxLines = 5, overflow = TextOverflow.Ellipsis)
-            }
-        },
-        dismissButton = if (listening) ({
-            TextButton(onClick = { vm.dictation.stop(owner) }) { Text("说完了") }
-        }) else null,
-        confirmButton = {
-            TextButton(onClick = onClose, modifier = Modifier.testTag("endVoiceChat")) {
-                Text(if (failed) "返回对话" else "结束语音聊天")
-            }
-        })
+    val displayPhase = when (captureStage) {
+        OfflineDictation.Stage.Listening -> VoiceDialogPhase.Listening
+        OfflineDictation.Stage.Finishing -> VoiceDialogPhase.Transcribing
+        else -> phase
+    }
+    VoiceChatWindow(displayPhase, failure, partial ?: heard, reply,
+        level = { if (listening) vm.dictation.voiceLevel else playbackLevel },
+        onFinishSpeech = { vm.dictation.stop(owner) }, onClose = onClose)
 }

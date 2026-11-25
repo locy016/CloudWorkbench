@@ -10,6 +10,10 @@ import android.media.AudioTrack
 import android.os.ParcelFileDescriptor
 import android.provider.Settings
 import android.view.WindowManager
+import androidx.activity.compose.setContent
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -19,6 +23,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 
@@ -26,6 +31,59 @@ class VoiceAcceptanceTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
     private val bluetoothOutputs = setOf(AudioDeviceInfo.TYPE_BLUETOOTH_A2DP, AudioDeviceInfo.TYPE_BLE_HEADSET,
         AudioDeviceInfo.TYPE_HEARING_AID, AudioDeviceInfo.TYPE_BLE_BROADCAST)
+
+    @OptIn(ExperimentalTestApi::class)
+    @Test fun voiceWindowShowsTheConversationAndReactsToSpeechLevel() {
+        val phase = mutableStateOf(VoiceDialogPhase.Listening)
+        val level = mutableFloatStateOf(0f)
+        val visible = mutableStateOf(true)
+        compose.mainClock.autoAdvance = false
+        compose.runOnUiThread {
+            compose.activity.setContent {
+                WorkbenchTheme {
+                    if (visible.value) VoiceChatWindow(phase.value, null,
+                        transcript = "介绍当前工作区", reply = "当前工作区可以继续对话、查看任务和处理审批。",
+                        level = { level.floatValue }, onFinishSpeech = { phase.value = VoiceDialogPhase.Waiting },
+                        onClose = { visible.value = false })
+                }
+            }
+        }
+        fun settle() {
+            compose.mainClock.advanceTimeBy(400)
+            compose.waitForIdle()
+        }
+        fun illuminatedTicks(): Int {
+            val pixels = compose.onNodeWithTag("voiceWaveRing").captureToImage().toPixelMap()
+            val radius = minOf(pixels.width, pixels.height) / 2f
+            var count = 0
+            for (y in 0 until pixels.height) for (x in 0 until pixels.width) {
+                val dx = x + .5f - pixels.width / 2f
+                val dy = y + .5f - pixels.height / 2f
+                val distance = dx * dx + dy * dy
+                if (distance in (.82f * radius) * (.82f * radius)..(.92f * radius) * (.92f * radius)) {
+                    val pixel = pixels[x, y]
+                    if (pixel.red < .72f && pixel.blue > pixel.red + .12f) count++
+                }
+            }
+            return count
+        }
+
+        settle()
+        compose.onNodeWithTag("voiceChatStatus").assertTextEquals("正在聆听")
+        compose.onNodeWithTag("voiceChatTranscript").assertIsDisplayed()
+        compose.onNodeWithTag("voiceChatReply").assertIsDisplayed()
+        val quiet = illuminatedTicks()
+        compose.runOnUiThread { level.floatValue = .85f }
+        settle()
+        assertTrue("The waveform should expand with speech", illuminatedTicks() > quiet)
+        captureReviewScreen("voice-window-065")
+        compose.onNodeWithText("说完了").performClick()
+        settle()
+        compose.onNodeWithTag("voiceChatStatus").assertTextEquals("正在等待回复")
+        compose.onNodeWithTag("endVoiceChat").performClick()
+        settle()
+        compose.onNodeWithTag("voiceChat").assertDoesNotExist()
+    }
 
     @Test fun readsOnlyOnSelectedOutput() = runBlocking {
         val expected = requireNotNull(InstrumentationRegistry.getArguments().getString("voiceExpectedOutput"))
