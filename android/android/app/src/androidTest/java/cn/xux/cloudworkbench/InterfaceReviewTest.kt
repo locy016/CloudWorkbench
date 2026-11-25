@@ -46,6 +46,22 @@ class InterfaceReviewTest {
 
     private fun tab(name: String) = compose.openWorkbenchTab(name)
 
+    @Test fun workspacePickerShowsEveryServerDirectory() {
+        compose.waitUntil(90_000) {
+            compose.onAllNodesWithText("已连接").fetchSemanticsNodes().isNotEmpty()
+        }
+        tab("会话")
+        compose.waitUntil(25_000) {
+            compose.onAllNodes(hasTestTag("projectPicker") and isEnabled()).fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithTag("projectPicker").performClick()
+        compose.onNodeWithText("云端助理 · 默认", useUnmergedTree = true).assertIsDisplayed()
+        for (name in listOf("cloud-assistant", "qiwuli-site", "server-ops")) {
+            compose.onNodeWithText("/home/xux/projects/$name", useUnmergedTree = true).assertIsDisplayed()
+        }
+        screenshot("workspace-paths")
+    }
+
     @Test fun navigationAndCredentialConfirmation() {
         compose.onNodeWithTag("nav-云端").assertDoesNotExist()
         compose.onNodeWithTag("menuToggle").assertIsDisplayed().performClick()

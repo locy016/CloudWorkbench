@@ -217,11 +217,19 @@ class MainActivity : ComponentActivity() {
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (canSwitch) Icon(Icons.Outlined.ExpandMore, null, Modifier.size(16.dp), tint = Muted)
         }
-        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }, modifier = Modifier.widthIn(min = 272.dp)) {
             vm.activeProjects.forEach { project ->
                 val id = project.getString("id")
                 DropdownMenuItem(
-                    text = { Text(project.getString("name") + if (id == vm.defaultWorkspaceId) " · 默认" else "") },
+                    text = {
+                        Column(Modifier.padding(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(project.getString("name") + if (id == vm.defaultWorkspaceId) " · 默认" else "")
+                            project.optString("path").takeIf { it.isNotBlank() }?.let { path ->
+                                Text(path, style = MaterialTheme.typography.bodySmall, color = Muted,
+                                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+                            }
+                        }
+                    },
                     leadingIcon = { if (id == vm.projectId) Icon(Icons.Outlined.Check, "当前工作区") },
                     onClick = { open = false; vm.selectProject(id) },
                     modifier = Modifier.testTag("project-$id")
