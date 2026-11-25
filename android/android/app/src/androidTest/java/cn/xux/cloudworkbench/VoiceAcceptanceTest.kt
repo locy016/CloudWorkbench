@@ -52,7 +52,7 @@ class VoiceAcceptanceTest {
             compose.mainClock.advanceTimeBy(400)
             compose.waitForIdle()
         }
-        fun illuminatedTicks(): Int {
+        fun outerWavePixels(): Int {
             val pixels = compose.onNodeWithTag("voiceWaveRing").captureToImage().toPixelMap()
             val radius = minOf(pixels.width, pixels.height) / 2f
             var count = 0
@@ -60,7 +60,7 @@ class VoiceAcceptanceTest {
                 val dx = x + .5f - pixels.width / 2f
                 val dy = y + .5f - pixels.height / 2f
                 val distance = dx * dx + dy * dy
-                if (distance in (.82f * radius) * (.82f * radius)..(.92f * radius) * (.92f * radius)) {
+                if (distance in (.70f * radius) * (.70f * radius)..(.88f * radius) * (.88f * radius)) {
                     val pixel = pixels[x, y]
                     if (pixel.red < .72f && pixel.blue > pixel.red + .12f) count++
                 }
@@ -72,14 +72,17 @@ class VoiceAcceptanceTest {
         compose.onNodeWithTag("voiceChatStatus").assertTextEquals("正在聆听")
         compose.onNodeWithTag("voiceChatTranscript").assertIsDisplayed()
         compose.onNodeWithTag("voiceChatReply").assertIsDisplayed()
-        val quiet = illuminatedTicks()
+        val quiet = outerWavePixels()
         compose.runOnUiThread { level.floatValue = .85f }
         settle()
-        assertTrue("The waveform should expand with speech", illuminatedTicks() > quiet)
-        captureReviewScreen("voice-window-065")
+        assertTrue("The waveform should expand with speech", outerWavePixels() > quiet)
+        captureReviewScreen("voice-window-066")
         compose.onNodeWithText("说完了").performClick()
         settle()
         compose.onNodeWithTag("voiceChatStatus").assertTextEquals("正在等待回复")
+        compose.runOnUiThread { phase.value = VoiceDialogPhase.Reading }
+        settle()
+        compose.onNodeWithTag("voiceChatStatus").assertTextEquals("正在朗读")
         compose.onNodeWithTag("endVoiceChat").performClick()
         settle()
         compose.onNodeWithTag("voiceChat").assertDoesNotExist()

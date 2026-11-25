@@ -14,24 +14,25 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.VolumeUp
 import androidx.compose.material.icons.outlined.GraphicEq
 import androidx.compose.material.icons.outlined.HourglassTop
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Mic
-import androidx.compose.material.icons.outlined.VolumeUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
@@ -43,6 +44,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import kotlin.math.PI
 import kotlin.math.cos
+import kotlin.math.pow
 import kotlin.math.sin
 import kotlin.math.sqrt
 
@@ -63,8 +65,8 @@ internal fun VoiceChatWindow(
 ) {
     val failed = phase == VoiceDialogPhase.Failed
     val statusColor = when (phase) {
-        VoiceDialogPhase.Reading -> Color(0xFF076E72)
-        VoiceDialogPhase.Waiting, VoiceDialogPhase.Synthesizing -> Color(0xFF554397)
+        VoiceDialogPhase.Reading -> Color(0xFF087078)
+        VoiceDialogPhase.Waiting, VoiceDialogPhase.Synthesizing -> Color(0xFF51419F)
         VoiceDialogPhase.Failed -> MaterialTheme.colorScheme.error
         else -> Accent
     }
@@ -114,64 +116,77 @@ private fun VoiceChatText(label: String, text: String, tag: String, fill: Color,
 
 @Composable
 private fun VoiceWaveRing(phase: VoiceDialogPhase, color: Color, level: () -> Float) {
-    val reactsToAudio = phase == VoiceDialogPhase.Listening || phase == VoiceDialogPhase.Reading
+    val reading = phase == VoiceDialogPhase.Reading
+    val reactsToAudio = phase == VoiceDialogPhase.Listening || reading
     val amplitude by animateFloatAsState(if (reactsToAudio) level() else 0f, tween(155), label = "语音音量")
     val failed = phase == VoiceDialogPhase.Failed
-    val turn = if (failed) null else rememberInfiniteTransition(label = "声纹圈").animateFloat(
-        initialValue = 0f, targetValue = 1f, animationSpec = infiniteRepeatable(tween(2600, easing = LinearEasing)),
-        label = "声纹圈转动"
-    )
-    val highlight = when (phase) {
-        VoiceDialogPhase.Reading -> Color(0xFF198BA8)
-        VoiceDialogPhase.Failed -> color
-        else -> Color(0xFF7360D4)
+    val turn = if (failed) null else key(reactsToAudio, reading) {
+        val period = if (reading) 2700 else if (reactsToAudio) 3100 else 4800
+        rememberInfiniteTransition(label = "声纹圈").animateFloat(
+            initialValue = 0f, targetValue = fullTurn, animationSpec = infiniteRepeatable(tween(period, easing = LinearEasing)),
+            label = "声波沿圆周移动"
+        )
     }
+    val colors = when (phase) {
+        VoiceDialogPhase.Reading -> listOf(color, Color(0xFF087E9B), Color(0xFF3974BB))
+        VoiceDialogPhase.Waiting, VoiceDialogPhase.Synthesizing -> listOf(color, Color(0xFF6258BE), Color(0xFF8D63C2))
+        VoiceDialogPhase.Failed -> listOf(color, color)
+        else -> listOf(color, Color(0xFF3B60D7), Color(0xFF7250C5))
+    }
+    val trace = remember { Path() }
     val directions = remember {
-        List(72) { index ->
-            val angle = (index / 72f - 0.25f) * 2 * PI
-            Offset(cos(angle).toFloat(), sin(angle).toFloat())
+        List(144) { index ->
+            val angle = index * fullTurn / 144
+            Offset(sin(angle), -cos(angle))
         }
     }
-    Box(Modifier.size(152.dp).testTag("voiceWaveRing"), contentAlignment = Alignment.Center) {
+    Box(Modifier.size(176.dp).testTag("voiceWaveRing"), contentAlignment = Alignment.Center) {
         Canvas(Modifier.fillMaxSize()) {
             val radius = size.minDimension / 2
             val spin = turn?.value ?: 0f
-            val ring = radius * 0.74f
             val energy = amplitude
-            drawCircle(Brush.radialGradient(listOf(color.copy(alpha = .16f), color.copy(alpha = .07f), Color.Transparent),
+            drawCircle(Brush.radialGradient(listOf(colors[1].copy(alpha = .10f), Color.Transparent),
                 center = center, radius = radius), radius)
-            drawCircle(color.copy(alpha = .12f), radius * .94f, style = Stroke(1.dp.toPx()))
-            drawCircle(color.copy(alpha = .12f), radius * .65f, style = Stroke(1.dp.toPx()))
-            if (reactsToAudio) {
-                directions.forEachIndexed { i, direction ->
-                    val position = i.toFloat() / directions.size
-                    val wave = (sin(2 * PI * (position * 5 - spin)).toFloat() +
-                        .45f * cos(2 * PI * (position * 9 + spin)).toFloat() + 1.45f) / 2.9f
-                    val halfLength = radius * (.02f + (.035f + .15f * energy) * wave)
-                    drawLine(lerp(color, highlight, (direction.x + 1f) / 2f).copy(alpha = .48f + .38f * energy),
-                        center + direction * (ring - halfLength), center + direction * (ring + halfLength),
-                        strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
+            trace.reset()
+            directions.forEachIndexed { index, direction ->
+                val angle = fullTurn * index / directions.size
+                val displacement = when {
+                    reactsToAudio -> {
+                        val movement = if (reading) spin else -spin
+                        val spread = .72f + .19f * sin(2 * angle + .8f) + .09f * sin(3 * angle - 1.1f)
+                        val wave = .54f * sin(8 * angle + 3 * movement) + .29f * sin(15 * angle + 5 * movement + .52f) +
+                            .17f * cos(23 * angle + 9 * movement - .6f)
+                        val gain = if (reading) .87f else 1f
+                        .02f * sin(3 * angle) + gain * (.024f + .22f * energy) * spread * wave
+                    }
+                    failed -> 0f
+                    else -> {
+                        val travel = angle - spin
+                        val crest = ((1f + cos(travel - .7f)) / 2f).pow(5)
+                        .006f * sin(2 * angle + .3f) + crest * (.012f + .03f * sin(7 * travel))
+                    }
                 }
-            } else {
-                drawCircle(color.copy(alpha = .18f), ring, style = Stroke(2.dp.toPx()))
-                if (!failed) drawArc(Brush.sweepGradient(listOf(highlight, color, highlight), center),
-                    startAngle = spin * 360f, sweepAngle = 82f, useCenter = false,
-                    topLeft = center - Offset(ring, ring), size = Size(ring * 2, ring * 2),
-                    style = Stroke(3.dp.toPx(), cap = StrokeCap.Round))
+                val point = center + direction * (radius * (.64f + displacement))
+                if (index == 0) trace.moveTo(point.x, point.y) else trace.lineTo(point.x, point.y)
             }
+            trace.close()
+            drawPath(trace, Brush.linearGradient(colors, start = Offset(0f, size.height * .78f),
+                end = Offset(size.width, size.height * .18f)), style = Stroke(2.2.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
         }
-        Box(Modifier.size(68.dp).background(Brush.linearGradient(listOf(color, highlight)), CircleShape),
+        Box(Modifier.size(52.dp).background(Brush.linearGradient(listOf(color, colors.last())), CircleShape),
             contentAlignment = Alignment.Center) {
             Icon(when (phase) {
                 VoiceDialogPhase.Listening -> Icons.Outlined.Mic
                 VoiceDialogPhase.Transcribing -> Icons.Outlined.GraphicEq
-                VoiceDialogPhase.Reading -> Icons.Outlined.VolumeUp
+                VoiceDialogPhase.Reading -> Icons.AutoMirrored.Outlined.VolumeUp
                 VoiceDialogPhase.Failed -> Icons.Outlined.Info
                 else -> Icons.Outlined.HourglassTop
-            }, contentDescription = null, tint = Color.White, modifier = Modifier.size(30.dp))
+            }, contentDescription = null, tint = Color.White, modifier = Modifier.size(26.dp))
         }
     }
 }
+
+private val fullTurn = (2 * PI).toFloat()
 
 internal fun voiceWaveLevel(meanSquare: Float): Float =
     ((sqrt(meanSquare.takeIf { it.isFinite() && it > 0f } ?: 0f) - .012f) * 6f).coerceIn(0f, 1f)
