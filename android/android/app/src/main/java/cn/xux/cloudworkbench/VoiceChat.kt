@@ -20,7 +20,6 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import java.util.UUID
 
@@ -102,8 +101,7 @@ private fun VoiceChatDialog(vm: WorkbenchModel, onClose: () -> Unit) {
                 },
                 exchange = { vm.awaitVoiceReply(vm.sendVoiceTurn(it).await()) },
                 speak = {
-                    check(playback.speak(it)) { "朗读已中断，可在会话中查看文字回复" }
-                    delay(250)
+                    check(playback.speak(it) != null) { "朗读已中断，可在会话中查看文字回复" }
                 },
                 onStage = { stage, text ->
                     phase = when (stage) {

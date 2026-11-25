@@ -3,9 +3,11 @@ package cn.xux.cloudworkbench
 import android.Manifest
 import android.content.Context
 import android.media.AudioAttributes
+import android.media.AudioDeviceInfo
 import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioTrack
+import android.os.ParcelFileDescriptor
 import android.provider.Settings
 import android.view.WindowManager
 import androidx.compose.ui.semantics.SemanticsActions
@@ -22,26 +24,46 @@ import org.junit.Test
 
 class VoiceAcceptanceTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
+    private val bluetoothOutputs = setOf(AudioDeviceInfo.TYPE_BLUETOOTH_A2DP, AudioDeviceInfo.TYPE_BLE_HEADSET,
+        AudioDeviceInfo.TYPE_HEARING_AID, AudioDeviceInfo.TYPE_BLE_BROADCAST)
+
+    @Test fun readsOnlyOnSelectedOutput() = runBlocking {
+        val expected = requireNotNull(InstrumentationRegistry.getArguments().getString("voiceExpectedOutput"))
+        require(expected == "bluetooth" || expected == "speaker")
+        withContext(Dispatchers.Main) {
+            VoicePlayback(compose.activity).use { playback ->
+                check(playback.prepare()) { "Offline Chinese voice unavailable" }
+                val device = requireNotNull(playback.speak("这是一条云端助理朗读测试。"))
+                val types = if (expected == "bluetooth") bluetoothOutputs else setOf(AudioDeviceInfo.TYPE_BUILTIN_SPEAKER)
+                check(device.type in types) { "Unexpected audio output type: ${device.type}" }
+                InstrumentationRegistry.getInstrumentation().sendStatus(0,
+                    android.os.Bundle().apply { putInt("voiceOutputType", device.type) })
+            }
+        }
+    }
 
     @Test fun cloudAssistantContinuesTwoHandsFreeVoiceTurns() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val id = requireNotNull(InstrumentationRegistry.getArguments().getString("voiceAcceptanceThread"))
+        val sampleKey = requireNotNull(InstrumentationRegistry.getArguments().getString("voiceAcceptanceSample"))
         require(id.matches(Regex("[a-f0-9-]{36}")))
+        require(sampleKey.matches(Regex("[a-z0-9-]{1,32}")))
         val activity = compose.activity
         val prefs = activity.getSharedPreferences("ui", 0)
         val previous = listOf("project", "thread-cloud", "thread").associateWith { prefs.getString(it, null) }
         val audio = activity.getSystemService(AudioManager::class.java)
         val volume = audio.getStreamVolume(AudioManager.STREAM_MUSIC)
         val vm = ViewModelProvider(activity)[WorkbenchModel::class.java]
-        fun waitForListening() {
-            compose.waitUntil(90_000) {
-                if (compose.onAllNodes(hasTestTag("endVoiceChat") and hasText("返回对话")).fetchSemanticsNodes().isNotEmpty()) {
-                    val status = compose.onNodeWithTag("voiceChatStatus").fetchSemanticsNode()
-                        .config[androidx.compose.ui.semantics.SemanticsProperties.Text].joinToString()
-                    throw AssertionError(status)
-                }
-                compose.onAllNodes(hasTestTag("voiceChatStatus") and hasText("正在聆听")).fetchSemanticsNodes().isNotEmpty()
+        fun assertVoiceChatAvailable() {
+            if (compose.onAllNodes(hasTestTag("endVoiceChat") and hasText("返回对话")).fetchSemanticsNodes().isNotEmpty()) {
+                val status = compose.onNodeWithTag("voiceChatStatus").fetchSemanticsNode()
+                    .config[androidx.compose.ui.semantics.SemanticsProperties.Text].joinToString()
+                throw AssertionError(status)
             }
+        }
+        fun waitForListening() = compose.waitUntil(120_000) {
+            assertVoiceChatAvailable()
+            compose.onAllNodes(hasTestTag("voiceChatStatus") and hasText("正在聆听")).fetchSemanticsNodes().isNotEmpty()
         }
         try {
             instrumentation.uiAutomation.grantRuntimePermission(activity.packageName, Manifest.permission.RECORD_AUDIO)
@@ -56,19 +78,15 @@ class VoiceAcceptanceTest {
             audio.setStreamVolume(AudioManager.STREAM_MUSIC, audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC) / 2, 0)
             compose.onNodeWithTag("startVoiceChat").performClick()
             waitForListening()
-            val phrases = listOf("你好，请简单地打个招呼。", "请用一句话和我说再见。")
-            for ((index, phrase) in phrases.withIndex()) {
-                runBlocking {
-                    withContext(Dispatchers.Main) {
-                        VoicePlayback(activity).use { source ->
-                            org.junit.Assert.assertTrue("An offline Chinese voice is required", source.prepare())
-                            org.junit.Assert.assertTrue("Playback must reach the microphone", source.speak(phrase))
-                        }
-                    }
-                }
+            for (turn in 1..2) {
+                val pcm = ParcelFileDescriptor.AutoCloseInputStream(
+                    instrumentation.uiAutomation.executeShellCommand("cat /data/local/tmp/workbench-$sampleKey-$turn.pcm")
+                ).use { it.readBytes() }
+                playVoiceChatSample(audio, pcm)
                 compose.waitUntil(120_000) {
+                    assertVoiceChatAvailable()
                     compose.runOnIdle { vm.messages.count { it.optString("role") == "assistant" &&
-                        it.optString("status") == "completed" } >= index + 1 }
+                        it.optString("status") == "completed" } >= turn }
                 }
                 waitForListening()
             }
@@ -89,6 +107,26 @@ class VoiceAcceptanceTest {
             val edit = prefs.edit()
             previous.forEach { (key, value) -> edit.putString(key, value) }
             edit.commit()
+        }
+    }
+
+    private fun playVoiceChatSample(audio: AudioManager, pcm: ByteArray) {
+        require(pcm.isNotEmpty() && pcm.size % 2 == 0)
+        val outputs = audio.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+        check(outputs.none { it.type in bluetoothOutputs }) { "Run the acoustic input fixture without Bluetooth audio" }
+        val speaker = outputs.first { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
+        val track = AudioTrack.Builder().setAudioAttributes(
+            AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).build()
+        ).setAudioFormat(AudioFormat.Builder().setSampleRate(16000).setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+            .setEncoding(AudioFormat.ENCODING_PCM_16BIT).build())
+            .setTransferMode(AudioTrack.MODE_STATIC).setBufferSizeInBytes(pcm.size).build()
+        try {
+            org.junit.Assert.assertTrue(track.setPreferredDevice(speaker))
+            assertEquals(pcm.size, track.write(pcm, 0, pcm.size))
+            track.play()
+            compose.waitUntil(12_000) { track.playbackHeadPosition >= pcm.size / 2 }
+        } finally {
+            track.release()
         }
     }
 
