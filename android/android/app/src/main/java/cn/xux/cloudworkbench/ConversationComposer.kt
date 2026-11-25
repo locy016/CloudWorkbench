@@ -27,9 +27,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -40,10 +41,9 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.zIndex
 import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -156,10 +156,22 @@ internal fun ConversationComposer(vm: WorkbenchModel, statusHint: String?, onEdi
     val keyboardInset = with(LocalDensity.current) { WindowInsets.ime.getBottom(this).toDp() }
     val compactInput = screenHeight - keyboardInset < 520.dp ||
         (WindowInsets.isImeVisible && keyboardInset == 0.dp && screenHeight < 800.dp)
-    var hintHeight by remember { mutableIntStateOf(0) }
-    Box(Modifier.fillMaxWidth().testTag("conversationComposer")) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        if (hint != null) {
+            val isError = cancelArmed || error != null
+            val colors = MaterialTheme.colorScheme
+            val gradient = if (isError) listOf(colors.onErrorContainer, colors.error)
+                else listOf(colors.primary, Color(0xFF66439A))
+            Surface(Modifier.align(Alignment.CenterHorizontally).padding(horizontal = 12.dp).testTag("composerHint"),
+                color = if (isError) colors.errorContainer else colors.surface,
+                shape = MaterialTheme.shapes.small, border = BorderStroke(1.dp, Outline)) {
+                Text(hint, Modifier.padding(horizontal = 10.dp, vertical = 6.dp), textAlign = TextAlign.Center,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.bodySmall.copy(brush = Brush.horizontalGradient(gradient)))
+            }
+        }
         Surface(color = AccentSurface, shape = MaterialTheme.shapes.medium,
-            border = BorderStroke(1.dp, Outline), modifier = Modifier.fillMaxWidth()) {
+            border = BorderStroke(1.dp, Outline), modifier = Modifier.fillMaxWidth().testTag("conversationComposer")) {
             Box(Modifier.padding(8.dp)) {
                 ConversationAttachments(vm, expanded = attachments, enabled = attachmentsEnabled,
                     onClose = { attachments = false }) {
@@ -274,17 +286,6 @@ internal fun ConversationComposer(vm: WorkbenchModel, statusHint: String?, onEdi
                         }
                     }
                 }
-            }
-        }
-        if (hint != null) {
-            Surface(Modifier.align(Alignment.TopStart).padding(start = 12.dp, end = 12.dp)
-                .offset { IntOffset(0, -hintHeight - 6.dp.roundToPx()) }
-                .onSizeChanged { hintHeight = it.height }.zIndex(1f).testTag("composerHint"),
-                color = if (cancelArmed || error != null) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.surface,
-                shape = MaterialTheme.shapes.small, border = BorderStroke(1.dp, Outline), shadowElevation = 3.dp) {
-                Text(hint, Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                    color = if (cancelArmed || error != null) MaterialTheme.colorScheme.onErrorContainer else Ink,
-                    maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall)
             }
         }
     }
