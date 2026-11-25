@@ -62,21 +62,9 @@ class InterfaceReviewTest {
         for (name in listOf("cloud-assistant", "qiwuli-site", "server-ops")) {
             compose.onNodeWithText("/home/xux/projects/$name", useUnmergedTree = true).assertIsDisplayed()
         }
-        val gateway = compose.onNodeWithTag("project-server-gateway").assertTextContains("服务器网关")
-        compose.onNodeWithText("/home/xux/.local/lib/cloud-workbench", useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithTag("project-server-gateway").assertDoesNotExist()
+        compose.onNodeWithText("/home/xux/.local/lib/cloud-workbench", useUnmergedTree = true).assertDoesNotExist()
         screenshot("workspace-paths")
-        val activity = compose.activity
-        val prefs = activity.getSharedPreferences("ui", 0)
-        val saved = listOf("project", "preferred-workspace", "thread-cloud", "thread").associateWith { prefs.getString(it, null) }
-        try {
-            gateway.performClick()
-            compose.onNodeWithTag("projectPicker").assertTextContains("服务器网关")
-        } finally {
-            compose.runOnUiThread { activity.finish() }
-            val edit = prefs.edit()
-            saved.forEach { (key, value) -> edit.putString(key, value) }
-            edit.commit()
-        }
     }
 
     @Test fun navigationAndCredentialConfirmation() {
