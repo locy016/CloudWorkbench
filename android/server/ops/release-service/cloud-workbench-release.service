@@ -1,0 +1,27 @@
+[Unit]
+Description=Approve and publish private Android Cloud Workbench releases
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=cloud-workbench-release
+Group=cloud-workbench-release
+SupplementaryGroups=xux
+ExecStart=/usr/local/bin/cloud-workbench-release worker
+LoadCredentialEncrypted=release.p12:/etc/cloud-workbench-release/release.p12.cred
+LoadCredentialEncrypted=password:/etc/cloud-workbench-release/password.cred
+ReadWritePaths=/var/lib/cloud-workbench-release/requests /var/lib/cloud-workbench-release/receipts /var/lib/cloud-workbench-release/updates /var/spool/cloud-workbench-release/inbox
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+NoNewPrivileges=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+UMask=0077
+TimeoutStartSec=10min

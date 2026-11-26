@@ -25,7 +25,7 @@ npm test
 
 ## 数据与发布
 
-- 程序目录为 `~/.local/lib/cloud-workbench`。业务数据位于 `~/.local/share/cloud-workbench`，其中 `workbench.db` 保存会话，`app-updates/` 保存已签名 APK。
+- 程序目录为 `~/.local/lib/cloud-workbench`。业务数据位于 `~/.local/share/cloud-workbench`，其中 `workbench.db` 保存会话。生产更新源由[独立签名服务](ops/release-service/README.md)写入，网关通过 `APP_UPDATES_DIR` 读取。
 - 部署前确认活动任务已完成，对 SQLite 数据库做一致性备份，并检查附件目录和已签名版本。通过既有 `cloud-workbench-ops restart-workbench` 运维入口在空闲时重启。回退使用工作台版本及其配置。
 - 工作台域名的 HTTP 和 TLS 拒绝配置见 [Nginx 切换脚本](ops/close-workbench-web-ingress.sh)。生产工作区由数据目录的 `projects.json` 配置，包括栖物里网站、服务器运维和云端助理。
 - 手机密钥的绑定规则见 [SSH 业务连接](ops/ssh-mobile.md)。

@@ -50,7 +50,7 @@ const builds = buildRequests({ store, status: readBuildStatus, readToken });
 const gateway = new Gateway({ codex: new Codex(), store, readBuildStatus, builds,
   token, cwd, events, sshMobile, projects, sharedWritableRoots, codexAccess, newsSources,
   translateNews: newsTranslation({ runtime: translations }) });
-gateway.extension = new Releases(data);
+gateway.extension = new Releases(data, process.env.APP_UPDATES_DIR);
 gateway.draining = () => access(data + '/transport-maintenance').then(() => true, () => false);
 gateway.http.requestTimeout = 1800000; gateway.http.headersTimeout = 10000;
 gateway.http.listen(Number(process.env.PORT || 8766), '127.0.0.1', () => console.log('云端工作台网关已启动'));

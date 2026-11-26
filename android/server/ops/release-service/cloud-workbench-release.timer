@@ -1,0 +1,10 @@
+[Unit]
+Description=Process private Android release submissions and approvals
+
+[Timer]
+OnBootSec=10s
+OnUnitInactiveSec=20s
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

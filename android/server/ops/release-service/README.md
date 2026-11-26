@@ -1,0 +1,28 @@
+# 独立签名与私有发布
+
+GitHub Actions 只生成未签名 APK、源码提交和校验摘要。生产签名服务使用独立 Linux 账号。它通过 systemd 读取加密凭据，经管理员批准后才签名并发布。工作台网关通过原有 SSH 业务连接分发更新，读取发布目录的权限独立于签名和批准权限。
+
+## 首次部署
+
+1. 将本目录的 `install.sh`、`release.py`、`.service` 和 `.timer` 文件与同一提交的 `src/main.mjs`、`src/releases.mjs`、`ops/publish-app-update.mjs` 平铺到服务器部署目录。管理员运行 `sudo /bin/bash <部署目录>/install.sh`。脚本验证当前正式 APK 后迁移更新源，并在工作台空闲时切换。
+2. 在持有正式签名密钥和密码的 Windows 电脑，用 PowerShell 7 运行 `android/tools/import-release-key.ps1`。脚本通过现有 SSH 获取服务器生成的临时公钥，在内存中加密签名材料，再上传密文。
+3. 管理员运行 `sudo /usr/local/sbin/cloud-workbench-release-install import`。安装程序验证证书指纹，导入 systemd 加密凭据并启动定时服务。导入完成后清理临时传输材料。
+
+## 提交与批准
+
+服务端 Codex 在确认验收结果后，用工作台账号提交 GitHub 运行编号和更新说明。
+
+```bash
+cloud-workbench-release submit <运行编号> '更新说明'
+cloud-workbench-release status <运行编号>
+```
+
+服务独立核对构建结论、源码是否已纳入 `main`、GitHub 产物摘要、APK 摘要、包名和版本。状态为 `awaiting-approval` 时，核对其中的源码、版本、更新说明和批准摘要。管理员在有管理授权的 SSH 终端执行批准命令，输入本次状态中的完整 `approvalSha256`。
+
+```bash
+sudo -k /usr/local/bin/cloud-workbench-release approve <运行编号> <approvalSha256>
+```
+
+定时服务复核批准摘要和 APK 内容，签名并校验正式证书，再原子更新私有发布清单。`status` 显示 `published` 后，可在真机更新。管理 SSH 终端可来自任一获授权的设备，日常发布无需 Windows 开机或参与签名。`xux` 的免密运维入口未授予发布批准权限。
+
+管理员可检查 `systemctl status cloud-workbench-release.timer` 和 `journalctl -u cloud-workbench-release.service`。本地前置校验使用 `python android/server/test/release_service_test.py` 和网关的 `npm test`。

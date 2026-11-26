@@ -38,8 +38,8 @@ export async function readAppUpdate(directory) {
 }
 
 export class Releases {
-  constructor(data) {
-    this.data = data;
+  constructor(data, appUpdates = join(data, 'app-updates')) {
+    this.appUpdates = appUpdates;
   }
   async file(req, res, file, expectedSize, sha256) {
     const handle = await open(file, 'r').catch(() => { throw fail(404, '文件尚未准备好'); });
@@ -72,7 +72,7 @@ export class Releases {
     if (req.method !== 'GET') return false;
     const download = path.match(/^\/v1\/app-update\/([a-f0-9]{64})\/apk$/);
     if (path === '/v1/app-update' || download) {
-      const directory = join(this.data, 'app-updates');
+      const directory = this.appUpdates;
       const update = await readAppUpdate(directory);
       if (download) {
         if (!update || update.sha256 !== download[1]) throw fail(404, '此版本已撤下，请重新检查更新');
