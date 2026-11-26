@@ -15,7 +15,13 @@ npm test
 
 [GitHub Actions](https://github.com/locy016/CloudWorkbench/actions/workflows/cloud-workbench-ci.yml) 使用同一套测试。生产部署后单独验证 SSH 鉴权、会话恢复、图片附件和 APK 分段更新。
 
-`GET /v1/builds` 通过 SSH 认证后读取本仓库的公开 CI 状态。网关缓存上游数据，返回实际构建提交、检查结论和未过期的产物信息。APP 可在暂时取数失败时保留上次结果。
+## 任务页构建
+
+`GET /v1/builds` 通过 SSH 鉴权读取本仓库的公开 CI 状态。配置专用令牌后，任务页可从 `/v1/builds/sources` 读取分支与最近提交，通过 `POST /v1/builds` 启动构建，并通过 `/v1/builds/requests/<编号>` 查看同一次运行的状态和作业日志入口。
+
+为 `locy016/CloudWorkbench` 创建细粒度令牌，授予 `Actions: Read and write`。部署服务账号独有的 `DATA_DIR/github-actions.token` 文件，权限设为 `0600`。文件更新在下一次请求生效。APP 和公开仓库均无需配置令牌。
+
+网关验证提交属于所选分支，将实际源码 SHA 和唯一请求编号写入 SQLite，再调用 GitHub。工作流定义取自 `main`，实际构建执行已锁定的源码。回执丢失时，网关按请求编号核对运行记录。收到同一编号时返回已保存请求。
 
 ## 数据与发布
 

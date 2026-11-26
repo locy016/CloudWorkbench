@@ -441,7 +441,7 @@ internal class Connection(
                 // News may wait for an upstream feed after refreshing its SSH credential.
                 val readCallTimeoutSeconds = when (path.substringBefore('?')) {
                     "/v1/server-data/news", "/v1/server-data/news/article" -> 28L
-                    else -> 8L
+                    else -> if (path.startsWith("/v1/builds/")) 25L else 8L
                 }
                 it.timeout().timeout(readCallTimeoutSeconds, TimeUnit.SECONDS)
             }

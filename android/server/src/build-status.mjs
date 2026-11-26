@@ -1,5 +1,17 @@
-const root = 'https://api.github.com/repos/locy016/CloudWorkbench';
-const workflow = '/actions/workflows/cloud-workbench-ci.yml';
+export const workflow = '/actions/workflows/cloud-workbench-ci.yml';
+export const shaPattern = /^[0-9a-f]{40}$/;
+export const requestPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+export const isId = value => Number.isSafeInteger(value) && value > 0;
+
+export function githubRequest(fetcher, path, { token, body, redirect = 'error', version = '2026-03-10' } = {}) {
+  return fetcher('https://api.github.com/repos/locy016/CloudWorkbench' + path, {
+    headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'CloudWorkbench',
+      'X-GitHub-Api-Version': version, ...(token && { Authorization: 'Bearer ' + token }),
+      ...(body && { 'Content-Type': 'application/json' }) },
+    redirect, signal: AbortSignal.timeout(7_000),
+    ...(body && { method: 'POST', body: JSON.stringify(body) }),
+  });
+}
 const steps = {
   gateway: '运行网关测试',
   lint: 'Android Lint',
@@ -9,8 +21,6 @@ const outputNames = {
   'android-unsigned-apk': 'apk',
   'android-lint-report': 'lint',
 };
-const shaPattern = /^[0-9a-f]{40}$/;
-const isId = value => Number.isSafeInteger(value) && value > 0;
 
 function statusOf(status, conclusion) {
   if (status === 'in_progress') return 'running';
@@ -21,25 +31,36 @@ function statusOf(status, conclusion) {
   return 'failed';
 }
 
-function parseRun(run) {
-  const source = /^云端工作台 CI · ([0-9a-f]{40})$/.exec(run?.display_title ?? '')?.[1] ?? run?.head_sha;
+export function parseRun(run) {
+  const title = /^云端工作台 CI · ([0-9a-f]{40})(?: · ([0-9a-f-]{36}))?$/.exec(run?.display_title ?? '');
+  const source = title?.[1] ?? run?.head_sha;
   const updatedAt = Date.parse(run?.updated_at);
   if (!isId(run?.id) || !isId(run.run_number) || !shaPattern.test(source ?? '') || !Number.isFinite(updatedAt)) return null;
   return {
     id: run.id, number: run.run_number, attempt: isId(run.run_attempt) ? run.run_attempt : 1,
     source, updatedAt, state: statusOf(run.status, run.conclusion), completed: run.status === 'completed',
+    ...(title?.[2] && { requestId: title[2] }),
   };
 }
 
-export function buildStatus({ fetcher = fetch, clock = Date.now } = {}) {
-  let cached, detail, pending;
+export function buildStatus({ fetcher = fetch, clock = Date.now, readToken = async () => null } = {}) {
+  let cached, pending;
+  const details = new Map();
+  const tracked = new Map();
   let refreshAt = 0;
 
+  async function get(path) {
+    const token = await readToken();
+    const response = await githubRequest(fetcher, path, { token });
+    if (token && response.status === 401) {
+      await response.body?.cancel();
+      return githubRequest(fetcher, path);
+    }
+    return response;
+  }
+
   async function items(path, key) {
-    const response = await fetcher(root + path, {
-      headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'CloudWorkbench' },
-      redirect: 'error', signal: AbortSignal.timeout(8_000),
-    });
+    const response = await get(path);
     if (!response.ok) throw new Error('GitHub Actions response unavailable');
     const data = (await response.json())?.[key];
     if (!Array.isArray(data)) throw new Error('Invalid GitHub Actions response');
@@ -48,7 +69,7 @@ export function buildStatus({ fetcher = fetch, clock = Date.now } = {}) {
 
   async function latestDetails(run) {
     const key = run.id + ':' + run.attempt;
-    if (detail?.key === key) return detail;
+    if (details.has(key)) return details.get(key);
     const path = '/actions/runs/' + run.id;
     const [jobs, artifacts] = await Promise.allSettled([
       items(path + '/jobs?per_page=20', 'jobs'),
@@ -66,9 +87,34 @@ export function buildStatus({ fetcher = fetch, clock = Date.now } = {}) {
         ? [{ id: artifact.id, kind, expiresAt }] : [];
     }) : [];
     const complete = jobs.status === 'fulfilled' && artifacts.status === 'fulfilled';
-    const result = { key, checks, outputs, complete };
-    if (run.completed && complete) detail = result;
+    const buildJobs = jobs.status === 'fulfilled' ? jobs.value.filter(job => isId(job.id) && typeof job.name === 'string')
+      .map(job => ({ id: job.id, name: job.name, state: statusOf(job.status, job.conclusion) })) : [];
+    const result = { checks, outputs, jobs: buildJobs, complete };
+    if (run.completed && complete) {
+      if (details.size >= 30) details.delete(details.keys().next().value);
+      details.set(key, result);
+    }
     return result;
+  }
+
+  async function forRun(id) {
+    const saved = tracked.get(id);
+    if (saved && clock() < saved.next) return saved.result;
+    const request = (async () => {
+      try {
+        const response = await get('/actions/runs/' + id);
+        const run = response.ok ? parseRun(await response.json()) : null;
+        if (run?.id !== id) throw new Error('Invalid tracked run');
+        const { checks, outputs, jobs, complete: detailAvailable } = await latestDetails(run);
+        return { runs: [run], checks, outputs, jobs, detailAvailable, fetchedAt: clock(), stale: false };
+      } catch {
+        const previous = await saved?.result;
+        return previous ? { ...previous, stale: true } : null;
+      }
+    })();
+    if (tracked.size >= 30) tracked.delete(tracked.keys().next().value);
+    tracked.set(id, { next: clock() + 15_000, result: request });
+    return request;
   }
 
   function snapshot(stale) {
@@ -76,7 +122,7 @@ export function buildStatus({ fetcher = fetch, clock = Date.now } = {}) {
     return { ...cached, stale };
   }
 
-  return async function readBuildStatus() {
+  async function readBuildStatus() {
     if (pending) return pending;
     if (clock() < refreshAt) return snapshot(cached?.stale ?? true);
     pending = (async () => {
@@ -101,5 +147,7 @@ export function buildStatus({ fetcher = fetch, clock = Date.now } = {}) {
       }
     })();
     return pending;
-  };
+  }
+  readBuildStatus.forRun = forRun;
+  return readBuildStatus;
 }

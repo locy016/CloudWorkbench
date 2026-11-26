@@ -25,6 +25,8 @@ export class Store {
       CREATE TABLE IF NOT EXISTS messages(id TEXT PRIMARY KEY,threadId TEXT NOT NULL,role TEXT NOT NULL,text TEXT NOT NULL,status TEXT NOT NULL,created INTEGER NOT NULL);
       CREATE INDEX IF NOT EXISTS messages_thread ON messages(threadId,created);
       CREATE TABLE IF NOT EXISTS requests(id TEXT PRIMARY KEY,threadId TEXT NOT NULL,state TEXT NOT NULL,turnId TEXT);
+      CREATE TABLE IF NOT EXISTS build_requests(requestId TEXT PRIMARY KEY, branch TEXT NOT NULL, selected TEXT,
+        source TEXT NOT NULL, createdAt INTEGER NOT NULL, state TEXT NOT NULL, runId INTEGER UNIQUE, rejection INTEGER);
       CREATE TABLE IF NOT EXISTS attachments(id TEXT PRIMARY KEY,threadId TEXT NOT NULL,path TEXT NOT NULL,mime TEXT NOT NULL,created INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS overview_service_state(name TEXT PRIMARY KEY, state TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS overview_incidents(id INTEGER PRIMARY KEY, name TEXT NOT NULL, state TEXT NOT NULL, observedAt INTEGER NOT NULL);
@@ -45,6 +47,19 @@ export class Store {
       statement = this.db.prepare(sql); this.statements.set(sql, statement);
     }
     return statement;
+  }
+  getBuildRequest(id) {
+    return this.prepare('SELECT * FROM build_requests WHERE requestId=?').get(id);
+  }
+  insertBuildRequest(id, branch, selected, source, created) {
+    return this.prepare(`INSERT INTO build_requests(requestId,branch,selected,source,createdAt,state)
+      VALUES(?,?,?,?,?,'pending') ON CONFLICT(requestId) DO NOTHING`).run(id, branch, selected, source, created).changes > 0;
+  }
+  bindBuildRun(id, runId) {
+    this.prepare("UPDATE build_requests SET runId=?,state='accepted' WHERE requestId=? AND state='pending'").run(runId, id);
+  }
+  rejectBuildRequest(id, status) {
+    this.prepare("UPDATE build_requests SET rejection=?,state='rejected' WHERE requestId=? AND state='pending'").run(status, id);
   }
   create(id, title, projectId = null, model = null) {
     const n = Date.now();

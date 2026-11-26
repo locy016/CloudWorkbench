@@ -9,6 +9,8 @@ import { Events } from './events.mjs';
 import { mobileSessionAuthorizer, readMobileKey } from './mobile-session.mjs';
 import { newsSourceCatalog } from './news-sources.mjs';
 import { newsTranslation } from './news-translation.mjs';
+import { buildStatus } from './build-status.mjs';
+import { buildRequests, readActionsToken } from './build-requests.mjs';
 process.umask(0o077);
 const data = process.env.DATA_DIR || '/home/xux/.local/share/cloud-workbench';
 mkdirSync(data, { recursive: true, mode: 0o700 });
@@ -41,7 +43,11 @@ catch (error) {
 }
 const newsSources = newsSourceCatalog({ configFile: join(data, 'resource-sources.json') });
 const translations = process.env.NEWS_TRANSLATION_DIR || '/home/xux/.local/lib/cloud-workbench-translation';
-const gateway = new Gateway({ codex: new Codex(), store: new Store(data + '/workbench.db'),
+const store = new Store(data + '/workbench.db');
+const readToken = () => readActionsToken(join(data, 'github-actions.token'));
+const readBuildStatus = buildStatus({ readToken });
+const builds = buildRequests({ store, status: readBuildStatus, readToken });
+const gateway = new Gateway({ codex: new Codex(), store, readBuildStatus, builds,
   token, cwd, events, sshMobile, projects, sharedWritableRoots, codexAccess, newsSources,
   translateNews: newsTranslation({ runtime: translations }) });
 gateway.extension = new Releases(data);

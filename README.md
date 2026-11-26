@@ -15,7 +15,7 @@
 
 [云端工作台 CI](https://github.com/locy016/CloudWorkbench/actions/workflows/cloud-workbench-ci.yml) 运行网关测试、Android Lint 和未签名 APK 构建。评审请求会触发检查，也可手动指定一个完整的 Git 提交 SHA。运行详情提供 Lint 报告、未签名 APK、SHA-256 和实际检出的提交号。
 
-Android APP 的「会话 → 任务」可以通过现有 SSH 查看最近的构建、各项检查结果、日志和产物入口。
+Android APP 的「会话 → 任务」通过现有 SSH 选择分支或提交并发起构建。断线后 GitHub 继续执行，重连可查看同一次运行的检查结果、作业日志和产物入口。
 
 公开仓库用于源码阅读和构建验证。正式应用仍通过私有更新源分发。SSH 私钥、正式签名材料、运行数据和正式发布包保存在受控目录。
 

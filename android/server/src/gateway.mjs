@@ -6,7 +6,7 @@ import { privateLoopback } from './mobile-session.mjs';
 import { exchangeRates } from './exchange-rates.mjs';
 import { newsSourceCatalog } from './news-sources.mjs';
 import { codexModels } from './models.mjs';
-import { buildStatus } from './build-status.mjs';
+import { buildStatus, isId, requestPattern } from './build-status.mjs';
 import { createServer } from 'node:http';
 import { timingSafeEqual, randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
@@ -29,7 +29,7 @@ export class Gateway {
   approvals = new Map(); loaded = new Set(); lock = false; statusCache = null;
   startingRequestId = null;
   constructor({ codex, store, token, cwd, events, sshMobile, readExchangeRates = exchangeRates(), readBuildStatus = buildStatus(),
-    newsSources = newsSourceCatalog(), translateNews,
+    newsSources = newsSourceCatalog(), translateNews, builds,
     projects = [{ id: 'default', name: '默认项目', path: cwd }], sharedWritableRoots = [], codexAccess = 'workspace-write' }) {
     if (!['workspace-write', 'danger-full-access'].includes(codexAccess)) {
       throw new Error('Invalid Codex access mode');
@@ -43,6 +43,7 @@ export class Gateway {
     this.listModels = codexModels(codex);
     this.readExchangeRates = readExchangeRates;
     this.readBuildStatus = readBuildStatus;
+    this.builds = builds;
     this.newsSources = newsSources;
     this.translateNews = translateNews;
     if (events) store.onChange = (id, overview) => events.notify(id, overview);
@@ -110,6 +111,25 @@ export class Gateway {
         if (!subject) throw fail(401, '构建结果需通过已授权的 SSH 连接读取');
         if (url.search) throw fail(400, '构建结果接口不接受查询参数');
         return respond(200, await this.readBuildStatus());
+      }
+      if (this.builds && (path === '/v1/builds' || path.startsWith('/v1/builds/'))) {
+        if (!subject) throw fail(401, '构建需通过已授权的 SSH 连接');
+        if (req.method === 'GET' && path === '/v1/builds/sources') {
+          const branch = url.searchParams.get('branch');
+          if (url.search && (url.searchParams.size !== 1 || branch === null)) throw fail(400, '无效源码查询条件');
+          return respond(200, await this.builds.sources(branch));
+        }
+        if (url.search) throw fail(400, '构建请求不接受查询参数');
+        if (req.method === 'POST' && path === '/v1/builds') {
+          return respond(200, await this.builds.start(await this.body(req, 4096)));
+        }
+        const match = /^\/v1\/builds\/requests\/([0-9a-f-]+)(?:\/logs\/(\d+))?$/.exec(path);
+        if (req.method === 'GET' && match && requestPattern.test(match[1])) {
+          if (!match[2]) return respond(200, await this.builds.get(match[1]));
+          const job = Number(match[2]);
+          if (isId(job)) return respond(200, await this.builds.log(match[1], job));
+        }
+        throw fail(404, '接口不存在');
       }
       if (req.method === 'GET' && path === '/v1/server-data/exchange-rates') {
         if (!subject) throw fail(401, '此数据需通过已授权的 SSH 连接读取');

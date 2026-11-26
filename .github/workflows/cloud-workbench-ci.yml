@@ -1,5 +1,5 @@
 name: 云端工作台 CI
-run-name: 云端工作台 CI · ${{ inputs.source_sha || github.sha }}
+run-name: 云端工作台 CI · ${{ inputs.source_sha || github.sha }}${{ inputs.request_id && format(' · {0}', inputs.request_id) || '' }}
 
 on:
   pull_request:
@@ -8,6 +8,9 @@ on:
     inputs:
       source_sha:
         description: 可选，待验收源码的完整 Git 提交 SHA
+        type: string
+      request_id:
+        description: 可选，云端工作台构建请求编号
         type: string
 
 permissions:

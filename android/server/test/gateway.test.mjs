@@ -114,6 +114,25 @@ test('GitHub build results are read-only and restricted to an authorized SSH ses
   assert.deepEqual(await call('/v1/builds', undefined, auth), { status: 200, body: result });
   assert.equal(reads, 1);
 });
+test('build dispatch, source selection and run logs are restricted to the SSH API', async t => {
+  const requestId = 'da282caa-a522-49bc-8b48-4a62dce39c5a';
+  const input = { requestId, branch: 'topic/new' };
+  const { call } = await fixture(t, {
+    sshMobile: req => req.headers.authorization === 'SSH test' ? 'test-device' : null,
+    builds: { sources: async branch => ({ branch }), start: async value => value,
+      get: async id => ({ id }), log: async (id, job) => ({ id, job }) },
+  });
+  const auth = { Authorization: 'SSH test' };
+  const route = '/v1/builds/requests/' + requestId;
+  assert.equal((await call('/v1/builds', input)).status, 401);
+  assert.equal((await call('/v1/builds', input, { ...auth, 'x-workbench-ingress': 'web' })).status, 404);
+  assert.equal((await call('/v1/builds/sources?repo=other', undefined, auth)).status, 400);
+  assert.deepEqual((await call('/v1/builds/sources?branch=topic%2Fnew', undefined, auth)).body, { branch: 'topic/new' });
+  assert.deepEqual((await call('/v1/builds', input, auth)).body, input);
+  assert.deepEqual((await call(route, undefined, auth)).body, { id: requestId });
+  assert.deepEqual((await call(route + '/logs/89', undefined, auth)).body, { id: requestId, job: 89 });
+  assert.equal((await call(route + '/logs/89')).status, 401);
+});
 test('live rates require SSH mobile authorization and reject client-supplied destinations', async t => {
   const route = '/v1/server-data/exchange-rates';
   const sample = { base: 'USD', provider: 'Coinbase', fetchedAt: '2026-11-23T05:00:00.000Z', rates: { USD: '1' }, stale: false };
