@@ -41,7 +41,7 @@ const fixture = (reply, { comparison = 'ahead' } = {}) => {
     if (path === '/actions/jobs/89/logs') return Response.redirect('https://log.actions.githubusercontent.com/text');
     if (parsed.origin === 'https://log.actions.githubusercontent.com') {
       assert.equal(init.headers?.Authorization, undefined);
-      return new Response('log data\n'.repeat(4000) + 'final result');
+      return new Response('log data\n'.repeat(4000) + '\x1b[32mfinal result\x1b[0m');
     }
     throw new Error('unexpected route ' + path);
   };
@@ -69,7 +69,7 @@ test('same request is dispatched once across concurrent submissions, with exact-
   assert.deepEqual(result.snapshot.checks, [{ id: 'gateway', state: 'success' }]);
   assert.equal(result.snapshot.outputs[0].id, 44);
   const log = await service.log(requestId, 89);
-  assert(log.truncated && log.text.endsWith('final result'));
+  assert(log.truncated && log.text.endsWith('final result') && !log.text.includes('\x1b'));
   await assert.rejects(service.log(requestId, 90), { status: 404 });
 });
 

@@ -1,5 +1,6 @@
 import { constants } from 'node:fs';
 import { open } from 'node:fs/promises';
+import { stripVTControlCharacters } from 'node:util';
 import { githubRequest, isId, parseRun, requestPattern, shaPattern, workflow } from './build-status.mjs';
 
 const failure = (status, message) => Object.assign(new Error(message), { status });
@@ -144,8 +145,7 @@ export function buildRequests({ store, status, readToken = async () => null, fet
   }
 
   async function log(requestId, jobId) {
-    const row = store.getBuildRequest(requestId);
-    const snapshot = row?.runId && await status.forRun(row.runId);
+    const { snapshot } = await get(requestId);
     if (!snapshot?.jobs.some(job => job.id === jobId)) throw failure(404, '此构建没有该作业');
     const response = await githubRequest(fetcher, '/actions/jobs/' + jobId + '/logs', {
       token: await readToken(), redirect: 'manual',
@@ -173,7 +173,7 @@ export function buildRequests({ store, status, readToken = async () => null, fet
     }
     let text = tail.toString('utf8');
     if (total > limit && text.includes('\n')) text = text.slice(text.indexOf('\n') + 1);
-    return { text, truncated: total > limit };
+    return { text: stripVTControlCharacters(text), truncated: total > limit };
   }
 
   return { sources, start, get, log };
