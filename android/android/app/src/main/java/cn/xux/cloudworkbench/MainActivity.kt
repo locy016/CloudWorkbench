@@ -964,6 +964,7 @@ private data class MetricValue(val label: String, val value: String, val hint: S
     var stopId by remember { mutableStateOf<String?>(null) }
     val task = vm.activeThread
     val canAct = vm.hostOnline && !vm.busy && !vm.connecting
+    val connected = vm.hostOnline && vm.serverDataConnected
     PageColumn {
         val focusedId = vm.focusedApprovalId
         if (focusedId != null) {
@@ -981,24 +982,26 @@ private data class MetricValue(val label: String, val value: String, val hint: S
             return@PageColumn
         }
         if (vm.pendingApprovals.isNotEmpty()) {
-            Text("待你确认", style = MaterialTheme.typography.titleMedium)
+            Text("待你确认", style = MaterialTheme.typography.titleMedium, modifier = Modifier.testTag("pendingTaskApprovals"))
             vm.pendingApprovals.forEach { a -> key(a.getString("id")) { ApprovalCard(a, vm) } }
         }
-        if (task == null) {
-            Panel(Modifier.fillMaxWidth()) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Icon(if (vm.hostOnline) Icons.Outlined.TaskAlt else Icons.Outlined.CloudOff, null, tint = Muted)
-                    Text(if (vm.hostOnline) "当前没有运行中的任务或待处理审批" else "连接服务器后查看任务和审批",
-                        style = MaterialTheme.typography.bodyMedium, color = Muted)
-                }
+        if (task == null && vm.pendingApprovals.isEmpty()) {
+            Row(Modifier.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(if (connected) Icons.Outlined.TaskAlt else Icons.Outlined.CloudOff, null,
+                    modifier = Modifier.size(18.dp), tint = Muted)
+                Text(if (connected) "Codex 暂无进行中的任务" else "连接服务器后查看任务和审批",
+                    style = MaterialTheme.typography.bodyMedium, color = Muted)
             }
-        } else {
-            Text("当前任务", style = MaterialTheme.typography.titleMedium)
+        }
+        if (task != null) {
             Panel(Modifier.fillMaxWidth()) {
                 val id = task.getString("id")
+                val state = task.getString("status")
+                TaskPanelHeading("当前 Codex 任务", Icons.Outlined.TaskAlt)
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(task.getString("title"), Modifier.weight(1f), fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    StatusPill(stateText(task.getString("status")), task.optString("status") == "running")
+                    TaskBadge(stateText(state), if (state == "approval") TaskTone.Waiting else TaskTone.Active)
                 }
                 Text(vm.projectName(task.optString("projectId")), color = Muted, style = MaterialTheme.typography.bodySmall)
                 ActionRow {
@@ -1007,8 +1010,7 @@ private data class MetricValue(val label: String, val value: String, val hint: S
                 }
             }
         }
-        ReleaseApprovalPanel(vm.releaseApprovals, connected = vm.hostOnline && vm.serverDataConnected)
-        BuildStatusPanel(vm.buildStatus, connected = vm.hostOnline && vm.serverDataConnected)
+        TaskOperationPanels(vm.releaseApprovals, vm.buildStatus, connected)
     }
     stopId?.let { id ->
         AlertDialog(onDismissRequest = { stopId = null }, title = { Text("停止当前任务？") },
@@ -1020,7 +1022,9 @@ private data class MetricValue(val label: String, val value: String, val hint: S
 @Composable private fun ApprovalCard(a: JSONObject, vm: WorkbenchModel) {
     val p = a.getJSONObject("params")
     val needsInput = a.getString("method").endsWith("requestUserInput")
+    val details = if (needsInput) "" else p.optString("command").takeIf { it != "null" && it.isNotBlank() } ?: p.toString(2)
     var confirm by remember { mutableStateOf(false) }
+    var expanded by rememberSaveable(a.getString("id")) { mutableStateOf(false) }
     Panel(Modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Icon(if (needsInput) Icons.Outlined.ChatBubbleOutline else Icons.Outlined.GppMaybe, null, Modifier.size(20.dp), tint = Amber)
@@ -1031,25 +1035,44 @@ private data class MetricValue(val label: String, val value: String, val hint: S
             val questions = p.optJSONArray("questions")?.objects().orEmpty()
             questions.forEach { q ->
                 Text(q.getString("question"), Modifier.padding(top = 12.dp))
-                q.optJSONArray("options")?.objects()?.forEach { option -> TextButton(onClick = { answers[q.getString("id")] = option.getString("label") }) { Text(option.getString("label")) } }
+                q.optJSONArray("options")?.objects()?.takeIf { it.isNotEmpty() }?.let { options ->
+                    ActionRow {
+                        options.forEach { option ->
+                            TextButton(onClick = { answers[q.getString("id")] = option.getString("label") }) { Text(option.getString("label")) }
+                        }
+                    }
+                }
                 OutlinedTextField(value = answers[q.getString("id")] ?: "", onValueChange = { answers[q.getString("id")] = it }, label = { Text("你的回答") }, modifier = Modifier.fillMaxWidth())
             }
             Button(onClick = { vm.answers(a, answers.toMap()) }, enabled = vm.hostOnline && !vm.busy && !vm.connecting && questions.all { !answers[it.getString("id")].isNullOrBlank() }) { Text("提交回答") }
         } else {
-            Text(p.optString("reason").takeIf { it != "null" && it.isNotBlank() } ?: "此操作需要你的授权", Modifier.padding(vertical = 12.dp))
+            Text(p.optString("reason").takeIf { it != "null" && it.isNotBlank() } ?: "此操作需要你的授权", Modifier.padding(vertical = 8.dp))
+            var canExpand by remember(details) { mutableStateOf(false) }
             Surface(Modifier.fillMaxWidth(), color = WarmSurface, shape = RoundedCornerShape(12.dp)) {
                 SelectionContainer(Modifier.padding(12.dp)) {
-                    Text(p.optString("command").takeIf { it != "null" && it.isNotBlank() } ?: p.toString(2),
-                        fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
+                    Text(details, maxLines = if (expanded) Int.MAX_VALUE else 5, overflow = TextOverflow.Ellipsis,
+                        fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall,
+                        onTextLayout = { if (!expanded) canExpand = it.hasVisualOverflow })
                 }
             }
-            Row(Modifier.padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            ActionRow(Modifier.padding(top = 4.dp)) {
+                if (canExpand || expanded) TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "收起详情" else "展开完整操作") }
                 OutlinedButton(onClick = { vm.answer(a, "decline") }, enabled = vm.hostOnline && !vm.busy && !vm.connecting) { Text("拒绝") }
                 Button(onClick = { confirm = true }, enabled = vm.hostOnline && !vm.busy && !vm.connecting) { Text(if (a.getString("method").contains("permissions")) "本轮允许" else "允许本次") }
             }
         }
     }
-    if (confirm) AlertDialog(onDismissRequest = { confirm = false }, title = { Text("确认允许这项操作？") }, text = { Text(if (a.getString("method").contains("permissions")) "上方请求的额外权限将在本轮任务中生效，本轮结束后失效。" else "批准后 Codex 将按上方请求继续执行；此授权不会自动用于以后的请求。") }, confirmButton = { TextButton(onClick = { confirm = false; vm.answer(a, "accept") }) { Text("确认允许") } }, dismissButton = { TextButton(onClick = { confirm = false }) { Text("返回") } })
+    if (confirm) AlertDialog(onDismissRequest = { confirm = false }, title = { Text("确认允许这项操作？") }, text = {
+        Column(Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(if (a.getString("method").contains("permissions")) "额外权限将在本轮任务中生效，本轮结束后失效。"
+                else "批准后 Codex 将继续执行下方操作。本次授权只适用于当前请求。")
+            SelectionContainer {
+                Text(details, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
+            }
+        }
+    }, confirmButton = { TextButton(onClick = { confirm = false; vm.answer(a, "accept") }) { Text("确认允许") } },
+        dismissButton = { TextButton(onClick = { confirm = false }) { Text("返回") } })
 }
 
 private fun serverConnectionStatus(vm: WorkbenchModel): String = when {

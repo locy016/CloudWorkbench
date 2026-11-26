@@ -1,9 +1,14 @@
 package cn.xux.cloudworkbench
 
 import android.content.SharedPreferences
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Build
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -13,12 +18,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -186,15 +191,31 @@ internal fun buildState(state: String) = when (state) {
     else -> "暂无结果"
 }
 
+private fun buildTone(state: String) = when (state) {
+    "queued" -> TaskTone.Waiting
+    "running" -> TaskTone.Active
+    "success" -> TaskTone.Complete
+    "failed" -> TaskTone.Error
+    else -> TaskTone.Neutral
+}
+
 @Composable
 internal fun BuildStatusPanel(builds: BuildStatus, connected: Boolean) {
     val scope = rememberCoroutineScope()
     val uri = LocalUriHandler.current
     val snapshot = builds.snapshot
-    val latest = snapshot?.runs?.firstOrNull()
+    val selected = builds.selection
+    val tracked = builds.tracked
+    val trackedSnapshot = tracked?.snapshot
+    val trackedRun = trackedSnapshot?.runs?.firstOrNull()
+    val recent = snapshot?.runs.orEmpty().filterNot { it.id == tracked?.runId || it.id == trackedRun?.id }
+    val latest = recent.firstOrNull()
     var choose by remember { mutableStateOf(false) }
     var jobToRead by remember { mutableStateOf<BuildJob?>(null) }
     var openError by remember { mutableStateOf(false) }
+    var showTracked by rememberSaveable(selected?.id) { mutableStateOf(false) }
+    var showLatest by rememberSaveable(latest?.id) { mutableStateOf(false) }
+    var showHistory by rememberSaveable { mutableStateOf(false) }
     fun open(address: String) {
         openError = runCatching { uri.openUri(address) }.isFailure
     }
@@ -220,87 +241,96 @@ internal fun BuildStatusPanel(builds: BuildStatus, connected: Boolean) {
     jobToRead?.let { BuildLogDialog(builds, it) { jobToRead = null } }
 
     Panel(Modifier.fillMaxWidth().testTag("githubBuilds")) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("GitHub Actions 构建", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+        TaskPanelHeading("GitHub 构建", Icons.Outlined.Build) {
             TextButton(onClick = { scope.launch { builds.follow(); builds.refreshRecent() } }, enabled = connected && !builds.loading,
                 modifier = Modifier.testTag("refreshGithubBuilds")) {
                 Text(if (builds.loading) "刷新中" else "刷新")
             }
         }
         ActionRow {
-            TextButton(onClick = { choose = true }, enabled = connected && !builds.active && !builds.sending,
+            FilledTonalButton(onClick = { choose = true }, enabled = connected && !builds.active && !builds.sending,
                 modifier = Modifier.testTag("startGithubBuild")) { Text("发起构建") }
         }
         builds.issue?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-        val selected = builds.selection
-        val tracked = builds.tracked
-        val trackedSnapshot = tracked?.snapshot
-        val trackedRun = trackedSnapshot?.runs?.firstOrNull()
         if (selected != null) {
-            Text("本次构建 · ${selected.branch}", style = MaterialTheme.typography.titleSmall)
-            val status = when {
-                trackedRun != null -> "构建 #${trackedRun.number} · ${buildState(trackedRun.state)}"
-                tracked?.state == "rejected" -> "GitHub 拒绝了构建请求（${tracked.rejection}）"
-                tracked?.runId != null -> "GitHub 已接收 · 正在读取进度"
-                !connected -> "等待 SSH 重连后核对构建请求"
-                tracked?.state == "pending" -> "正在核对 GitHub 回执"
-                else -> "正在提交构建请求"
-            }
-            Text(status, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.testTag("trackedGithubBuild"))
-            (tracked?.source ?: selected.commit)?.let {
-                Text(it, color = Muted, style = MaterialTheme.typography.bodySmall)
-            }
-            if (trackedSnapshot != null) {
-                if (!connected || trackedSnapshot.stale || builds.issue != null) {
-                    Text("上次查询 · ${DateFormat.getDateTimeInstance().format(Date(trackedSnapshot.fetchedAt))}",
-                        color = Muted, style = MaterialTheme.typography.bodySmall)
+            HorizontalDivider()
+            Text("本次构建", color = Muted, style = MaterialTheme.typography.labelMedium)
+            val source = tracked?.source ?: selected.commit ?: trackedRun?.source
+            if (trackedRun != null) {
+                BuildRunHeading(trackedRun, Modifier.testTag("trackedGithubBuild"))
+            } else {
+                val status = when {
+                    tracked?.state == "rejected" -> "GitHub 拒绝了构建请求（${tracked.rejection}）"
+                    tracked?.runId != null -> "GitHub 已接收 · 正在读取进度"
+                    !connected -> "等待 SSH 重连后核对构建请求"
+                    tracked?.state == "pending" -> "正在核对 GitHub 回执"
+                    else -> "正在提交构建请求"
                 }
-                BuildChecks(trackedSnapshot)
+                Text(status, style = MaterialTheme.typography.titleSmall, modifier = Modifier.testTag("trackedGithubBuild"))
             }
-            tracked?.runId?.let { id ->
-                val address = runRoot + id
-                ActionRow {
-                    TextButton(onClick = { open(address) }) { Text("GitHub 运行") }
-                    for (job in trackedSnapshot?.jobs.orEmpty()) {
-                        TextButton(enabled = connected && job.state !in setOf("queued", "running"),
-                            onClick = { jobToRead = job }) { Text("${job.name}日志") }
-                    }
-                    BuildOutputs(trackedSnapshot, address, ::open)
-                }
-            }
-        }
-        Text("仓库最近构建", style = MaterialTheme.typography.titleSmall)
-        if (snapshot != null) {
-            val time = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT, Locale.CHINA)
-                .format(Date(snapshot.fetchedAt))
-            val cached = !connected || builds.failed || snapshot.stale
-            Text(if (cached) "上次查询 · $time" else "查询时间 · $time",
+            Text(listOfNotNull(selected.branch, source?.take(8)).joinToString(" · "),
                 color = Muted, style = MaterialTheme.typography.bodySmall)
+            if (trackedSnapshot != null && (!connected || trackedSnapshot.stale || builds.issue != null)) {
+                BuildTimestamp(trackedSnapshot.fetchedAt)
+            }
+            val runId = tracked?.runId ?: trackedRun?.id
+            if (runId != null) {
+                ActionRow {
+                    if (trackedSnapshot != null) TextButton(onClick = { showTracked = !showTracked },
+                        modifier = Modifier.testTag("trackedBuildDetails")) { Text(if (showTracked) "收起详情" else "查看详情") }
+                    TextButton(onClick = { open(runRoot + runId) }) { Text("GitHub 运行") }
+                }
+                if (showTracked && trackedSnapshot != null) {
+                    source?.let { BuildSource(it) }
+                    BuildChecks(trackedSnapshot)
+                    ActionRow {
+                        for (job in trackedSnapshot.jobs) {
+                            TextButton(enabled = connected && job.state !in setOf("queued", "running"),
+                                onClick = { jobToRead = job }) { Text("${job.name}日志") }
+                        }
+                        BuildOutputs(trackedSnapshot, runRoot + runId, ::open)
+                    }
+                }
+            }
         }
-        if (snapshot == null || latest == null) {
+        if (latest == null && selected == null) {
             val message = when {
-                builds.loading -> "正在读取构建结果…"
                 !connected -> "连接服务器后查看构建结果"
+                builds.loading -> "正在读取构建结果…"
                 builds.failed -> "暂时无法读取构建结果，请刷新"
                 else -> "暂无构建运行记录"
             }
             Text(message, color = Muted, style = MaterialTheme.typography.bodyMedium)
-        } else {
+        }
+        if (latest != null && snapshot != null) {
+            HorizontalDivider()
+            Text("仓库最近构建", color = Muted, style = MaterialTheme.typography.labelMedium)
+            BuildRunHeading(latest, Modifier.testTag("latestGithubBuild"))
+            Text(latest.source.take(8), color = Muted, style = MaterialTheme.typography.bodySmall)
+            if (!connected || builds.failed || snapshot.stale) BuildTimestamp(snapshot.fetchedAt)
             val address = runRoot + latest.id
-            Text("构建 #${latest.number} · ${latest.source.take(8)} · ${buildState(latest.state)}",
-                style = MaterialTheme.typography.bodyLarge, modifier = Modifier.testTag("latestGithubBuild"))
-            if (latest.id != tracked?.runId) {
-                BuildChecks(snapshot)
-                ActionRow {
-                    TextButton(onClick = { open(address) }) { Text("运行日志") }
-                    BuildOutputs(snapshot, address, ::open)
-                }
+            val hasDetails = latest.id == snapshot.runs.firstOrNull()?.id
+            ActionRow {
+                if (hasDetails) TextButton(onClick = { showLatest = !showLatest }) { Text(if (showLatest) "收起详情" else "查看详情") }
+                TextButton(onClick = { open(address) }) { Text("GitHub 运行") }
             }
-            for (run in snapshot.runs.drop(1)) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically) {
-                    Text("#${run.number} · ${run.source.take(8)} · ${buildState(run.state)}",
-                        color = Muted, style = MaterialTheme.typography.bodySmall)
+            if (hasDetails && showLatest) {
+                BuildSource(latest.source)
+                BuildChecks(snapshot)
+                ActionRow { BuildOutputs(snapshot, address, ::open) }
+            }
+        }
+        val history = recent.drop(1)
+        if (history.isNotEmpty()) {
+            TextButton(onClick = { showHistory = !showHistory }, modifier = Modifier.testTag("githubBuildHistory")) {
+                Text(if (showHistory) "收起构建历史" else "构建历史 (${history.size})")
+            }
+            if (showHistory) for (run in history) {
+                HorizontalDivider()
+                BuildRunHeading(run)
+                ActionRow {
+                    Text(run.source.take(8), color = Muted, style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.align(Alignment.CenterVertically))
                     TextButton(onClick = { open(runRoot + run.id) }) { Text("查看运行") }
                 }
             }
@@ -311,11 +341,31 @@ internal fun BuildStatusPanel(builds: BuildStatus, connected: Boolean) {
 }
 
 @Composable
+private fun BuildRunHeading(run: BuildRun, modifier: Modifier = Modifier) {
+    Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text("构建 #${run.number}", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+        TaskBadge(buildState(run.state), buildTone(run.state))
+    }
+}
+
+@Composable
+private fun BuildTimestamp(time: Long) {
+    val label = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT, Locale.CHINA).format(Date(time))
+    Text("上次查询 · $label", color = Muted, style = MaterialTheme.typography.bodySmall)
+}
+
+@Composable
+private fun BuildSource(source: String) {
+    SelectionContainer { Text("源码 $source", color = Muted, style = MaterialTheme.typography.bodySmall) }
+}
+
+@Composable
 private fun BuildChecks(snapshot: BuildSnapshot) {
-    for ((id, label) in checkLabels) {
-        val state = snapshot.checks[id] ?: continue
-        Text("$label · ${buildState(state)}", color = Muted, style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.testTag("githubCheck-$id"))
+    if (snapshot.checks.isNotEmpty()) ActionRow {
+        for ((id, label) in checkLabels) {
+            val state = snapshot.checks[id] ?: continue
+            Box(Modifier.testTag("githubCheck-$id")) { TaskBadge("$label · ${buildState(state)}", buildTone(state)) }
+        }
     }
     if (!snapshot.detailAvailable) Text("构建明细暂不可用，可查看运行日志",
         color = Muted, style = MaterialTheme.typography.bodySmall)
