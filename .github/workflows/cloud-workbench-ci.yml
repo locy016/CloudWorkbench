@@ -96,6 +96,7 @@ jobs:
           Copy-Item -LiteralPath $apk.Path -Destination $artifact.FullName
           Set-Content -LiteralPath (Join-Path $artifact.FullName 'SHA256SUMS') -Value "$digest  app-release-unsigned.apk" -Encoding ascii
           Set-Content -LiteralPath (Join-Path $artifact.FullName 'source-commit.txt') -Value $env:SOURCE_SHA -Encoding ascii
+          exit 0
       - name: 上传未签名 APK 与源码摘要
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
