@@ -35,6 +35,8 @@ LIMIT = 384 * 1024 * 1024
 APK = 'app-release-unsigned.apk'
 SHA = re.compile(r'[0-9a-f]{64}')
 RUN = re.compile(r'[1-9][0-9]{0,17}')
+LOCAL_RUN = re.compile(r'90[0-9]{13}')
+LOCAL_SIGNING_NAMESPACE = 'cloud-workbench-local-apk-v1'
 CHECKS = {'gateway': '运行网关测试', 'lint': 'Android Lint', 'apk': '构建并检查未签名 APK'}
 
 
@@ -89,6 +91,42 @@ def accepted_checks(run_id):
     if not all(name in passed for name in CHECKS.values()):
         raise Rejected('网关测试、Android Lint 和未签名 APK 构建均须通过')
     return dict.fromkeys(CHECKS, 'success')
+
+
+def accept_local(run_id, incoming, staged):
+    if not LOCAL_RUN.fullmatch(run_id):
+        raise Rejected('本机构建编号无效')
+    allowed_signers = APPROVALS / 'local-builders'
+    if not allowed_signers.is_file():
+        raise Rejected('本机构建发布尚未配置可信开发机')
+    with safe_open('build.json', 16 * 1024, incoming) as offered:
+        evidence = offered.read(16 * 1024 + 1)
+    with safe_open('build.json.sig', 4096, incoming) as offered:
+        proof = staged / 'build.json.sig'
+        proof.write_bytes(offered.read(4097))
+    verify = subprocess.run(['/usr/bin/ssh-keygen', '-Y', 'verify', '-f', str(allowed_signers), '-I', 'workbench-windows',
+                             '-n', LOCAL_SIGNING_NAMESPACE, '-s', str(proof)], input=evidence, capture_output=True, timeout=10)
+    if verify.returncode:
+        raise Rejected('本机构建记录签名无效')
+    proof.unlink()
+    record = json.loads(evidence)
+    if (not isinstance(record, dict) or record.get('runId') != run_id or record.get('checks') != dict.fromkeys(CHECKS, 'success') or
+            not isinstance(record.get('source'), str) or not re.fullmatch(r'[0-9a-f]{40}', record['source']) or
+            not isinstance(record.get('apkSha256'), str) or not SHA.fullmatch(record['apkSha256']) or
+            not isinstance(record.get('notes'), str) or not 0 < len(record['notes']) <= 2000):
+        raise Rejected('本机构建记录无效')
+    comparison = github_json(f"/compare/{record['source']}...main?per_page=1")
+    if comparison.get('status') not in ('ahead', 'identical') or comparison.get('base_commit', {}).get('sha') != record['source']:
+        raise Rejected('本机构建源码未纳入 main')
+    package = staged / APK
+    with safe_open(APK, LIMIT, incoming) as offered, package.open('xb') as stored:
+        if copy_bytes(offered, stored, LIMIT) != record['apkSha256']:
+            raise Rejected('本机 APK 与签名构建记录的摘要不一致')
+    code, version = apk_version(package)
+    if (code, version) != (record.get('versionCode'), record.get('versionName')):
+        raise Rejected('本机 APK 与签名构建记录的版本不一致')
+    return {**{name: record[name] for name in ('runId', 'source', 'apkSha256', 'notes', 'checks')},
+            'artifactId': int(run_id), 'versionCode': code, 'versionName': version, 'digestVersion': 2}
 
 
 def candidate_digest(data):
@@ -311,28 +349,33 @@ def accept(run_id):
     try:
         with safe_open('ready.json', 16 * 1024, directory) as ready:
             record = json.load(ready)
-        notes = record.get('notes') if isinstance(record, dict) else None
-        if not isinstance(notes, str) or not 0 < len(notes) <= 2000:
-            raise Rejected('更新说明无效')
-        source, artifact = provenance(run_id)
-        archive = staged / 'archive.zip'
-        with safe_open('artifact.zip', LIMIT, directory) as offered, archive.open('xb') as stored:
-            digest = copy_bytes(offered, stored, LIMIT)
-        if digest != artifact['digest'].removeprefix('sha256:'):
-            raise Rejected('候选产物与 GitHub 摘要不一致')
-        apk_sha = extract(archive, staged, source)
-        archive.unlink()
-        code, version = apk_version(staged / APK)
-        if code <= json.loads((UPDATES / 'current.json').read_text())['versionCode']:
+        if isinstance(record, dict) and record.get('origin') == 'local':
+            status = accept_local(run_id, directory, staged)
+            incoming_files = ('ready.json', 'build.json', 'build.json.sig', APK)
+        else:
+            notes = record.get('notes') if isinstance(record, dict) else None
+            if not isinstance(notes, str) or not 0 < len(notes) <= 2000:
+                raise Rejected('更新说明无效')
+            source, artifact = provenance(run_id)
+            archive = staged / 'archive.zip'
+            with safe_open('artifact.zip', LIMIT, directory) as offered, archive.open('xb') as stored:
+                digest = copy_bytes(offered, stored, LIMIT)
+            if digest != artifact['digest'].removeprefix('sha256:'):
+                raise Rejected('候选产物与 GitHub 摘要不一致')
+            apk_sha = extract(archive, staged, source)
+            archive.unlink()
+            code, version = apk_version(staged / APK)
+            status = {'runId': run_id, 'source': source, 'artifactId': artifact['id'], 'apkSha256': apk_sha,
+                      'versionCode': code, 'versionName': version, 'notes': notes, 'digestVersion': 2,
+                      'checks': accepted_checks(run_id)}
+            incoming_files = ('ready.json', 'artifact.zip')
+        if status['versionCode'] <= json.loads((UPDATES / 'current.json').read_text())['versionCode']:
             raise Rejected('候选构建号必须高于私有更新源')
-        status = {'runId': run_id, 'source': source, 'artifactId': artifact['id'], 'apkSha256': apk_sha,
-                  'versionCode': code, 'versionName': version, 'notes': notes, 'digestVersion': 2,
-                  'checks': accepted_checks(run_id)}
         status['approvalSha256'] = candidate_digest(status)
         atomic_json(staged / 'candidate.json', status)
         staged.rename(candidate)
         receipt(run_id, 'awaiting-approval', candidate=status)
-        for name in ('ready.json', 'artifact.zip'):
+        for name in incoming_files:
             os.unlink(name, dir_fd=directory)
     finally:
         os.close(directory)

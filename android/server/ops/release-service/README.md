@@ -1,6 +1,6 @@
 # 独立签名与私有发布
 
-GitHub Actions 只生成未签名 APK、源码提交和校验摘要。生产签名服务使用独立 Linux 账号。它通过 systemd 读取加密凭据，经管理员批准后才签名并发布。工作台网关通过原有 SSH 业务连接分发更新，读取发布目录的权限独立于签名和批准权限。
+本机开发由 Windows 直接生成未签名 APK。服务端开发可由 GitHub Actions 生成未签名 APK、源码提交和校验摘要。生产签名服务使用独立 Linux 账号，经批准后才签名并发布。工作台网关通过原有 SSH 业务连接分发更新，读取发布目录的权限独立于签名和批准权限。
 
 ## 首次部署
 
@@ -9,6 +9,10 @@ GitHub Actions 只生成未签名 APK、源码提交和校验摘要。生产签�
 3. 管理员运行 `sudo /usr/local/sbin/cloud-workbench-release-install import`。安装程序验证证书指纹，导入 systemd 加密凭据并启动定时服务。导入完成后清理临时传输材料。
 
 ## 提交与批准
+
+本机发布先从干净的 `main` 构建，网关测试、Android Lint 和未签名 APK 构建通过后，使用 `android/tools/submit-local-release.ps1` 提交。工具通过本机 SSH 管理密钥给构建记录签名，将记录和 APK 送到签名服务的收件目录。服务器核对可信构建机、源码提交、APK 摘要、包名和版本，随后等待平板审批。
+
+管理员首次登记构建机时，将其 SSH 公钥以 OpenSSH allowed-signers 格式配置在 `/var/lib/cloud-workbench-release/approvals/local-builders`，主体为 `workbench-windows`，命名空间限制为 `cloud-workbench-local-apk-v1`。配置由 `root` 持有，签名服务组可读。该公钥只证明 APK 来源，正式发布仍需平板审批。
 
 服务端 Codex 在确认验收结果后，用工作台账号提交 GitHub 运行编号和更新说明。
 

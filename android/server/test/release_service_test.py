@@ -92,6 +92,43 @@ class ReleaseServiceTest(unittest.TestCase):
             with patch.object(release, 'REQUESTS', directory), release.lock_decisions():
                 self.assertEqual(list(directory.iterdir()), [legacy])
 
+    @unittest.skipUnless(Path('/usr/bin/ssh-keygen').is_file(), 'requires OpenSSH signing')
+    def test_local_candidate_requires_a_trusted_build_signature_and_matching_bytes(self):
+        import os
+        run_id = '901795689500000'
+        source = 'a' * 40
+        apk = b'locally built unsigned APK'
+        record = {'runId': run_id, 'source': source, 'versionCode': 88, 'versionName': '0.4.75', 'notes': '本机构建',
+                  'apkSha256': hashlib.sha256(apk).hexdigest(), 'checks': dict.fromkeys(release.CHECKS, 'success')}
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            staged = root / 'validated'
+            incoming = root / 'proposed'
+            staged.mkdir()
+            incoming.mkdir()
+            key = root / 'attestation'
+            subprocess.run(['/usr/bin/ssh-keygen', '-q', '-t', 'ed25519', '-N', '', '-f', str(key)], check=True)
+            (root / 'local-builders').write_text('workbench-windows ' + (root / 'attestation.pub').read_text())
+            manifest = incoming / 'build.json'
+            manifest.write_text(json.dumps(record))
+            subprocess.run(['/usr/bin/ssh-keygen', '-Y', 'sign', '-f', str(key), '-n', release.LOCAL_SIGNING_NAMESPACE,
+                            str(manifest)], check=True, capture_output=True)
+            (incoming / release.APK).write_bytes(apk)
+            handle = os.open(incoming, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                with patch.multiple(release, APPROVALS=root), patch.object(release, 'apk_version', return_value=(88, '0.4.75')), \
+                        patch.object(release, 'github_json', return_value={'status': 'identical', 'base_commit': {'sha': source}}):
+                    self.assertEqual(release.accept_local(run_id, handle, staged)['apkSha256'], record['apkSha256'])
+                    (staged / release.APK).unlink()
+                    (incoming / release.APK).write_bytes(b'different APK')
+                    with self.assertRaisesRegex(release.Rejected, '摘要不一致'):
+                        release.accept_local(run_id, handle, staged)
+                    manifest.write_text(json.dumps({**record, 'notes': '篡改'}))
+                    with self.assertRaisesRegex(release.Rejected, '签名无效'):
+                        release.accept_local(run_id, handle, staged)
+            finally:
+                os.close(handle)
+
     @unittest.skipUnless(Path('/usr/bin/openssl').is_file(), 'requires Linux OpenSSL')
     def test_tablet_proof_binds_the_decision_and_rejection_cannot_sign(self):
         candidate = {'runId': '7', 'source': 'a' * 40, 'artifactId': 99, 'apkSha256': 'b' * 64,

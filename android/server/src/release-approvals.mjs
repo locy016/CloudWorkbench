@@ -40,14 +40,20 @@ export function releaseApprovals({ receipts, input }) {
     async list() {
       const names = await readdir(receipts);
       const rows = [];
-      for (const filename of names.filter(name => name.endsWith('.json') && releaseRunId.test(name.slice(0, -5)))
-        .sort((a, b) => b.length - a.length || b.localeCompare(a)).slice(0, 30)) {
+      for (const filename of names.filter(name => name.endsWith('.json') && releaseRunId.test(name.slice(0, -5)))) {
         const run = filename.slice(0, -5);
         const row = await receipt(run);
         if (row?.candidate?.digestVersion !== 2 || row.candidate.runId !== run) continue;
-        rows.push({ ...row, pending: row.state === 'awaiting-approval' && await pending(run) });
+        const age = await stat(join(receipts, filename)).then(value => value.mtimeMs, error => {
+          if (error.code === 'ENOENT') return 0;
+          throw error;
+        });
+        rows.push({ row, age });
       }
-      return { fingerprint: (await approver())?.fingerprint ?? null, releases: rows.slice(0, 12) };
+      rows.sort((a, b) => Number(b.row.state === 'awaiting-approval') - Number(a.row.state === 'awaiting-approval') || b.age - a.age);
+      const entries = await Promise.all(rows.slice(0, 12).map(async ({ row }) => ({ ...row,
+        pending: row.state === 'awaiting-approval' && await pending(row.candidate.runId) })));
+      return { fingerprint: (await approver())?.fingerprint ?? null, releases: entries };
     },
 
     async register(body) {

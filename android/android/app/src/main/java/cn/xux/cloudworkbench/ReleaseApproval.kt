@@ -71,6 +71,8 @@ internal data class ReleaseCandidate(
     val runId: String, val version: String, val code: Long, val source: String, val artifact: Long,
     val apkSha256: String, val approvalSha256: String, val notes: String, val checks: Map<String, String>
 ) {
+    val localBuild: Boolean get() = runId.length == 15 && runId.startsWith("90")
+
     fun matchesDigest(): Boolean {
         val parts = listOf(runId, source, artifact.toString(), apkSha256, code.toString(), version, notes) +
             checkNames.keys.map { checks[it].orEmpty() }
@@ -313,8 +315,9 @@ private fun ReleaseCandidateRow(row: ReleaseApprovalRow, showDecision: Boolean, 
         Text(candidate.version, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
         TaskBadge(status, tone)
     }
-    Text("构建 ${candidate.code} · ${candidate.source.take(8)}${if (row.byTablet && row.state == "published") " · 平板批准" else ""}",
-        color = Muted, style = MaterialTheme.typography.bodySmall)
+    val details = listOfNotNull("构建 ${candidate.code}", candidate.source.take(8),
+        "本机构建".takeIf { candidate.localBuild }, "平板批准".takeIf { row.byTablet && row.state == "published" })
+    Text(details.joinToString(" · "), color = Muted, style = MaterialTheme.typography.bodySmall)
     if (expanded) {
         ReleaseCandidateDetails(candidate)
         row.reason?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
@@ -330,7 +333,7 @@ private fun ReleaseCandidateRow(row: ReleaseApprovalRow, showDecision: Boolean, 
         TextButton(onClick = { expanded = !expanded }, modifier = Modifier.testTag("releaseDetails-${candidate.runId}")) {
             Text(if (expanded) "收起详情" else "查看详情")
         }
-        if (expanded) TextButton(onClick = viewRun) { Text("验收运行") }
+        if (expanded && !candidate.localBuild) TextButton(onClick = viewRun) { Text("验收运行") }
     }
 }
 
