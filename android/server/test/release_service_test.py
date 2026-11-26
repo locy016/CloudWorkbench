@@ -48,6 +48,37 @@ class ReleaseServiceTest(unittest.TestCase):
             with self.assertRaisesRegex(release.Rejected, '已通过'):
                 release.provenance('1')
 
+    def test_publisher_stages_signing_output_on_update_mount(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp)
+            approvals, requests, updates = (path / name for name in ('approvals', 'requests', 'updates'))
+            for folder in (approvals, requests / '1', updates):
+                folder.mkdir(parents=True)
+            apk = b'unsigned input'
+            signed = b'validated signed output'
+            data = {'approvalSha256': 'a' * 64, 'apkSha256': hashlib.sha256(apk).hexdigest(),
+                    'versionCode': 85, 'versionName': '0.4.72', 'notes': 'update'}
+            (approvals / '1.json').write_text(json.dumps({'sha256': data['approvalSha256']}))
+            (requests / '1/candidate.json').write_text(json.dumps(data))
+            (requests / '1' / release.APK).write_bytes(apk)
+            (requests / '1/signed.apk').write_bytes(signed)
+            (updates / 'current.json').write_text(json.dumps({'versionCode': 84}))
+
+            def publisher(*args, **kwargs):
+                manifest, package = map(Path, args[4:6])
+                self.assertEqual(manifest.parent, package.parent)
+                self.assertEqual(manifest.parent.parent, updates)
+                self.assertEqual(package.read_bytes(), signed)
+                self.assertEqual(json.loads(manifest.read_text())['versionCode'], 85)
+
+            with patch.multiple(release, APPROVALS=approvals, REQUESTS=requests, UPDATES=updates), \
+                    patch.object(release, 'receipt') as receipt, patch.object(release, 'checked_signer'), \
+                    patch.object(release, 'apk_version', return_value=(85, '0.4.72')), \
+                    patch.object(release, 'invoke', side_effect=publisher) as invoke:
+                release.publish('1', path / 'unused')
+                invoke.assert_called_once()
+                self.assertEqual(receipt.call_args.args, ('1', 'published'))
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -178,9 +178,11 @@ def extract(archive, directory, source):
         return digest
 
 
-def invoke(*args):
+def invoke(*args, report_failure=False):
     result = subprocess.run(args, text=True, capture_output=True, timeout=180, check=False)
     if result.returncode:
+        if report_failure and result.stderr:
+            print(result.stderr[:2048], flush=True)
         raise Rejected(f'{Path(args[0]).name} 校验或处理失败')
     return result.stdout
 
@@ -294,10 +296,16 @@ def publish(run_id, credentials):
         raise Rejected('签名后 APK 版本不匹配')
     update = {key: data[key] for key in ('versionCode', 'versionName', 'notes')}
     update.update(packageId=PACKAGE, certificate=CERTIFICATE, sha256=hash_file(signed), size=signed.stat().st_size)
-    manifest = directory / 'manifest.json'
-    atomic_json(manifest, update)
-    invoke('/usr/bin/flock', str(UPDATES / '.publish.lock'), '/usr/local/bin/node', str(PUBLISHER),
-           str(manifest), str(signed), str(UPDATES), '--group-readable')
+    # The systemd unit exposes the request and update directories as separate mounts.
+    # Keep the publisher's hard link and manifest rename on the update mount.
+    with tempfile.TemporaryDirectory(dir=UPDATES, prefix='.release-') as staging:
+        pending = Path(staging)
+        manifest = pending / 'manifest.json'
+        package = pending / 'update.apk'
+        shutil.copyfile(signed, package)
+        atomic_json(manifest, update)
+        invoke('/usr/bin/flock', str(UPDATES / '.publish.lock'), '/usr/local/bin/node', str(PUBLISHER),
+               str(manifest), str(package), str(UPDATES), '--group-readable', report_failure=True)
     complete(update)
 
 
