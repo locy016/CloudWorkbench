@@ -86,17 +86,20 @@ class VoiceAcceptanceTest {
         val pixels = compose.onNodeWithTag("voiceWaveRing").captureToImage().toPixelMap()
         val interior = pixels[(pixels.width * .383f).toInt(), pixels.height / 2]
         assertTrue("The center icon should have an unfilled background", interior.red > .90f && interior.green > .90f)
-        captureReviewScreen("voice-window-068")
+        captureReviewScreen("voice-window-069")
         compose.runOnUiThread { level.floatValue = 0f }
         settle(80)
         assertTrue("The waveform should retain a short tail after speech", scanOutline(.70f, .94f).count > 0)
         settle(240)
         assertEquals("The waveform should settle near a circle in silence", 0, scanOutline(.70f, .94f).count)
+        val restingCenter = scanOutline(.49f, .80f).centerX
+        settle(300)
+        assertEquals("The ring should stop drifting during silence", restingCenter, scanOutline(.49f, .80f).centerX, .01f)
         compose.onNodeWithText("说完了").performClick()
         settle()
         compose.onNodeWithTag("voiceChatStatus").assertTextEquals("正在等待回复")
         val firstCenter = scanOutline(.49f, .80f).centerX
-        compose.mainClock.advanceTimeBy(2400)
+        compose.mainClock.advanceTimeBy(2100)
         compose.waitForIdle()
         val secondCenter = scanOutline(.49f, .80f).centerX
         assertTrue("The outer wave should drift around the stationary icon", kotlin.math.abs(secondCenter - firstCenter) > .025f)

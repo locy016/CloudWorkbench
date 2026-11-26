@@ -3,14 +3,12 @@ package cn.xux.cloudworkbench
 import androidx.compose.animation.animateColor
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.Transition
 import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.updateTransition
+import androidx.compose.animation.core.withInfiniteAnimationFrameNanos
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -26,10 +24,15 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.MotionDurationScale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -48,6 +51,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.isActive
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.pow
@@ -146,11 +151,35 @@ private fun VoiceWaveRing(mode: Transition<VoiceDialogPhase>, tint: State<Color>
     val motion by mode.animateFloat(transitionSpec = { tween(voiceModeTransitionMillis) }, label = "声波动效") { state ->
         if (state == VoiceDialogPhase.Failed) 0f else 1f
     }
-    val isStopped = mode.currentState == VoiceDialogPhase.Failed && phase == VoiceDialogPhase.Failed
-    val turn = if (isStopped) null else rememberInfiniteTransition(label = "声纹圈").animateFloat(
-        initialValue = 0f, targetValue = fullTurn, animationSpec = infiniteRepeatable(tween(5000, easing = LinearEasing)),
-        label = "声波沿圆周移动"
-    )
+    val turnsPerSecond by remember {
+        derivedStateOf {
+            val energy = amplitude.value
+            val waiting = (motion - speechMix).coerceAtLeast(0f)
+            waiting * .24f + speechMix * energy * (.14f + .24f * energy)
+        }
+    }
+    val moving by remember { derivedStateOf { turnsPerSecond > .0001f } }
+    var angleOffset by remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(moving) {
+        if (!moving) return@LaunchedEffect
+        val durationScale = coroutineContext[MotionDurationScale]
+        var previousFrame: Long? = null
+        while (isActive) {
+            val scale = durationScale?.scaleFactor ?: 1f
+            if (scale <= 0f) {
+                snapshotFlow { durationScale?.scaleFactor ?: 1f }.first { it > 0f }
+                previousFrame = null
+                continue
+            }
+            withInfiniteAnimationFrameNanos { now ->
+                previousFrame?.let { previous ->
+                    val elapsed = ((now - previous) / 1_000_000_000f).coerceIn(0f, .05f)
+                    angleOffset = (angleOffset + turnsPerSecond * fullTurn * elapsed / scale) % fullTurn
+                }
+                previousFrame = now
+            }
+        }
+    }
     val middleColor by mode.animateColor(transitionSpec = { tween(voiceModeTransitionMillis) }, label = "波形渐变中点") { state ->
         when (state) {
             VoiceDialogPhase.Reading -> Color(0xFF087E9B)
@@ -177,19 +206,19 @@ private fun VoiceWaveRing(mode: Transition<VoiceDialogPhase>, tint: State<Color>
     Box(Modifier.size(176.dp).testTag("voiceWaveRing"), contentAlignment = Alignment.Center) {
         Canvas(Modifier.fillMaxSize()) {
             val radius = size.minDimension / 2
-            val spin = turn?.value ?: 0f
+            val spin = angleOffset
             val energy = amplitude.value
             val voiceWeight = speechMix
             val motionWeight = motion
             val waitingWeight = (motionWeight - voiceWeight).coerceAtLeast(0f)
-            val orbit = waitingWeight + voiceWeight * (.45f + .55f * energy)
+            val orbit = waitingWeight + voiceWeight * energy
             val waveCenter = center + Offset(
                 orbit * radius * (.048f + .020f * energy) * sin(spin),
                 orbit * radius * (.034f + .017f * energy) * cos(spin)
             )
             val color = tint.value
             val colors = listOf(color, middleColor, edgeColor)
-            val waveGain = voiceWeight * (.004f + .24f * energy)
+            val waveGain = voiceWeight * .244f * energy
             trace.reset()
             directions.forEachIndexed { index, direction ->
                 val angle = fullTurn * index / directions.size
@@ -211,7 +240,7 @@ private fun VoiceWaveRing(mode: Transition<VoiceDialogPhase>, tint: State<Color>
             drawPath(trace, Brush.linearGradient(colors, start = Offset(0f, size.height * .78f),
                 end = Offset(size.width, size.height * .18f)), style = Stroke(2.2.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
 
-            val breath = motionWeight * (.5f + .5f * sin(spin))
+            val breath = orbit * (.5f + .5f * sin(spin))
             val iconRingRadius = 26.dp.toPx() * (1f + .025f * breath + .015f * energy)
             rotate(degrees = spin * 360f / fullTurn) {
                 drawCircle(Brush.sweepGradient(listOf(color, colors.last(), color), center = center),
