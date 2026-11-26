@@ -16,6 +16,11 @@ $wifi = Get-NetIPAddress -InterfaceAlias WLAN -AddressFamily IPv4 -ErrorAction S
     Where-Object AddressState -eq Preferred |
     Select-Object -First 1 -ExpandProperty IPAddress
 if ($wifi) { $flags += @('-o', "BindAddress=$wifi") }
+ssh @flags aliyun 'test ! -f /etc/systemd/system/cloud-workbench.service.d/20-release-feed.conf || exit 78'
+if ($LASTEXITCODE -eq 78) {
+    throw 'The private update feed uses the independent signing service. Submit the GitHub Actions run for administrator approval.'
+}
+if ($LASTEXITCODE -ne 0) { throw 'Could not check the server release configuration.' }
 $artifacts = Join-Path $PSScriptRoot '../artifacts'
 [void][System.IO.Directory]::CreateDirectory($artifacts)
 $manifest = Join-Path $artifacts ("workbench-update-" + [Guid]::NewGuid().ToString("N") + ".json")
