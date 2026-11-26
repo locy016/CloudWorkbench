@@ -14,6 +14,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
+from contextlib import contextmanager
 from pathlib import Path
 
 
@@ -101,15 +102,17 @@ def decision_message(run_id, digest, decision):
     return f'WB-RELEASE-DECISION/1\n{run_id}\n{digest}\n{decision}\n'.encode('ascii')
 
 
+@contextmanager
 def lock_decisions():
     import fcntl
-    lock = (REQUESTS / '.decision.lock').open('a+b')
+    # Both the administrator and the signing account can open this directory.
+    # Lock its inode so the first caller cannot create a root-only lock file.
+    directory = os.open(REQUESTS, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        return lock
-    except BaseException:
-        lock.close()
-        raise
+        fcntl.flock(directory, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(directory)
 
 
 def enroll(fingerprint):

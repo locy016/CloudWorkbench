@@ -4,6 +4,7 @@ import importlib.util
 import json
 import tempfile
 import subprocess
+import sys
 import unittest
 import zipfile
 from pathlib import Path
@@ -80,6 +81,16 @@ class ReleaseServiceTest(unittest.TestCase):
                 release.publish('1', path / 'unused')
                 invoke.assert_called_once()
                 self.assertEqual(receipt.call_args.args, ('1', 'published'))
+
+    @unittest.skipUnless(sys.platform.startswith('linux'), 'requires Linux directory locking')
+    def test_decision_lock_ignores_a_legacy_administrator_lock_file(self):
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            legacy = directory / '.decision.lock'
+            legacy.write_text('legacy')
+            legacy.chmod(0)
+            with patch.object(release, 'REQUESTS', directory), release.lock_decisions():
+                self.assertEqual(list(directory.iterdir()), [legacy])
 
     @unittest.skipUnless(Path('/usr/bin/openssl').is_file(), 'requires Linux OpenSSL')
     def test_tablet_proof_binds_the_decision_and_rejection_cannot_sign(self):
