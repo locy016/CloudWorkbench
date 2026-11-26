@@ -1,5 +1,6 @@
 #!/usr/bin/python3
 import argparse
+import base64
 import hashlib
 import json
 import os
@@ -23,6 +24,7 @@ PACKAGE = 'cn.xux.cloudworkbench'
 CERTIFICATE = 'b5aaa0f7308677f16157d37260884e4d51b2cd52edc2d373722ff52be126014a'
 ROOT = Path('/var/lib/cloud-workbench-release')
 INBOX = Path('/var/spool/cloud-workbench-release/inbox')
+DEVICE_INPUT = INBOX.parent / 'device-input'
 REQUESTS = ROOT / 'requests'
 APPROVALS = ROOT / 'approvals'
 RECEIPTS = ROOT / 'receipts'
@@ -32,6 +34,7 @@ LIMIT = 384 * 1024 * 1024
 APK = 'app-release-unsigned.apk'
 SHA = re.compile(r'[0-9a-f]{64}')
 RUN = re.compile(r'[1-9][0-9]{0,17}')
+CHECKS = {'gateway': '运行网关测试', 'lint': 'Android Lint', 'apk': '构建并检查未签名 APK'}
 
 
 class Rejected(ValueError):
@@ -76,6 +79,91 @@ def provenance(run_id):
     if not SHA.fullmatch(artifact.get('digest', '').removeprefix('sha256:')):
         raise Rejected('GitHub 未返回有效的产物摘要')
     return source, artifact
+
+
+def accepted_checks(run_id):
+    jobs = github_json(f'/actions/runs/{run_id}/jobs?per_page=30').get('jobs', [])
+    passed = {step['name'] for job in jobs if job.get('conclusion') == 'success'
+              for step in job.get('steps', []) if step.get('conclusion') == 'success'}
+    if not all(name in passed for name in CHECKS.values()):
+        raise Rejected('网关测试、Android Lint 和未签名 APK 构建均须通过')
+    return dict.fromkeys(CHECKS, 'success')
+
+
+def candidate_digest(data):
+    fields = ('runId', 'source', 'artifactId', 'apkSha256', 'versionCode', 'versionName', 'notes')
+    parts = [str(data[field]) for field in fields] + [data['checks'][key] for key in CHECKS]
+    encoded = b'\n'.join(base64.b64encode(value.encode('utf-8')) for value in parts)
+    return hashlib.sha256(b'WB-RELEASE-CANDIDATE/2\n' + encoded + b'\n').hexdigest()
+
+
+def decision_message(run_id, digest, decision):
+    return f'WB-RELEASE-DECISION/1\n{run_id}\n{digest}\n{decision}\n'.encode('ascii')
+
+
+def lock_decisions():
+    import fcntl
+    lock = (REQUESTS / '.decision.lock').open('a+b')
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        return lock
+    except BaseException:
+        lock.close()
+        raise
+
+
+def enroll(fingerprint):
+    if os.geteuid() != 0 or not SHA.fullmatch(fingerprint or ''):
+        raise Rejected('管理员须输入从平板核对的审批公钥指纹')
+    with safe_open(DEVICE_INPUT / 'approvers' / (fingerprint + '.der'), 256) as file:
+        der = file.read(257)
+    if len(der) > 256 or hashlib.sha256(der).hexdigest() != fingerprint:
+        raise Rejected('审批公钥指纹不匹配')
+    info = subprocess.run(['/usr/bin/openssl', 'pkey', '-pubin', '-inform', 'DER', '-text_pub', '-noout'],
+                          input=der, capture_output=True, timeout=10, check=False)
+    if info.returncode or b'ASN1 OID: prime256v1' not in info.stdout:
+        raise Rejected('审批公钥必须是 P-256')
+    with lock_decisions():
+        atomic_json(APPROVALS / 'approver.json', {'fingerprint': fingerprint, 'der': base64.b64encode(der).decode()},
+                    0o640, APPROVALS.stat().st_gid)
+        atomic_json(RECEIPTS / 'approver.json', {'fingerprint': fingerprint}, 0o640, RECEIPTS.stat().st_gid)
+    print(f'已绑定审批设备 {fingerprint}')
+
+
+def tablet_decision(run_id, data):
+    path = DEVICE_INPUT / 'decisions' / (run_id + '.json')
+    if not path.is_file() or not (APPROVALS / 'approver.json').is_file():
+        return
+    protected = REQUESTS / run_id / 'tablet.json'
+    with lock_decisions():
+        if (APPROVALS / (run_id + '.json')).exists() or protected.exists():
+            path.unlink(missing_ok=True)
+            return
+        try:
+            with safe_open(path, 4096) as proof:
+                payload = json.load(proof)
+            key = json.loads((APPROVALS / 'approver.json').read_text())
+            if (not isinstance(payload, dict) or payload.get('approvalSha256') != data['approvalSha256'] or
+                    payload.get('fingerprint') != key['fingerprint'] or payload.get('decision') not in ('approve', 'reject') or
+                    data.get('digestVersion') != 2 or candidate_digest(data) != data['approvalSha256']):
+                raise Rejected('审批内容与已复核候选包不匹配')
+            signature = base64.b64decode(payload['signature'], validate=True)
+            if not 64 <= len(signature) <= 80:
+                raise Rejected('审批签名格式无效')
+            with tempfile.TemporaryDirectory(dir=REQUESTS) as temporary:
+                public = Path(temporary) / 'key.der'
+                proof = Path(temporary) / 'signature'
+                public.write_bytes(base64.b64decode(key['der'], validate=True))
+                proof.write_bytes(signature)
+                result = subprocess.run(['/usr/bin/openssl', 'dgst', '-sha256', '-keyform', 'DER', '-verify', str(public),
+                                         '-signature', str(proof)], input=decision_message(run_id, data['approvalSha256'], payload['decision']),
+                                        capture_output=True, timeout=10, check=False)
+            if result.returncode:
+                raise Rejected('审批签名校验失败')
+            atomic_json(protected, {**payload, 'approvedAt': int(time.time())})
+        except (Rejected, ValueError, KeyError, OSError):
+            print(f'构建 {run_id} 未通过平板审批校验', flush=True)
+        path.unlink(missing_ok=True)
 
 
 def copy_bytes(source, target, limit):
@@ -235,8 +323,9 @@ def accept(run_id):
         if code <= json.loads((UPDATES / 'current.json').read_text())['versionCode']:
             raise Rejected('候选构建号必须高于私有更新源')
         status = {'runId': run_id, 'source': source, 'artifactId': artifact['id'], 'apkSha256': apk_sha,
-                  'versionCode': code, 'versionName': version, 'notes': notes}
-        status['approvalSha256'] = hashlib.sha256(json.dumps(status, sort_keys=True).encode()).hexdigest()
+                  'versionCode': code, 'versionName': version, 'notes': notes, 'digestVersion': 2,
+                  'checks': accepted_checks(run_id)}
+        status['approvalSha256'] = candidate_digest(status)
         atomic_json(staged / 'candidate.json', status)
         staged.rename(candidate)
         receipt(run_id, 'awaiting-approval', candidate=status)
@@ -256,23 +345,34 @@ def approve(run_id, expected):
     if expected != data['approvalSha256']:
         raise Rejected('批准摘要不匹配')
     path = APPROVALS / (run_id + '.json')
-    if not path.exists():
-        atomic_json(path, {'sha256': expected, 'approvedAt': int(time.time())}, 0o640, APPROVALS.stat().st_gid)
+    with lock_decisions():
+        if (REQUESTS / run_id / 'tablet.json').exists():
+            raise Rejected('该候选包已经由平板审批')
+        if not path.exists():
+            atomic_json(path, {'sha256': expected, 'approvedAt': int(time.time())}, 0o640, APPROVALS.stat().st_gid)
     print(f'已批准构建 {run_id} {expected}')
 
 
 def publish(run_id, credentials):
     directory = REQUESTS / run_id
     approval = APPROVALS / (run_id + '.json')
-    if not approval.is_file():
+    tablet = directory / 'tablet.json'
+    if not approval.is_file() and not tablet.is_file():
         return
     data = json.loads((directory / 'candidate.json').read_text())
-    if json.loads(approval.read_text())['sha256'] != data['approvalSha256']:
+    decision = json.loads(tablet.read_text()) if tablet.is_file() else None
+    bound = decision['approvalSha256'] if decision else json.loads(approval.read_text())['sha256']
+    if bound != data['approvalSha256']:
         raise Rejected('管理员批准摘要与候选包不一致')
+    actor = {'by': 'tablet', 'at': decision['approvedAt']} if decision else {'by': 'administrator'}
+    if decision and decision['decision'] == 'reject':
+        receipt(run_id, 'rejected-by-operator', candidate=data, approval=actor)
+        (directory / APK).unlink(missing_ok=True)
+        return
     current = json.loads((UPDATES / 'current.json').read_text())
     signed = directory / 'signed.apk'
     def complete(update):
-        receipt(run_id, 'published', candidate=data, update=update)
+        receipt(run_id, 'published', candidate=data, update=update, approval=actor)
         for name in (APK, 'signed.apk', 'manifest.json'):
             (directory / name).unlink(missing_ok=True)
 
@@ -319,25 +419,29 @@ def work():
                 receipt(incoming.name, 'rejected', reason=str(error))
             except (OSError, urllib.error.URLError):
                 print(f'候选 {incoming.name} 暂未完成校验，下次重试', flush=True)
-    for approval in sorted(APPROVALS.glob('*.json')):
-        run_id = approval.stem
-        status = RECEIPTS / approval.name
-        if RUN.fullmatch(run_id) and status.is_file() and json.loads(status.read_text())['state'] != 'published':
+    for candidate in sorted(REQUESTS.iterdir()):
+        run_id = candidate.name
+        status = RECEIPTS / (run_id + '.json')
+        if RUN.fullmatch(run_id) and status.is_file() and json.loads(status.read_text())['state'] not in ('published', 'rejected-by-operator'):
+            data = json.loads((candidate / 'candidate.json').read_text())
+            tablet_decision(run_id, data)
             try:
                 publish(run_id, credentials)
             except Rejected as error:
-                receipt(run_id, 'signing-failed', reason=str(error))
+                receipt(run_id, 'signing-failed', candidate=data, reason=str(error))
 
 
 def main():
     os.umask(0o077)
     parser = argparse.ArgumentParser()
-    parser.add_argument('action', choices=('submit', 'status', 'approve', 'worker', 'verify-apk'))
+    parser.add_argument('action', choices=('submit', 'status', 'approve', 'worker', 'verify-apk', 'enroll'))
     parser.add_argument('identifier', nargs='?')
     parser.add_argument('value', nargs='?')
     args = parser.parse_args()
     if args.action == 'worker':
         work()
+    elif args.action == 'enroll':
+        enroll(args.identifier)
     elif args.action == 'verify-apk' and os.geteuid() == 0:
         path = Path(args.identifier)
         checked_signer(path)

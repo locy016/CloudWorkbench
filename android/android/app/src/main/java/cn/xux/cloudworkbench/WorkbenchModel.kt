@@ -144,6 +144,7 @@ class WorkbenchModel internal constructor(
     internal val newsFeed = NewsFeed(prefs) { connection.takeIf { serverDataConnected } }
     internal val liveExchangeRates = LiveExchangeRates(prefs) { connection.takeIf { serverDataConnected } }
     internal val buildStatus = BuildStatus(prefs) { connection.takeIf { serverDataConnected && hostOnline } }
+    internal val releaseApprovals = ReleaseApprovals { connection.takeIf { serverDataConnected && hostOnline } }
     private val draftStore = DraftStore(prefs, File(app.noBackupFilesDir,
         if (persistBinding) "workbench-drafts" else "workbench-test-drafts"))
     private val drafts = mutableStateMapOf<String, DraftRecord>().apply { putAll(draftStore.restore()) }

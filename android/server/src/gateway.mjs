@@ -7,6 +7,7 @@ import { exchangeRates } from './exchange-rates.mjs';
 import { newsSourceCatalog } from './news-sources.mjs';
 import { codexModels } from './models.mjs';
 import { buildStatus, isId, requestPattern } from './build-status.mjs';
+import { releaseRunId } from './release-approvals.mjs';
 import { createServer } from 'node:http';
 import { timingSafeEqual, randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
@@ -29,7 +30,7 @@ export class Gateway {
   approvals = new Map(); loaded = new Set(); lock = false; statusCache = null;
   startingRequestId = null;
   constructor({ codex, store, token, cwd, events, sshMobile, readExchangeRates = exchangeRates(), readBuildStatus = buildStatus(),
-    newsSources = newsSourceCatalog(), translateNews, builds,
+    newsSources = newsSourceCatalog(), translateNews, builds, releaseApproval,
     projects = [{ id: 'default', name: '默认项目', path: cwd }], sharedWritableRoots = [], codexAccess = 'workspace-write' }) {
     if (!['workspace-write', 'danger-full-access'].includes(codexAccess)) {
       throw new Error('Invalid Codex access mode');
@@ -44,6 +45,7 @@ export class Gateway {
     this.readExchangeRates = readExchangeRates;
     this.readBuildStatus = readBuildStatus;
     this.builds = builds;
+    this.releaseApproval = releaseApproval;
     this.newsSources = newsSources;
     this.translateNews = translateNews;
     if (events) store.onChange = (id, overview) => events.notify(id, overview);
@@ -107,6 +109,19 @@ export class Gateway {
         api: this.metrics.snapshot(), store: this.store.performanceSnapshot?.() || null,
       });
       if (this.extension && await this.extension.handle(req, res, path, respond)) return;
+      if (this.releaseApproval && (path === '/v1/release-approvals' || path.startsWith('/v1/release-approvals/'))) {
+        if (!subject) throw fail(401, '发布审批需通过已授权的 SSH 连接');
+        if (url.search) throw fail(400, '发布审批接口不接受查询参数');
+        if (req.method === 'GET' && path === '/v1/release-approvals') return respond(200, await this.releaseApproval.list());
+        if (req.method === 'POST' && path === '/v1/release-approvals/key') {
+          return respond(200, await this.releaseApproval.register(await this.body(req, 4096)));
+        }
+        const decision = /^\/v1\/release-approvals\/([0-9]+)\/decision$/.exec(path);
+        if (req.method === 'POST' && decision && releaseRunId.test(decision[1])) {
+          return respond(202, await this.releaseApproval.decide(decision[1], await this.body(req, 4096)));
+        }
+        throw fail(404, '接口不存在');
+      }
       if (req.method === 'GET' && path === '/v1/builds') {
         if (!subject) throw fail(401, '构建结果需通过已授权的 SSH 连接读取');
         if (url.search) throw fail(400, '构建结果接口不接受查询参数');

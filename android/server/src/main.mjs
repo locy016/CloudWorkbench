@@ -11,6 +11,7 @@ import { newsSourceCatalog } from './news-sources.mjs';
 import { newsTranslation } from './news-translation.mjs';
 import { buildStatus } from './build-status.mjs';
 import { buildRequests, readActionsToken } from './build-requests.mjs';
+import { releaseApprovals } from './release-approvals.mjs';
 process.umask(0o077);
 const data = process.env.DATA_DIR || '/home/xux/.local/share/cloud-workbench';
 mkdirSync(data, { recursive: true, mode: 0o700 });
@@ -47,7 +48,9 @@ const store = new Store(data + '/workbench.db');
 const readToken = () => readActionsToken(join(data, 'github-actions.token'));
 const readBuildStatus = buildStatus({ readToken });
 const builds = buildRequests({ store, status: readBuildStatus, readToken });
-const gateway = new Gateway({ codex: new Codex(), store, readBuildStatus, builds,
+const releaseApproval = process.env.APP_UPDATES_DIR ? releaseApprovals({ receipts: '/var/lib/cloud-workbench-release/receipts',
+  input: '/var/spool/cloud-workbench-release/device-input' }) : undefined;
+const gateway = new Gateway({ codex: new Codex(), store, readBuildStatus, builds, releaseApproval,
   token, cwd, events, sshMobile, projects, sharedWritableRoots, codexAccess, newsSources,
   translateNews: newsTranslation({ runtime: translations }) });
 gateway.extension = new Releases(data, process.env.APP_UPDATES_DIR);

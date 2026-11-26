@@ -1007,6 +1007,7 @@ private data class MetricValue(val label: String, val value: String, val hint: S
                 }
             }
         }
+        ReleaseApprovalPanel(vm.releaseApprovals, connected = vm.hostOnline && vm.serverDataConnected)
         BuildStatusPanel(vm.buildStatus, connected = vm.hostOnline && vm.serverDataConnected)
     }
     stopId?.let { id ->

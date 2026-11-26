@@ -1,7 +1,9 @@
 import hashlib
+import base64
 import importlib.util
 import json
 import tempfile
+import subprocess
 import unittest
 import zipfile
 from pathlib import Path
@@ -78,6 +80,42 @@ class ReleaseServiceTest(unittest.TestCase):
                 release.publish('1', path / 'unused')
                 invoke.assert_called_once()
                 self.assertEqual(receipt.call_args.args, ('1', 'published'))
+
+    @unittest.skipUnless(Path('/usr/bin/openssl').is_file(), 'requires Linux OpenSSL')
+    def test_tablet_proof_binds_the_decision_and_rejection_cannot_sign(self):
+        candidate = {'runId': '7', 'source': 'a' * 40, 'artifactId': 99, 'apkSha256': 'b' * 64,
+                     'versionCode': 86, 'versionName': '0.4.73', 'notes': '确认 😀', 'digestVersion': 2,
+                     'checks': dict.fromkeys(release.CHECKS, 'success')}
+        candidate['approvalSha256'] = release.candidate_digest(candidate)
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp)
+            requests, approvals, receipts, input_dir = (path / name for name in ('requests', 'approvals', 'receipts', 'device'))
+            for folder in (requests / '7', approvals, receipts, input_dir / 'decisions'):
+                folder.mkdir(parents=True)
+            private = path / 'private.pem'
+            subprocess.run(['/usr/bin/openssl', 'ecparam', '-genkey', '-name', 'prime256v1', '-noout', '-out', str(private)], check=True)
+            public = subprocess.check_output(['/usr/bin/openssl', 'pkey', '-in', str(private), '-pubout', '-outform', 'DER'])
+            fingerprint = hashlib.sha256(public).hexdigest()
+            (approvals / 'approver.json').write_text(json.dumps({'fingerprint': fingerprint, 'der': base64.b64encode(public).decode()}))
+            signature = subprocess.run(['/usr/bin/openssl', 'dgst', '-sha256', '-sign', str(private)], capture_output=True,
+                                       input=release.decision_message('7', candidate['approvalSha256'], 'reject'), check=True).stdout
+            proof = {'approvalSha256': candidate['approvalSha256'], 'fingerprint': fingerprint,
+                     'signature': base64.b64encode(signature).decode(), 'decision': 'approve'}
+            proposal = input_dir / 'decisions/7.json'
+            record = requests / '7/tablet.json'
+            with patch.multiple(release, REQUESTS=requests, APPROVALS=approvals, RECEIPTS=receipts, DEVICE_INPUT=input_dir), \
+                    patch.object(release, 'invoke') as invoke:
+                proposal.write_text(json.dumps(proof))
+                release.tablet_decision('7', candidate)
+                self.assertFalse(record.exists())
+                proof['decision'] = 'reject'
+                proposal.write_text(json.dumps(proof))
+                release.tablet_decision('7', candidate)
+                self.assertTrue(record.exists())
+                (requests / '7/candidate.json').write_text(json.dumps(candidate))
+                release.publish('7', path / 'unset')
+                self.assertEqual(json.loads((receipts / '7.json').read_text())['state'], 'rejected-by-operator')
+                invoke.assert_not_called()
 
 
 if __name__ == '__main__':

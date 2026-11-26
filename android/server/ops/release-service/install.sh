@@ -72,8 +72,11 @@ install -d -o root -g "$signer" -m750 -- "$state/approvals"
 install -d -o "$signer" -g "$signer" -m700 -- "$state/requests"
 install -d -o "$signer" -g xux -m2750 -- "$state/updates" "$state/receipts"
 install -d -o root -g xux -m2770 -- "$spool/inbox"
+install -d -m755 -- "$spool/device-input"
+install -d -o root -g xux -m2770 -- "$spool/device-input/approvers" "$spool/device-input/decisions"
 chmod 2750 "$state/updates" "$state/receipts"
 chmod 2770 "$spool/inbox"
+chmod 2770 "$spool/device-input/approvers" "$spool/device-input/decisions"
 install -m755 -- "$source_dir/release.py" "$operator"
 install -m755 -- "$source_dir/install.sh" /usr/local/sbin/cloud-workbench-release-install
 install -m644 -- "$source_dir/publish-app-update.mjs" "$runtime/ops/publish-app-update.mjs"
@@ -88,7 +91,7 @@ if [[ ! -f "$state/updates/current.json" ]]; then
   install -o "$signer" -g xux -m640 -- "$old/current.json" "$state/updates/current.json"
 fi
 
-for file in main.mjs releases.mjs; do
+for file in release-approvals.mjs releases.mjs main.mjs gateway.mjs; do
   /usr/local/bin/node --check "$source_dir/$file"
   install -o xux -g xux -m600 -- "$source_dir/$file" "$gateway/src/.release-$file"
   mv -fT -- "$gateway/src/.release-$file" "$gateway/src/$file"

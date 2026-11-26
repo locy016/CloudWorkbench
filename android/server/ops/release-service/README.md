@@ -4,7 +4,7 @@ GitHub Actions 只生成未签名 APK、源码提交和校验摘要。生产签�
 
 ## 首次部署
 
-1. 将本目录的 `install.sh`、`release.py`、`.service` 和 `.timer` 文件与同一提交的 `src/main.mjs`、`src/releases.mjs`、`ops/publish-app-update.mjs` 平铺到服务器部署目录。管理员运行 `sudo /bin/bash <部署目录>/install.sh`。脚本验证当前正式 APK 后迁移更新源，并在工作台空闲时切换。
+1. 将本目录的 `install.sh`、`release.py`、`.service` 和 `.timer` 文件与同一提交的 `src/main.mjs`、`src/gateway.mjs`、`src/releases.mjs`、`src/release-approvals.mjs`、`ops/publish-app-update.mjs` 平铺到服务器部署目录。管理员运行 `sudo /bin/bash <部署目录>/install.sh`。脚本验证当前正式 APK 后迁移更新源，并在工作台空闲时切换。升级已有服务时保留已导入的凭据，直接重复这一步。
 2. 在持有正式签名密钥和密码的 Windows 电脑，用 PowerShell 7 运行 `android/tools/import-release-key.ps1`。脚本通过现有 SSH 获取服务器生成的临时公钥，在内存中加密签名材料，再上传密文。
 3. 管理员运行 `sudo /usr/local/sbin/cloud-workbench-release-install import`。安装程序验证证书指纹，导入 systemd 加密凭据并启动定时服务。导入完成后清理临时传输材料。
 
@@ -24,5 +24,15 @@ sudo -k /usr/local/bin/cloud-workbench-release approve <运行编号> <approvalS
 ```
 
 定时服务复核批准摘要和 APK 内容，签名并校验正式证书，再原子更新私有发布清单。`status` 显示 `published` 后，可在真机更新。管理 SSH 终端可来自任一获授权的设备，日常发布无需 Windows 开机或参与签名。`xux` 的免密运维入口未授予发布批准权限。
+
+## 平板审批
+
+在 Android 11 或更新版本上先设置系统屏幕锁。打开「会话 → 任务 → 正式发布审批」，点击「生成审批公钥」。管理员在可信终端核对平板显示的完整指纹，然后绑定设备。
+
+```bash
+sudo -k /usr/local/bin/cloud-workbench-release enroll <平板公钥指纹>
+```
+
+绑定后，平板可查看版本、源码、验收结果和批准摘要。批准与拒绝均要求系统身份验证。签名服务只认管理员绑定的公钥，并独立检查签名、候选摘要和决定。拒绝会丢弃该候选 APK，再次申请发布需提交新的构建运行。网关转交请求和展示状态，平板私钥保存在 Android Keystore。
 
 管理员可检查 `systemctl status cloud-workbench-release.timer` 和 `journalctl -u cloud-workbench-release.service`。本地前置校验使用 `python android/server/test/release_service_test.py` 和网关的 `npm test`。
