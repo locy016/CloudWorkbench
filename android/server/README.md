@@ -15,6 +15,8 @@ npm test
 
 [GitHub Actions](https://github.com/locy016/CloudWorkbench/actions/workflows/cloud-workbench-ci.yml) 使用同一套测试。生产部署后单独验证 SSH 鉴权、会话恢复、图片附件和 APK 分段更新。
 
+`GET /v1/builds` 通过 SSH 认证后读取本仓库的公开 CI 状态。网关缓存上游数据，返回实际构建提交、检查结论和未过期的产物信息。APP 可在暂时取数失败时保留上次结果。
+
 ## 数据与发布
 
 - 程序目录为 `~/.local/lib/cloud-workbench`。业务数据位于 `~/.local/share/cloud-workbench`，其中 `workbench.db` 保存会话，`app-updates/` 保存已签名 APK。

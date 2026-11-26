@@ -1007,6 +1007,7 @@ private data class MetricValue(val label: String, val value: String, val hint: S
                 }
             }
         }
+        BuildStatusPanel(vm.buildStatus, connected = vm.hostOnline && vm.serverDataConnected)
     }
     stopId?.let { id ->
         AlertDialog(onDismissRequest = { stopId = null }, title = { Text("停止当前任务？") },

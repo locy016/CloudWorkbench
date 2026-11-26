@@ -98,6 +98,22 @@ test('authentication, origin and unknown thread are rejected', async t => {
   assert.equal((await call('/v1/threads', undefined, { Origin: 'https://evil.test' })).status, 403);
   assert.equal((await call('/v1/threads/not-ours')).status, 404);
 });
+test('GitHub build results are read-only and restricted to an authorized SSH session', async t => {
+  const result = { runs: [], fetchedAt: 1700000000000, stale: false };
+  let reads = 0;
+  const { call } = await fixture(t, {
+    sshMobile: req => req.headers.authorization === 'SSH test' ? 'test-device' : null,
+    readBuildStatus: async () => { reads++; return result; },
+  });
+  const auth = { Authorization: 'SSH test' };
+  assert.equal((await call('/v1/builds')).status, 401);
+  assert.equal((await call('/v1/builds', undefined, { ...auth, 'x-workbench-ingress': 'web' })).status, 404);
+  assert.equal((await call('/v1/builds?repo=other', undefined, auth)).status, 400);
+  assert.equal((await call('/v1/builds', {}, auth)).status, 404);
+  assert.equal(reads, 0);
+  assert.deepEqual(await call('/v1/builds', undefined, auth), { status: 200, body: result });
+  assert.equal(reads, 1);
+});
 test('live rates require SSH mobile authorization and reject client-supplied destinations', async t => {
   const route = '/v1/server-data/exchange-rates';
   const sample = { base: 'USD', provider: 'Coinbase', fetchedAt: '2026-11-23T05:00:00.000Z', rates: { USD: '1' }, stale: false };

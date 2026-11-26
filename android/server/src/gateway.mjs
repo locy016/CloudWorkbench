@@ -6,6 +6,7 @@ import { privateLoopback } from './mobile-session.mjs';
 import { exchangeRates } from './exchange-rates.mjs';
 import { newsSourceCatalog } from './news-sources.mjs';
 import { codexModels } from './models.mjs';
+import { buildStatus } from './build-status.mjs';
 import { createServer } from 'node:http';
 import { timingSafeEqual, randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
@@ -27,7 +28,7 @@ export class Gateway {
   metrics = new Metrics(); statusInFlight = null;
   approvals = new Map(); loaded = new Set(); lock = false; statusCache = null;
   startingRequestId = null;
-  constructor({ codex, store, token, cwd, events, sshMobile, readExchangeRates = exchangeRates(),
+  constructor({ codex, store, token, cwd, events, sshMobile, readExchangeRates = exchangeRates(), readBuildStatus = buildStatus(),
     newsSources = newsSourceCatalog(), translateNews,
     projects = [{ id: 'default', name: '默认项目', path: cwd }], sharedWritableRoots = [], codexAccess = 'workspace-write' }) {
     if (!['workspace-write', 'danger-full-access'].includes(codexAccess)) {
@@ -41,6 +42,7 @@ export class Gateway {
       projects.find(project => !project.archived))?.id;
     this.listModels = codexModels(codex);
     this.readExchangeRates = readExchangeRates;
+    this.readBuildStatus = readBuildStatus;
     this.newsSources = newsSources;
     this.translateNews = translateNews;
     if (events) store.onChange = (id, overview) => events.notify(id, overview);
@@ -104,6 +106,11 @@ export class Gateway {
         api: this.metrics.snapshot(), store: this.store.performanceSnapshot?.() || null,
       });
       if (this.extension && await this.extension.handle(req, res, path, respond)) return;
+      if (req.method === 'GET' && path === '/v1/builds') {
+        if (!subject) throw fail(401, '构建结果需通过已授权的 SSH 连接读取');
+        if (url.search) throw fail(400, '构建结果接口不接受查询参数');
+        return respond(200, await this.readBuildStatus());
+      }
       if (req.method === 'GET' && path === '/v1/server-data/exchange-rates') {
         if (!subject) throw fail(401, '此数据需通过已授权的 SSH 连接读取');
         const refresh = url.searchParams.get('refresh');
