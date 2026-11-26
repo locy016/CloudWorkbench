@@ -4,6 +4,17 @@
 
 发布、重启和 SSH 运维由管理员使用独立授权入口。`workspace-write` 是日常 Codex 模式。共享可写目录由 `codex-writable-roots.json` 管理。
 
+## 本地测试与 CI
+
+进入本目录，使用 Node.js 22.13 或更高版本运行：
+
+```text
+npm ci --ignore-scripts
+npm test
+```
+
+[GitHub Actions](https://github.com/locy016/CloudWorkbench/actions/workflows/cloud-workbench-ci.yml) 使用同一套测试。生产部署后单独验证 SSH 鉴权、会话恢复、图片附件和 APK 分段更新。
+
 ## 数据与发布
 
 - 程序目录为 `~/.local/lib/cloud-workbench`。业务数据位于 `~/.local/share/cloud-workbench`，其中 `workbench.db` 保存会话，`app-updates/` 保存已签名 APK。
@@ -12,8 +23,6 @@
 - 手机密钥的绑定规则见 [SSH 业务连接](ops/ssh-mobile.md)。
 
 退役清理通过 Nginx 配置、运行状态和旧规则检查验收。证书续期单独管理。关闭工作台域名的公网解析时，现有 HTTP-01 续期无法完成。如继续使用公开受信证书，采用 DNS-01 验证。
-
-使用 Node.js 22.13 或更高版本运行 `npm ci --ignore-scripts` 和 `npm test`。生产部署后验证 SSH 鉴权、会话恢复、图片附件和 APK 分段更新。
 
 ## 工作区与会话模型
 

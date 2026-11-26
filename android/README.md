@@ -12,6 +12,10 @@ APP 短时切到后台时保留现有 SSH 连接和事件流。后台满 30 秒�
 
 首页的「继续任务」显示待审批、待回答、执行中和发送待确认的事项。点选待处理请求进入对应审批详情。「最近任务结果」显示最近五个有结果的会话，点选可查看最新消息或失败原因。文本草稿和待发图片按项目及会话保存，重启 APP 后可恢复。手动重试原内容会复用同一个请求编号。
 
+## 云端助理语音聊天
+
+在「会话」中选择「云端助理」，打开「开启语音聊天」。设备本地转写并通过 SSH 发送，使用同一种离线中文音色朗读回复。蓝牙媒体音频已接通时，回复从蓝牙设备播放。聆听和朗读时，环形声波随音量变化，停顿时收圆，等待回复时保留轻微流动。
+
 ## 搜索历史与继续草稿
 
 在「会话 → 历史会话」输入标题关键词，结合项目和状态筛选。搜索范围包括尚未加载的旧会话。「加载更多会话」会沿用当前条件。
@@ -42,16 +46,20 @@ APP 短时切到后台时保留现有 SSH 连接和事件流。后台满 30 秒�
 
 ## 构建和发布
 
-准备 JDK 17、Android SDK 35 和已校验的本地语音模型。从本目录执行。
+GitHub Actions 会执行 Android Lint 和未签名 APK 构建，产物及摘要可从对应的 [CI 运行详情](https://github.com/locy016/CloudWorkbench/actions/workflows/cloud-workbench-ci.yml) 查看。
+
+本地准备 JDK 17、Android SDK 35 及 Build Tools 35.0.0。从本目录执行以下命令，语音模型准备脚本会下载依赖并校验 SHA-256。
 
 ```powershell
 .\tools\prepare-voice-model.ps1
 cd android
-.\gradlew.bat :app:assembleDebug :app:assembleDebugAndroidTest :app:lintDebug
+.\gradlew.bat :app:lintRelease :app:assembleRelease
 ```
+
+未签名 APK 位于 `android/app/build/outputs/apk/release/app-release-unsigned.apk`。调试或真机验收可另行执行 `:app:assembleDebug :app:assembleDebugAndroidTest`。
 
 从项目 Android 根目录运行 `tools/sign-app-release.ps1` 生成同签名 APK，用 `tools/apk_metadata.ps1` 核验包名、版本、证书和摘要。签名库和密码位于受限的 `signing/` 目录。提高构建号后使用 `tools/publish-app-update.ps1` 发布。正式客户端从「设置 → 应用更新」经 SSH 获取包，支持分段续传，并在交给系统安装器前复验签名和摘要。USB 覆盖安装使用 `adb install -r`，保持正式包的签名连续。
 
 使用 `-PusbAcceptance` 构建独立验收包 `cn.xux.cloudworkbench.acceptance`。实体设备上可与正式版本并存。
 
-[开发计划与使用场景](ROADMAP.md) · [网关与服务端数据](server/README.md)
+[版本日志](CHANGELOG.md) · [路线图](ROADMAP.md) · [网关与服务端数据](server/README.md)
