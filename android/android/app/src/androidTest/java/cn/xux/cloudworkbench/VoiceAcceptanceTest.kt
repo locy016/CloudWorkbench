@@ -48,8 +48,8 @@ class VoiceAcceptanceTest {
                 }
             }
         }
-        fun settle() {
-            compose.mainClock.advanceTimeBy(400)
+        fun settle(milliseconds: Long = 400) {
+            compose.mainClock.advanceTimeBy(milliseconds)
             compose.waitForIdle()
         }
         data class Outline(val count: Int, val centerX: Float)
@@ -81,12 +81,17 @@ class VoiceAcceptanceTest {
         compose.onNodeWithTag("voiceChatReply").assertIsDisplayed()
         val quiet = scanOutline(.73f, .94f).count
         compose.runOnUiThread { level.floatValue = .85f }
-        settle()
-        assertTrue("The waveform should expand with speech", scanOutline(.73f, .94f).count > quiet)
+        settle(128)
+        assertTrue("The waveform should expand promptly with speech", scanOutline(.73f, .94f).count > quiet)
         val pixels = compose.onNodeWithTag("voiceWaveRing").captureToImage().toPixelMap()
         val interior = pixels[(pixels.width * .383f).toInt(), pixels.height / 2]
         assertTrue("The center icon should have an unfilled background", interior.red > .90f && interior.green > .90f)
-        captureReviewScreen("voice-window-067")
+        captureReviewScreen("voice-window-068")
+        compose.runOnUiThread { level.floatValue = 0f }
+        settle(80)
+        assertTrue("The waveform should retain a short tail after speech", scanOutline(.70f, .94f).count > 0)
+        settle(240)
+        assertEquals("The waveform should settle near a circle in silence", 0, scanOutline(.70f, .94f).count)
         compose.onNodeWithText("说完了").performClick()
         settle()
         compose.onNodeWithTag("voiceChatStatus").assertTextEquals("正在等待回复")

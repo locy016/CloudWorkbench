@@ -1,11 +1,16 @@
 package cn.xux.cloudworkbench
 
+import androidx.compose.animation.animateColor
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.Transition
 import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.updateTransition
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -19,6 +24,8 @@ import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -63,11 +70,15 @@ internal fun VoiceChatWindow(
     onClose: () -> Unit
 ) {
     val failed = phase == VoiceDialogPhase.Failed
-    val statusColor = when (phase) {
-        VoiceDialogPhase.Reading -> Color(0xFF087078)
-        VoiceDialogPhase.Waiting, VoiceDialogPhase.Synthesizing -> Color(0xFF51419F)
-        VoiceDialogPhase.Failed -> MaterialTheme.colorScheme.error
-        else -> Accent
+    val errorColor = MaterialTheme.colorScheme.error
+    val mode = updateTransition(phase, label = "语音聊天状态")
+    val statusColor = mode.animateColor(transitionSpec = { tween(voiceModeTransitionMillis) }, label = "状态颜色") { state ->
+        when (state) {
+            VoiceDialogPhase.Reading -> Color(0xFF087078)
+            VoiceDialogPhase.Waiting, VoiceDialogPhase.Synthesizing -> Color(0xFF51419F)
+            VoiceDialogPhase.Failed -> errorColor
+            else -> Accent
+        }
     }
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(Modifier.padding(horizontal = 18.dp, vertical = 16.dp).widthIn(max = 428.dp).fillMaxWidth()
@@ -77,11 +88,11 @@ internal fun VoiceChatWindow(
                 Column(Modifier.weight(1f, fill = false).fillMaxWidth().verticalScroll(rememberScrollState()),
                     horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("语音聊天", style = MaterialTheme.typography.titleMedium)
-                    VoiceWaveRing(phase, statusColor, level)
+                    VoiceWaveRing(mode, statusColor, errorColor, level)
                     Text(failure ?: phase.label, Modifier.testTag("voiceChatStatus")
                         .semantics { liveRegion = LiveRegionMode.Polite },
                         style = if (failed) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.titleLarge,
-                        color = statusColor, textAlign = TextAlign.Center)
+                        color = statusColor.value, textAlign = TextAlign.Center)
                     if (phase == VoiceDialogPhase.Listening && transcript.isBlank()) {
                         Text("说完后自动发送，也可以点「说完了」。", color = Muted,
                             style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
@@ -114,20 +125,47 @@ private fun VoiceChatText(label: String, text: String, tag: String, fill: Color,
 }
 
 @Composable
-private fun VoiceWaveRing(phase: VoiceDialogPhase, color: Color, level: () -> Float) {
-    val reading = phase == VoiceDialogPhase.Reading
-    val reactsToAudio = phase == VoiceDialogPhase.Listening || reading
-    val amplitude by animateFloatAsState(if (reactsToAudio) level() else 0f, tween(155), label = "语音音量")
-    val failed = phase == VoiceDialogPhase.Failed
-    val turn = if (failed) null else rememberInfiniteTransition(label = "声纹圈").animateFloat(
+private fun VoiceWaveRing(mode: Transition<VoiceDialogPhase>, tint: State<Color>, errorColor: Color, level: () -> Float) {
+    val phase = mode.targetState
+    val inputLevel = when (phase) {
+        VoiceDialogPhase.Listening -> level()
+        VoiceDialogPhase.Reading -> level() * .87f
+        else -> 0f
+    }
+    val amplitude = remember { Animatable(0f) }
+    LaunchedEffect(inputLevel) {
+        val rising = inputLevel > amplitude.value
+        amplitude.animateTo(inputLevel, tween(
+            durationMillis = if (rising) 85 else 210,
+            easing = if (rising) LinearOutSlowInEasing else FastOutSlowInEasing
+        ))
+    }
+    val speechMix by mode.animateFloat(transitionSpec = { tween(voiceModeTransitionMillis) }, label = "声波轮廓") { state ->
+        if (state == VoiceDialogPhase.Listening || state == VoiceDialogPhase.Reading) 1f else 0f
+    }
+    val motion by mode.animateFloat(transitionSpec = { tween(voiceModeTransitionMillis) }, label = "声波动效") { state ->
+        if (state == VoiceDialogPhase.Failed) 0f else 1f
+    }
+    val isStopped = mode.currentState == VoiceDialogPhase.Failed && phase == VoiceDialogPhase.Failed
+    val turn = if (isStopped) null else rememberInfiniteTransition(label = "声纹圈").animateFloat(
         initialValue = 0f, targetValue = fullTurn, animationSpec = infiniteRepeatable(tween(5000, easing = LinearEasing)),
         label = "声波沿圆周移动"
     )
-    val colors = when (phase) {
-        VoiceDialogPhase.Reading -> listOf(color, Color(0xFF087E9B), Color(0xFF3974BB))
-        VoiceDialogPhase.Waiting, VoiceDialogPhase.Synthesizing -> listOf(color, Color(0xFF6258BE), Color(0xFF8D63C2))
-        VoiceDialogPhase.Failed -> listOf(color, color)
-        else -> listOf(color, Color(0xFF3B60D7), Color(0xFF7250C5))
+    val middleColor by mode.animateColor(transitionSpec = { tween(voiceModeTransitionMillis) }, label = "波形渐变中点") { state ->
+        when (state) {
+            VoiceDialogPhase.Reading -> Color(0xFF087E9B)
+            VoiceDialogPhase.Waiting, VoiceDialogPhase.Synthesizing -> Color(0xFF6258BE)
+            VoiceDialogPhase.Failed -> errorColor
+            else -> Color(0xFF3B60D7)
+        }
+    }
+    val edgeColor by mode.animateColor(transitionSpec = { tween(voiceModeTransitionMillis) }, label = "波形渐变终点") { state ->
+        when (state) {
+            VoiceDialogPhase.Reading -> Color(0xFF3974BB)
+            VoiceDialogPhase.Waiting, VoiceDialogPhase.Synthesizing -> Color(0xFF8D63C2)
+            VoiceDialogPhase.Failed -> errorColor
+            else -> Color(0xFF7250C5)
+        }
     }
     val trace = remember { Path() }
     val directions = remember {
@@ -140,39 +178,41 @@ private fun VoiceWaveRing(phase: VoiceDialogPhase, color: Color, level: () -> Fl
         Canvas(Modifier.fillMaxSize()) {
             val radius = size.minDimension / 2
             val spin = turn?.value ?: 0f
-            val energy = amplitude
-            val waveCenter = if (failed) center else center + Offset(
-                radius * (.048f + .020f * energy) * sin(spin),
-                radius * (.034f + .017f * energy) * cos(spin)
+            val energy = amplitude.value
+            val voiceWeight = speechMix
+            val motionWeight = motion
+            val waitingWeight = (motionWeight - voiceWeight).coerceAtLeast(0f)
+            val orbit = waitingWeight + voiceWeight * (.45f + .55f * energy)
+            val waveCenter = center + Offset(
+                orbit * radius * (.048f + .020f * energy) * sin(spin),
+                orbit * radius * (.034f + .017f * energy) * cos(spin)
             )
-            val movement = if (reading) spin else -spin
-            val waveGain = (if (reading) .87f else 1f) * (.024f + .22f * energy)
+            val color = tint.value
+            val colors = listOf(color, middleColor, edgeColor)
+            val waveGain = voiceWeight * (.004f + .24f * energy)
             trace.reset()
             directions.forEachIndexed { index, direction ->
                 val angle = fullTurn * index / directions.size
-                val displacement = when {
-                    reactsToAudio -> {
-                        val spread = .72f + .19f * sin(2 * angle + .8f) + .09f * sin(3 * angle - 1.1f)
-                        val wave = .54f * sin(8 * angle + movement) + .29f * sin(15 * angle + 2 * movement + .52f) +
-                            .17f * cos(23 * angle + 3 * movement - .6f)
-                        .02f * sin(3 * angle) + waveGain * spread * wave
-                    }
-                    failed -> 0f
-                    else -> {
-                        val travel = angle - spin
-                        val crest = ((1f + cos(travel - .7f)) / 2f).pow(5)
-                        .006f * sin(2 * angle + .3f) + crest * (.012f + .03f * sin(7 * travel))
-                    }
-                }
-                val point = waveCenter + direction * (radius * (.64f + displacement))
+                val speech = if (waveGain > 0f) {
+                    val spread = .72f + .19f * sin(2 * angle + .8f) + .09f * sin(3 * angle - 1.1f)
+                    val wave = .54f * sin(8 * angle - spin) + .29f * sin(15 * angle - 2 * spin + .52f) +
+                        .17f * cos(23 * angle - 3 * spin - .6f)
+                    waveGain * spread * wave
+                } else 0f
+                val waiting = if (waitingWeight > 0f) {
+                    val travel = angle - spin
+                    val crest = ((1f + cos(travel - .7f)) / 2f).pow(5)
+                    waitingWeight * (.006f * sin(2 * angle + .3f) + crest * (.012f + .03f * sin(7 * travel)))
+                } else 0f
+                val point = waveCenter + direction * (radius * (.64f + speech + waiting))
                 if (index == 0) trace.moveTo(point.x, point.y) else trace.lineTo(point.x, point.y)
             }
             trace.close()
             drawPath(trace, Brush.linearGradient(colors, start = Offset(0f, size.height * .78f),
                 end = Offset(size.width, size.height * .18f)), style = Stroke(2.2.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
 
-            val breath = if (failed) 0f else .5f + .5f * sin(spin)
-            val iconRingRadius = 26.dp.toPx() * (1f + .035f * breath + .045f * energy)
+            val breath = motionWeight * (.5f + .5f * sin(spin))
+            val iconRingRadius = 26.dp.toPx() * (1f + .025f * breath + .015f * energy)
             rotate(degrees = spin * 360f / fullTurn) {
                 drawCircle(Brush.sweepGradient(listOf(color, colors.last(), color), center = center),
                     radius = iconRingRadius, style = Stroke(1.7.dp.toPx()))
@@ -184,14 +224,15 @@ private fun VoiceWaveRing(phase: VoiceDialogPhase, color: Color, level: () -> Fl
             VoiceDialogPhase.Reading -> Icons.AutoMirrored.Outlined.VolumeUp
             VoiceDialogPhase.Failed -> Icons.Outlined.Info
             else -> Icons.Outlined.HourglassTop
-        }, contentDescription = null, tint = color, modifier = Modifier.size(26.dp).graphicsLayer {
-            scaleX = 1f + .07f * amplitude
+        }, contentDescription = null, tint = tint.value, modifier = Modifier.size(26.dp).graphicsLayer {
+            scaleX = 1f + .035f * amplitude.value
             scaleY = scaleX
         })
     }
 }
 
 private val fullTurn = (2 * PI).toFloat()
+private const val voiceModeTransitionMillis = 200
 
 internal fun voiceWaveLevel(meanSquare: Float): Float =
     ((sqrt(meanSquare.takeIf { it.isFinite() && it > 0f } ?: 0f) - .012f) * 6f).coerceIn(0f, 1f)
