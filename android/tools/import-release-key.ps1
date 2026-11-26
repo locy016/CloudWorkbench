@@ -1,6 +1,6 @@
 #requires -Version 7.0
 param(
-    [string]$SshConfig = (Join-Path $PSScriptRoot '../../server-file/ssh/aliyun-workbench/config'),
+    [string]$SshConfig = (Join-Path $PSScriptRoot '../../../server-file/ssh/aliyun-workbench/config'),
     [string]$SigningDirectory = (Join-Path $PSScriptRoot '../signing'),
     [string]$OpenSsl = 'C:/Program Files/Git/usr/bin/openssl.exe'
 )
