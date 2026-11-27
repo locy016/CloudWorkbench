@@ -28,4 +28,5 @@ test('release endpoint stages a proof only for an enrolled key and the current c
   const [row] = (await api.list()).releases;
   assert.equal(row.state, 'awaiting-approval');
   assert.equal(row.pending, true);
+  assert.ok(Number.isSafeInteger(row.receiptAtMs) && row.receiptAtMs > 0);
 });

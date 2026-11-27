@@ -12,7 +12,10 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
 import androidx.annotation.RequiresApi
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -21,6 +24,9 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.NewReleases
+import androidx.compose.material.icons.outlined.ExpandLess
+import androidx.compose.material.icons.outlined.ExpandMore
+import androidx.compose.material3.Icon
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
@@ -43,6 +49,9 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import java.text.DateFormat
+import java.util.Date
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -102,7 +111,7 @@ internal data class ReleaseCandidate(
 }
 
 internal data class ReleaseApprovalRow(val candidate: ReleaseCandidate, val state: String, val pending: Boolean,
-    val byTablet: Boolean, val reason: String? = null)
+    val byTablet: Boolean, val reason: String? = null, val receiptAtMs: Long = 0, val approvedAtSeconds: Long = 0)
 
 private fun keyStore() = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
 
@@ -179,7 +188,8 @@ internal class ReleaseApprovals(private val connection: () -> WorkbenchConnectio
                     val candidate = ReleaseCandidate.parse(item.getJSONObject("candidate"))
                     ReleaseApprovalRow(candidate, item.getString("state"), item.optBoolean("pending"),
                         item.optJSONObject("approval")?.optString("by") == "tablet",
-                        item.optString("reason").takeIf { it.isNotBlank() && it != "null" })
+                        item.optString("reason").takeIf { it.isNotBlank() && it != "null" },
+                        item.optLong("receiptAtMs"), item.optJSONObject("approval")?.optLong("at") ?: 0)
                 }.getOrNull()
             }.sortedBy { it.state != "awaiting-approval" }
             available = true
@@ -243,6 +253,7 @@ internal fun ReleaseApprovalPanel(model: ReleaseApprovals, connected: Boolean) {
     }
     Panel(Modifier.fillMaxWidth().testTag("releaseApprovals")) {
         TaskPanelHeading("正式发布审批", Icons.Outlined.NewReleases) {
+            if (bound && connected && model.available) TaskBadge("已授权", TaskTone.Neutral)
             TextButton(enabled = connected && !model.loading, onClick = { scope.launch { model.refresh() } }) { Text("刷新审批") }
         }
         val status = when {
@@ -253,7 +264,7 @@ internal fun ReleaseApprovalPanel(model: ReleaseApprovals, connected: Boolean) {
             bound -> "此设备已获发布审批授权"
             else -> "此设备尚未绑定发布审批"
         }
-        Text(status, color = Muted, style = MaterialTheme.typography.bodySmall)
+        if (!bound || !connected || !model.available) Text(status, color = Muted, style = MaterialTheme.typography.bodySmall)
         if (supported && connected && model.available && !bound) {
             TextButton(enabled = !model.busy, onClick = { scope.launch {
                 if (Build.VERSION.SDK_INT >= 30) model.register(context)
@@ -270,7 +281,7 @@ internal fun ReleaseApprovalPanel(model: ReleaseApprovals, connected: Boolean) {
         val (openRows, processedRows) = model.rows.partition { it.state in setOf("awaiting-approval", "signing-failed") }
         val featuredRows = openRows.ifEmpty { processedRows.take(1) }
         val history = if (openRows.isEmpty()) processedRows.drop(1) else processedRows
-        for (row in featuredRows + (if (showHistory) history else emptyList())) {
+        for (row in featuredRows) {
             key(row.candidate.runId) {
                 HorizontalDivider()
                 ReleaseCandidateRow(row, showDecision = bound && row.state == "awaiting-approval" && !row.pending,
@@ -282,12 +293,19 @@ internal fun ReleaseApprovalPanel(model: ReleaseApprovals, connected: Boolean) {
         if (history.isNotEmpty()) TextButton(onClick = { showHistory = !showHistory }) {
             Text(if (showHistory) "收起发布历史" else "发布历史 (${history.size})")
         }
+        if (showHistory) for (row in history) key(row.candidate.runId) {
+            HorizontalDivider()
+            ReleaseCandidateRow(row, showDecision = false, canDecide = false, historical = true,
+                viewRun = { runCatching { uri.openUri("https://github.com/locy016/CloudWorkbench/actions/runs/${row.candidate.runId}") } },
+                decide = {})
+        }
     }
     confirmation?.let { (candidate, action) ->
         val label = if (action == "approve") "批准发布" else "拒绝发布"
         AlertDialog(onDismissRequest = { confirmation = null }, title = { Text(label) }, text = {
             Column(Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState())) {
                 Text("${candidate.version} · 构建 ${candidate.code}")
+                Text(candidate.notes)
                 ReleaseCandidateDetails(candidate)
             }
         }, confirmButton = {
@@ -300,8 +318,8 @@ internal fun ReleaseApprovalPanel(model: ReleaseApprovals, connected: Boolean) {
 }
 
 @Composable
-private fun ReleaseCandidateRow(row: ReleaseApprovalRow, showDecision: Boolean, canDecide: Boolean,
-    viewRun: () -> Unit, decide: (String) -> Unit) {
+internal fun ReleaseCandidateRow(row: ReleaseApprovalRow, showDecision: Boolean, canDecide: Boolean,
+    historical: Boolean = false, viewRun: () -> Unit, decide: (String) -> Unit) {
     val candidate = row.candidate
     var expanded by rememberSaveable(candidate.runId) { mutableStateOf(false) }
     val (status, tone) = when (row.state) {
@@ -311,40 +329,64 @@ private fun ReleaseCandidateRow(row: ReleaseApprovalRow, showDecision: Boolean, 
         "signing-failed" -> "签名失败" to TaskTone.Error
         else -> row.state to TaskTone.Neutral
     }
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(candidate.version, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+    var historyOpen by rememberSaveable(candidate.runId) { mutableStateOf(false) }
+    val heading = if (historical) Modifier.clickable { historyOpen = !historyOpen }.heightIn(min = 52.dp) else Modifier
+    Row(Modifier.fillMaxWidth().then(heading), verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(candidate.version, Modifier.weight(1f), style = if (historical) MaterialTheme.typography.titleMedium else MaterialTheme.typography.headlineSmall)
         TaskBadge(status, tone)
+        if (historical) Icon(if (historyOpen) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
+            if (historyOpen) "收起版本" else "展开版本", tint = Muted)
     }
-    val details = listOfNotNull("构建 ${candidate.code}", candidate.source.take(8),
-        "本机构建".takeIf { candidate.localBuild }, "平板批准".takeIf { row.byTablet && row.state == "published" })
+    if (historical && !historyOpen) return
+    val details = listOfNotNull("构建 ${candidate.code}", if (candidate.localBuild) "本机构建" else "GitHub 构建",
+        "平板批准".takeIf { row.byTablet && row.state == "published" })
     Text(details.joinToString(" · "), color = Muted, style = MaterialTheme.typography.bodySmall)
-    if (expanded) {
-        ReleaseCandidateDetails(candidate)
-        row.reason?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-    } else {
-        Text(row.reason ?: candidate.notes, color = if (row.reason == null) Muted else MaterialTheme.colorScheme.error,
-            maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall)
+    if (row.state == "published") {
+        val stamp = when {
+            row.receiptAtMs > 0 -> "回执更新" to row.receiptAtMs
+            row.approvedAtSeconds > 0 -> "审批时间" to row.approvedAtSeconds * 1000
+            else -> null
+        }
+        stamp?.let { (label, ms) -> Text("$label · ${DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(ms))}",
+            color = Muted, style = MaterialTheme.typography.bodySmall) }
+    }
+    val points = remember(candidate.notes) { candidate.notes.split(Regex("\\n+|(?<=[。！？])")).map { it.trim() }.filter { it.isNotEmpty() } }
+    var fullNotes by rememberSaveable(candidate.runId) { mutableStateOf(false) }
+    val lengthy = points.size > 3 || points.take(3).any { it.length > 90 }
+    Column(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        for (point in if (fullNotes) points else points.take(3)) Text(point, fontSize = 16.sp, lineHeight = 27.sp,
+            maxLines = if (!fullNotes && point.length > 90) 3 else Int.MAX_VALUE, overflow = TextOverflow.Ellipsis)
+    }
+    if (lengthy) TextButton(onClick = { fullNotes = !fullNotes }) { Text(if (fullNotes) "收起说明" else "完整更新说明") }
+    row.reason?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+    Text("已通过 ${candidate.checks.size} 项构建校验", color = Muted, style = MaterialTheme.typography.labelLarge)
+    if (showDecision) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween) {
+        TextButton(enabled = canDecide, onClick = { decide("reject") }) { Text("拒绝发布", color = Muted) }
+        Button(enabled = canDecide, onClick = { decide("approve") }) { Text("批准发布") }
     }
     ActionRow {
-        if (showDecision) {
-            Button(enabled = canDecide, onClick = { decide("approve") }) { Text("批准发布") }
-            TextButton(enabled = canDecide, onClick = { decide("reject") }) { Text("拒绝发布") }
-        }
         TextButton(onClick = { expanded = !expanded }, modifier = Modifier.testTag("releaseDetails-${candidate.runId}")) {
-            Text(if (expanded) "收起详情" else "查看详情")
+            Text(if (expanded) "收起详情" else "构建与校验详情")
         }
         if (expanded && !candidate.localBuild) TextButton(onClick = viewRun) { Text("验收运行") }
     }
+    if (expanded) ReleaseCandidateDetails(candidate)
 }
 
 @Composable
 private fun ReleaseCandidateDetails(candidate: ReleaseCandidate) {
-    Text(candidate.notes, style = MaterialTheme.typography.bodyMedium)
+    val clipboard = LocalContext.current.getSystemService(ClipboardManager::class.java)
     Text("网关测试、Android Lint、未签名 APK 构建均通过", style = MaterialTheme.typography.bodySmall)
     SelectionContainer {
         Column {
             Text("源码 ${candidate.source}", color = Muted, style = MaterialTheme.typography.bodySmall)
             Text("批准摘要 ${candidate.approvalSha256}", color = Muted, style = MaterialTheme.typography.bodySmall)
         }
+    }
+    ActionRow {
+        TextButton(onClick = { clipboard.setPrimaryClip(ClipData.newPlainText("源码", candidate.source)) }) { Text("复制源码版本") }
+        TextButton(onClick = { clipboard.setPrimaryClip(ClipData.newPlainText("批准摘要", candidate.approvalSha256)) }) { Text("复制批准摘要") }
     }
 }

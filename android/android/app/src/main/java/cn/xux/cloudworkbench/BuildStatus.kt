@@ -1,12 +1,16 @@
 package cn.xux.cloudworkbench
 
 import android.content.SharedPreferences
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Build
+import androidx.compose.material.icons.outlined.ExpandMore
+import androidx.compose.material.icons.outlined.ExpandLess
+import androidx.compose.material3.Icon
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -213,8 +217,13 @@ internal fun BuildStatusPanel(builds: BuildStatus, connected: Boolean) {
     var choose by remember { mutableStateOf(false) }
     var jobToRead by remember { mutableStateOf<BuildJob?>(null) }
     var openError by remember { mutableStateOf(false) }
-    var showTracked by rememberSaveable(selected?.id) { mutableStateOf(false) }
-    var showLatest by rememberSaveable(latest?.id) { mutableStateOf(false) }
+    val attentionStates = setOf("running", "queued", "failed")
+    val trackedAttention = builds.active || trackedRun?.state in attentionStates || tracked?.state == "rejected"
+    val latestAttention = latest?.state in attentionStates
+    val needsAttention = trackedAttention || latestAttention || builds.issue != null || builds.failed
+    var expanded by rememberSaveable(needsAttention) { mutableStateOf(needsAttention) }
+    var showTracked by rememberSaveable(selected?.id, trackedAttention) { mutableStateOf(trackedAttention) }
+    var showLatest by rememberSaveable(latest?.id, latestAttention) { mutableStateOf(latestAttention) }
     var showHistory by rememberSaveable { mutableStateOf(false) }
     fun open(address: String) {
         openError = runCatching { uri.openUri(address) }.isFailure
@@ -241,15 +250,24 @@ internal fun BuildStatusPanel(builds: BuildStatus, connected: Boolean) {
     jobToRead?.let { BuildLogDialog(builds, it) { jobToRead = null } }
 
     Panel(Modifier.fillMaxWidth().testTag("githubBuilds")) {
-        TaskPanelHeading("GitHub 构建", Icons.Outlined.Build) {
+        Row(Modifier.fillMaxWidth().testTag("toggleBuildPanel").clickable { expanded = !expanded },
+            verticalAlignment = Alignment.CenterVertically) {
+            val run = snapshot?.runs?.firstOrNull() ?: trackedRun
+            Box(Modifier.weight(1f)) {
+                TaskPanelHeading(if (expanded || run == null) "GitHub 构建" else "最近构建 #${run.number}", Icons.Outlined.Build)
+            }
+            if (!expanded && run != null) TaskBadge(buildState(run.state), buildTone(run.state))
+            Icon(if (expanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
+                if (expanded) "收起构建面板" else "展开构建面板", tint = Muted)
+        }
+        if (!expanded) return@Panel
+        ActionRow {
+            FilledTonalButton(onClick = { choose = true }, enabled = connected && !builds.active && !builds.sending,
+                modifier = Modifier.testTag("startGithubBuild")) { Text("发起构建") }
             TextButton(onClick = { scope.launch { builds.follow(); builds.refreshRecent() } }, enabled = connected && !builds.loading,
                 modifier = Modifier.testTag("refreshGithubBuilds")) {
                 Text(if (builds.loading) "刷新中" else "刷新")
             }
-        }
-        ActionRow {
-            FilledTonalButton(onClick = { choose = true }, enabled = connected && !builds.active && !builds.sending,
-                modifier = Modifier.testTag("startGithubBuild")) { Text("发起构建") }
         }
         builds.issue?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
         if (selected != null) {

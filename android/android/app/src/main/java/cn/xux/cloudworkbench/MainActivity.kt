@@ -970,6 +970,10 @@ private data class MetricValue(val label: String, val value: String, val hint: S
     val task = vm.activeThread
     val canAct = vm.hostOnline && !vm.busy && !vm.connecting
     val connected = vm.hostOnline && vm.serverDataConnected
+    val operations = remember(vm) { movableContentOf { online: Boolean -> TaskOperationPanels(vm.releaseApprovals, vm.buildStatus, online) } }
+    val needsRelease = vm.releaseApprovals.rows.any { it.state == "awaiting-approval" || it.state == "signing-failed" }
+    var keepReleaseFirst by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(needsRelease) { if (needsRelease) keepReleaseFirst = true }
     PageColumn {
         val focusedId = vm.focusedApprovalId
         if (focusedId != null) {
@@ -986,6 +990,8 @@ private data class MetricValue(val label: String, val value: String, val hint: S
             else Text("此请求已处理或已失效", color = Muted, style = MaterialTheme.typography.bodyMedium)
             return@PageColumn
         }
+        val releaseFirst = needsRelease || keepReleaseFirst || (task == null && vm.pendingApprovals.isEmpty())
+        if (releaseFirst) operations(connected)
         if (vm.pendingApprovals.isNotEmpty()) {
             Text("待你确认", style = MaterialTheme.typography.titleMedium, modifier = Modifier.testTag("pendingTaskApprovals"))
             vm.pendingApprovals.forEach { a -> key(a.getString("id")) { ApprovalCard(a, vm) } }
@@ -1015,7 +1021,7 @@ private data class MetricValue(val label: String, val value: String, val hint: S
                 }
             }
         }
-        TaskOperationPanels(vm.releaseApprovals, vm.buildStatus, connected)
+        if (!releaseFirst) operations(connected)
     }
     stopId?.let { id ->
         AlertDialog(onDismissRequest = { stopId = null }, title = { Text("停止当前任务？") },

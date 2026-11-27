@@ -24,9 +24,11 @@ internal enum class TaskTone { Neutral, Active, Waiting, Complete, Error }
 @Composable
 internal fun TaskOperationPanels(releases: ReleaseApprovals, builds: BuildStatus, connected: Boolean) {
     BoxWithConstraints(Modifier.fillMaxWidth()) {
-        if (maxWidth >= 620.dp) {
+        val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+        if (configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE &&
+            maxWidth >= 880.dp * configuration.fontScale.coerceAtLeast(1f)) {
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.Top) {
-                Column(Modifier.weight(1f)) { ReleaseApprovalPanel(releases, connected) }
+                Column(Modifier.weight(2f)) { ReleaseApprovalPanel(releases, connected) }
                 Column(Modifier.weight(1f)) { BuildStatusPanel(builds, connected) }
             }
         } else {

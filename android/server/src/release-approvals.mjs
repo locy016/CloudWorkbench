@@ -51,7 +51,7 @@ export function releaseApprovals({ receipts, input }) {
         rows.push({ row, age });
       }
       rows.sort((a, b) => Number(b.row.state === 'awaiting-approval') - Number(a.row.state === 'awaiting-approval') || b.age - a.age);
-      const entries = await Promise.all(rows.slice(0, 12).map(async ({ row }) => ({ ...row,
+      const entries = await Promise.all(rows.slice(0, 12).map(async ({ row, age }) => ({ ...row, receiptAtMs: Math.trunc(age),
         pending: row.state === 'awaiting-approval' && await pending(row.candidate.runId) })));
       return { fingerprint: (await approver())?.fingerprint ?? null, releases: entries };
     },
