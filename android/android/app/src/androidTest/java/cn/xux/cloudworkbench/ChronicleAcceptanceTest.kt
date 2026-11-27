@@ -106,14 +106,23 @@ class ChronicleAcceptanceTest {
         compose.openWorkbenchTab("史时")
         compose.onNodeWithText("选择阶段").performClick()
         val timeline = compose.onNodeWithTag("eraTimeline")
+        fun header(index: Int) = compose.onNode(hasText(historyEras[index].name) and hasAnyAncestor(hasTestTag("eraTimeline")))
         fun preview(index: Int) {
             timeline.performScrollToIndex(index)
-            compose.onNode(hasText(historyEras[index].name) and hasAnyAncestor(hasTestTag("eraTimeline"))).performClick()
-            compose.onNode(hasText(historyEras[index].name) and hasAnyAncestor(hasTestTag("eraSummary"))).assertIsDisplayed()
+            header(index).performClick().assert(hasStateDescription("已展开"))
+            val heading = header(index).fetchSemanticsNode().boundsInWindow
+            val details = compose.onNodeWithTag("eraSummary").fetchSemanticsNode().boundsInWindow
+            assertTrue("地区摘要应位于阶段概况正下方", heading.bottom <= details.top + 1 && details.width >= heading.width * .95f)
         }
         compose.onNodeWithText("区域摘要").assertIsDisplayed()
         capture("timeline-early")
+        header(1).performClick().assert(hasStateDescription("已收起"))
+        compose.onNodeWithTag("eraSummary").assertDoesNotExist()
+        header(1).assert(hasText(historyEras[1].summary))
+        capture("timeline-collapsed")
+        preview(1)
         preview(historyEras.lastIndex)
+        compose.onAllNodesWithTag("eraSummary").assertCountEquals(1)
         compose.onNodeWithText(historyEras.last().regionalSummaries.getValue(HistoryRegion.Brazil)).performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("取消").performClick()
         compose.onNodeWithText("城市与早期文明").assertIsDisplayed()
