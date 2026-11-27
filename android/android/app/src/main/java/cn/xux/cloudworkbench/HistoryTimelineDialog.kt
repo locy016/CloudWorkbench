@@ -99,7 +99,7 @@ import androidx.compose.ui.unit.dp
 
 @Composable private fun RegionalSummaries(era: HistoryEra, textInset: Dp) {
     Column(Modifier.fillMaxWidth().testTag("eraSummary").padding(horizontal = textInset, vertical = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("区域摘要", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, color = Ink)
             Text("${era.regionalSummaries.size} 个区域 · ${era.events.size} 条记录", style = MaterialTheme.typography.bodySmall, color = Muted)

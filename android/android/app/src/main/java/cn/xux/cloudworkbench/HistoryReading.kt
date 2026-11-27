@@ -12,9 +12,22 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 @Composable internal fun HistoryParagraph(text: String, color: Color = Ink, prominent: Boolean = false) {
-    Text(text, Modifier.fillMaxWidth(), color = color, style = MaterialTheme.typography.bodyMedium,
-        fontSize = if (prominent) 16.sp else 15.sp, lineHeight = if (prominent) 28.sp else 25.sp,
-        textAlign = TextAlign.Justify)
+    val paragraphs = androidx.compose.runtime.remember(text, prominent) {
+        val firstStop = text.indexOf('。') + 1
+        when {
+            '\n' in text -> text.lines().filter(String::isNotBlank)
+            prominent && text.length >= 68 && firstStop in 18..(text.length - 20) ->
+                listOf(text.take(firstStop), text.drop(firstStop))
+            else -> listOf(text)
+        }
+    }
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        paragraphs.forEach { paragraph ->
+            Text(paragraph, Modifier.fillMaxWidth(), color = color, style = MaterialTheme.typography.bodyMedium,
+                fontSize = if (prominent) 17.sp else 15.sp, lineHeight = if (prominent) 32.sp else 27.sp,
+                textAlign = TextAlign.Justify)
+        }
+    }
 }
 
 @Composable internal fun HistoryReadingPair(primary: @Composable () -> Unit, secondary: @Composable () -> Unit) {

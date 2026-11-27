@@ -22,6 +22,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -172,6 +175,7 @@ import androidx.compose.ui.unit.sp
         ReadingLink("查阅世界史分期标准", HISTORY_STANDARD)
     }
     if (openTrail != null) HistoryDialog(openTrail.title, { trailTitle = null }, maxWidth = 656.dp) {
+        var expandedStep by rememberSaveable(openTrail.title) { mutableIntStateOf(0) }
         Text(openTrail.subjects, color = Accent, style = MaterialTheme.typography.titleMedium)
         HistoryParagraph(openTrail.introduction)
         Text(openTrail.newsStatus ?: openTrail.span, color = Muted, style = MaterialTheme.typography.labelLarge)
@@ -182,14 +186,22 @@ import androidx.compose.ui.unit.sp
                     if (index > 0) drawLine(Outline, Offset(point.x, 0f), point, 2.dp.toPx())
                     if (index < openTrail.steps.lastIndex) drawLine(Outline, point, Offset(point.x, size.height), 2.dp.toPx())
                     drawCircle(Accent, 4.dp.toPx(), point)
-                }.padding(start = 22.dp, bottom = 14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    HistoryReadingPair(primary = {
-                        Text(step.title, color = Ink, style = MaterialTheme.typography.titleMedium)
-                        HistoryParagraph(step.body)
-                    }, secondary = {
-                        Text(step.date, color = Accent, style = MaterialTheme.typography.labelLarge)
-                        ReadingLink(step.source.label, step.source.url)
-                    })
+                }.padding(start = 24.dp, bottom = 14.dp)) {
+                    val expanded = expandedStep == index
+                    Row(Modifier.fillMaxWidth().clickable(role = Role.Button) { expandedStep = if (expanded) -1 else index }
+                        .semantics { stateDescription = if (expanded) "已展开" else "已收起" }
+                        .heightIn(min = 56.dp).padding(vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(step.title, Modifier.weight(1f), color = if (expanded) Accent else Ink, style = MaterialTheme.typography.titleMedium)
+                        Text(step.date, Modifier.widthIn(max = 108.dp), color = Muted, style = MaterialTheme.typography.bodySmall)
+                        Icon(if (expanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore, null, Modifier.size(18.dp), tint = Muted)
+                    }
+                    if (expanded) {
+                        Column(Modifier.padding(top = 4.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            HistoryParagraph(step.body, prominent = true)
+                            ReadingLink(step.source.label, step.source.url)
+                        }
+                    }
                 }
             }
         }
@@ -200,14 +212,20 @@ import androidx.compose.ui.unit.sp
             period == historyEras.last() -> postwarPeriods.first { it.contains(detail) }.title
             else -> period.name
         }
-        HistoryReadingPair(primary = {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.Top) {
+            Text("${detail.date} · ${detail.region.label}", Modifier.weight(1f), color = Accent, style = MaterialTheme.typography.labelLarge)
+            Text(detail.lens.label, color = Muted, style = MaterialTheme.typography.labelLarge)
+        }
+        Text(periodLabel, color = Muted, style = MaterialTheme.typography.bodySmall)
+        Column(Modifier.fillMaxWidth().testTag("historyDetailBody").padding(top = 10.dp, bottom = 12.dp)) {
             HistoryParagraph(detail.detail, prominent = true)
-        }, secondary = {
-            Text("${detail.date}  ·  ${detail.region.label}", color = Accent, fontWeight = FontWeight.SemiBold)
-            Text("${periodLabel}   /   ${detail.lens.label}", color = Muted, style = MaterialTheme.typography.bodySmall)
+        }
+        HorizontalDivider(color = Outline)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp),
+            verticalAlignment = Alignment.CenterVertically) {
             Text("史料出处", color = Muted, style = MaterialTheme.typography.labelLarge)
-            ReadingLink(detail.reading, detail.url)
-        })
+            Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) { ReadingLink(detail.reading, detail.url) }
+        }
         detail.trail?.let { trail ->
             OutlinedButton(onClick = { trailTitle = trail.title }) { Text("查看完整事件轨迹") }
         }
@@ -351,12 +369,16 @@ internal fun HistoryEvent.inModernRegionalHistory(): Boolean {
     Column(Modifier.fillMaxWidth()) {
         shown.forEachIndexed { index, period ->
             val entries = matches.getValue(period)
+            val lead = entries.firstOrNull { it.regionalLead } ?: entries.firstOrNull { it.trail != null } ?: entries.firstOrNull()
+            var showMore by rememberSaveable(period.id) { mutableStateOf(false) }
+            val preview = current == null && lens == null && entries.size > 1
+            val visible = if (preview) listOfNotNull(lead) + if (showMore) entries.filter { it != lead } else emptyList() else entries
             Column(Modifier.fillMaxWidth().drawBehind {
                 val node = Offset(8.dp.toPx(), 10.dp.toPx())
                 if (index > 0) drawLine(Outline, Offset(node.x, 0f), node, 2.dp.toPx())
                 if (index < shown.lastIndex) drawLine(Outline, node, Offset(node.x, size.height), 2.dp.toPx())
                 drawCircle(Accent, 5.dp.toPx(), node)
-            }.padding(start = 25.dp, bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            }.padding(start = 26.dp, bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (wide) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(18.dp)) {
                     Text(period.name, Modifier.weight(1f), color = Ink, style = MaterialTheme.typography.titleLarge)
                     Text(period.dates, color = Accent, style = MaterialTheme.typography.labelLarge)
@@ -368,9 +390,10 @@ internal fun HistoryEvent.inModernRegionalHistory(): Boolean {
                 if (entries.isNotEmpty()) Surface(Modifier.fillMaxWidth().padding(top = 4.dp), shape = MaterialTheme.shapes.large,
                     color = MaterialTheme.colorScheme.surface, border = BorderStroke(1.dp, Outline)) {
                     Column {
-                        entries.forEachIndexed { i, event ->
+                        visible.forEachIndexed { i, event ->
                             if (i > 0) HorizontalDivider(Modifier.padding(horizontal = 12.dp), color = Outline)
-                            Row(Modifier.fillMaxWidth().clickable(role = Role.Button) { open(event) }.padding(12.dp),
+                            Row(Modifier.fillMaxWidth().clickable(role = Role.Button) { open(event) }
+                                .heightIn(min = if (i == 0) 60.dp else 52.dp).padding(horizontal = 14.dp, vertical = 10.dp),
                                 verticalAlignment = Alignment.CenterVertically) {
                                 val overlap = if (event.localPeriodIds.size > 1) " · 跨期" else ""
                                 val context = "${event.date} · ${event.lens.label}$overlap"
@@ -382,6 +405,16 @@ internal fun HistoryEvent.inModernRegionalHistory(): Boolean {
                                     Text(event.title, color = Ink, style = MaterialTheme.typography.titleMedium)
                                 }
                                 Icon(Icons.Outlined.ChevronRight, null, Modifier.size(18.dp), tint = Accent)
+                            }
+                        }
+                        if (preview) {
+                            HorizontalDivider(Modifier.padding(horizontal = 14.dp), color = Outline)
+                            Row(Modifier.fillMaxWidth().testTag("more-${period.id}").clickable(role = Role.Button) { showMore = !showMore }
+                                .heightIn(min = 44.dp).padding(horizontal = 14.dp),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text(if (showMore) "收起同期记录" else "另有 ${entries.size - 1} 条同期记录",
+                                    color = Muted, style = MaterialTheme.typography.labelLarge)
+                                Icon(if (showMore) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore, null, Modifier.size(16.dp), tint = Muted)
                             }
                         }
                     }

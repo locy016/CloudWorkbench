@@ -57,6 +57,7 @@ class ChronicleAcceptanceTest {
         capture("region")
         val firstChina = regionalChronologies.getValue(HistoryRegion.China).first().summary
         compose.onNodeWithText(firstChina).performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("more-neolithic").performScrollTo().performClick()
         compose.onNodeWithText("良渚以稻作支撑古城").performScrollTo()
         capture("region-timeline")
         compose.onNodeWithText(regionalChronologies.getValue(HistoryRegion.China).last().summary).performScrollTo().assertIsDisplayed()
@@ -185,25 +186,20 @@ class ChronicleAcceptanceTest {
         compose.onNodeWithText("中华人民共和国成立").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("工业利润月报记录前十个月的经营变化").performScrollTo().performClick()
         compose.onNodeWithText("史料出处").assertIsDisplayed()
-        val report = modernChinaEvents.first { it.date == "2026年11月27日" }
-        val body = compose.onNodeWithText(report.detail).fetchSemanticsNode().boundsInWindow
+        val body = compose.onNodeWithTag("historyDetailBody").fetchSemanticsNode().boundsInWindow
         val source = compose.onNodeWithText("史料出处").fetchSemanticsNode().boundsInWindow
-        val metrics = compose.activity.resources.displayMetrics
-        val config = compose.activity.resources.configuration
-        val gutter = if (config.screenWidthDp >= 600) 24 else 16
-        val paneWidth = compose.onNodeWithTag("historyReadingPane").fetchSemanticsNode().boundsInWindow.width / metrics.density
-        if (paneWidth - 2 * gutter >= 500 * config.fontScale.coerceAtLeast(1f)) {
-            assertTrue("宽屏正文与出处应分列", body.right <= source.left)
-        } else {
-            assertTrue("窄屏出处应位于正文下方", body.bottom <= source.top)
-        }
+        assertTrue("正文应通栏，出处应位于正文下方", body.bottom <= source.top)
         capture("china-current")
         compose.onNodeWithContentDescription("关闭").performClick()
         compose.onNodeWithContentDescription("选择区域").performScrollTo().performClick()
         compose.onNodeWithText(HistoryRegion.Russia.label).performScrollTo().performClick()
         compose.onNodeWithText("二战至今").performClick()
-        compose.onNodeWithText("德苏条约秘密议定书与波兰被瓜分").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("斯大林格勒战役成为东线转折").performScrollTo().assertIsDisplayed()
         capture("soviet-wartime")
+        compose.onNodeWithText("德苏条约秘密议定书与波兰被瓜分").assertDoesNotExist()
+        compose.onNodeWithTag("more-union-war").performScrollTo().performClick()
+        compose.onNodeWithText("德苏条约秘密议定书与波兰被瓜分").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("more-union-war").performScrollTo().performClick()
         compose.onNodeWithText("俄罗斯金融危机波及卢布与银行储户").performScrollTo().performClick()
         compose.onNodeWithText("史料出处").assertIsDisplayed()
         capture("russia-transition")
@@ -213,7 +209,8 @@ class ChronicleAcceptanceTest {
         compose.onNodeWithText("二战至今").performClick()
         compose.onNodeWithText("肯尼迪与赫鲁晓夫应对古巴导弹危机").performScrollTo().performClick()
         compose.onNodeWithText("查看完整事件轨迹").performScrollTo().performClick()
-        compose.onNodeWithText("各共和国走向独立").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("古巴危机走上谈判桌").performScrollTo().performClick().assert(hasStateDescription("已展开"))
+        compose.onNodeWithText("各共和国走向独立").performScrollTo().assert(hasStateDescription("已收起"))
         capture("us-soviet-trail")
     }
 
@@ -306,8 +303,9 @@ class ChronicleAcceptanceTest {
         reading.performTouchInput {
             swipe(Offset(width - 5f, height * .25f), Offset(width - 5f, height * .55f), 350)
         }
-        assertTrue(reading.fetchSemanticsNode().config[SemanticsProperties.VerticalScrollAxisRange].value() > 0f)
-        compose.onNodeWithText("同一模型接收文字与图像").performScrollTo().assertIsDisplayed()
+        val range = reading.fetchSemanticsNode().config[SemanticsProperties.VerticalScrollAxisRange]
+        assertTrue(range.maxValue() == 0f || range.value() > 0f)
+        compose.onNodeWithText("同一模型接收文字与图像").performScrollTo().performClick()
         capture("tech-ai")
         compose.onNodeWithContentDescription("关闭").performClick()
         compose.onNodeWithText("每日动态").performScrollTo().assertIsDisplayed()
@@ -327,6 +325,7 @@ class ChronicleAcceptanceTest {
         capture("recent-index")
         compose.onNodeWithText(HistoryTrails.climate.title).performScrollTo().performClick()
         compose.onNodeWithText("协定在巴黎通过").assertIsDisplayed()
+        compose.onNode(hasText(HistoryTrails.climate.steps.last().title) and hasAnyAncestor(isDialog())).performScrollTo().performClick()
         compose.onNodeWithText(HistoryTrails.climate.steps.last().source.label).performScrollTo().assertIsDisplayed()
         capture("recent-progress")
         compose.onNodeWithContentDescription("关闭").performClick()

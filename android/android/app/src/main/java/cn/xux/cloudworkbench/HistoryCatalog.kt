@@ -25,7 +25,7 @@ internal enum class HistoryLens(val label: String) {
 
 internal data class HistoryEvent(
     val region: HistoryRegion, val lens: HistoryLens, private val localPeriods: String, val date: String, val title: String,
-    val detail: String, val reading: String, val url: String, val trail: HistoryTrail? = null
+    val detail: String, val reading: String, val url: String, val trail: HistoryTrail? = null, val regionalLead: Boolean = false
 ) {
     val localPeriodIds = localPeriods.split('|').toSet()
 }
