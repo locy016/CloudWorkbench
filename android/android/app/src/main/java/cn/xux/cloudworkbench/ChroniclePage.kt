@@ -3,11 +3,11 @@ package cn.xux.cloudworkbench
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.OpenInNew
@@ -18,27 +18,14 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
-
-private val forest = Color(0xFF164A46)
-private val paper = Color(0xFFF6F4EB)
-private val ivory = Color(0xFFFFFEF8)
-private val rule = Color(0xFFD7D8C9)
-private val editorialInk = Color(0xFF1D342F)
-private val secondaryInk = Color(0xFF52645C)
-private val gold = Color(0xFFF2CF8C)
-private val rounded = RoundedCornerShape(14.dp)
 
 @Composable internal fun ChroniclePage() {
     var regional by rememberSaveable { mutableStateOf(false) }
@@ -55,34 +42,34 @@ private val rounded = RoundedCornerShape(14.dp)
     }
     val detail = groups.flatMap { it.second }.find { it.title == detailTitle }
     val scroll = key(regional, eraIndex, region, lens) { rememberScrollState() }
-    Column(Modifier.fillMaxSize().background(paper).verticalScroll(scroll).padding(LocalPagePadding.current),
+    Column(Modifier.fillMaxSize().background(Background).verticalScroll(scroll).padding(LocalPagePadding.current),
         verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Row(Modifier.weight(1f).selectableGroup(), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
                 listOf("时代对照", "区域追踪").forEachIndexed { i, label ->
                     val selected = regional == (i == 1)
-                    Text(label, Modifier.clip(rounded).background(if (selected) forest else Color.Transparent)
+                    Text(label, Modifier.clip(MaterialTheme.shapes.large).background(if (selected) AccentSurface else Color.Transparent)
                         .selectable(selected, role = Role.Tab) { if (!selected) { regional = i == 1; lens = null } }
                         .heightIn(min = 44.dp).wrapContentHeight().padding(horizontal = 13.dp),
-                        color = if (selected) ivory else secondaryInk, fontWeight = FontWeight.SemiBold)
+                        color = if (selected) Accent else Muted, fontWeight = FontWeight.SemiBold)
                 }
             }
-            IconButton(onClick = { about = true }) { Icon(Icons.Outlined.Info, "分期与选材说明", tint = secondaryInk) }
+            IconButton(onClick = { about = true }) { Icon(Icons.Outlined.Info, "分期与选材说明", tint = Muted) }
         }
-        HistoryCover(if (regional) "区域追踪" else "世界史分期  ·  ${(eraIndex + 1).toString().padStart(2, '0')} / 09",
+        HistoryCover(if (regional) "区域追踪" else "世界史分期 · ${eraIndex + 1} / ${historyEras.size}",
             if (regional) region.label else era.name, if (regional) "区域沿革" else era.dates,
             if (regional) region.scope else era.summary, if (regional) "选择区域" else "选择阶段",
             if (regional) null else eraIndex, onStep = { eraIndex += it; lens = null }, select = { picking = true })
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text(if (regional) "历时脉络" else "同期动态", color = editorialInk, fontSize = 21.sp, fontWeight = FontWeight.Bold)
+                Text(if (regional) "历时脉络" else if (lens != null) "同期区域对照" else "同期动态", color = Ink, fontSize = 21.sp, fontWeight = FontWeight.Bold)
                 Text(if (regional) "${groups.size} 个阶段 · ${groups.sumOf { it.second.size }} 条记录" else
                     "${groups.flatMap { it.second }.distinctBy { it.region }.size} 个区域 · ${groups.sumOf { it.second.size }} 条记录",
-                    color = secondaryInk, style = MaterialTheme.typography.bodySmall)
+                    color = Muted, style = MaterialTheme.typography.bodySmall)
             }
             var filterOpen by remember { mutableStateOf(false) }
             Box {
-                OutlinedButton(onClick = { filterOpen = true }, border = BorderStroke(1.dp, rule), colors = ButtonDefaults.outlinedButtonColors(contentColor = forest)) {
+                OutlinedButton(onClick = { filterOpen = true }, border = BorderStroke(1.dp, Outline), colors = ButtonDefaults.outlinedButtonColors(contentColor = Accent)) {
                     Icon(Icons.Outlined.Tune, "筛选维度", Modifier.size(16.dp))
                     Spacer(Modifier.width(6.dp))
                     Text(lens?.label ?: "全部维度")
@@ -96,19 +83,23 @@ private val rounded = RoundedCornerShape(14.dp)
             }
         }
         if (groups.isEmpty()) {
-            Text("当前选材没有这一维度的记录。", color = secondaryInk)
+            Text("当前选材没有这一维度的记录。", color = Muted)
             TextButton(onClick = { lens = null }) { Text("查看全部维度") }
         }
         groups.forEach { (period, events) ->
             if (regional) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Canvas(Modifier.size(12.dp)) {
-                        drawCircle(forest, style = Stroke(1.dp.toPx()))
-                        drawCircle(forest, radius = size.width * .22f)
+                        drawCircle(Accent, style = Stroke(1.dp.toPx()))
+                        drawCircle(Accent, radius = size.width * .22f)
                     }
-                    Text(period.name, color = forest, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                    HorizontalDivider(Modifier.weight(1f), color = rule)
+                    Text(period.name, color = Accent, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    HorizontalDivider(Modifier.weight(1f), color = Outline)
                 }
+            }
+            if (!regional && lens != null) {
+                RegionComparison(events) { detailTitle = it.title }
+                return@forEach
             }
             BoxWithConstraints {
                 val columns = if (maxWidth >= 600.dp && !regional) 2 else 1
@@ -138,57 +129,39 @@ private val rounded = RoundedCornerShape(14.dp)
     }
     if (detail != null) HistoryDialog(detail.title, { detailTitle = null }) {
         val period = groups.first { detail in it.second }.first
-        Text("${detail.date}  ·  ${detail.region.label}", color = forest, fontWeight = FontWeight.SemiBold)
-        Text("${period.name}   /   ${detail.lens.label}", color = secondaryInk, style = MaterialTheme.typography.bodySmall)
-        Text(detail.detail, color = editorialInk, lineHeight = 25.sp)
-        if (detail.reading != null && detail.url != null) ReadingLink(detail.reading, detail.url)
-        HorizontalDivider(color = rule)
+        Text("${detail.date}  ·  ${detail.region.label}", color = Accent, fontWeight = FontWeight.SemiBold)
+        Text("${period.name}   /   ${detail.lens.label}", color = Muted, style = MaterialTheme.typography.bodySmall)
+        Text(detail.detail, color = Ink, lineHeight = 25.sp)
+        Text("史料出处", color = Muted, style = MaterialTheme.typography.labelLarge)
+        ReadingLink(detail.reading, detail.url)
+        HorizontalDivider(color = Outline)
         TextButton(onClick = {
             region = detail.region
             eraIndex = historyEras.indexOf(period)
             regional = !regional
             lens = null
             detailTitle = null
-        }) { Text(if (regional) "对照这个阶段的其他区域" else "追踪${detail.region.label}的历史", color = forest) }
+        }) { Text(if (regional) "对照这个阶段的其他区域" else "追踪${detail.region.label}的历史", color = Accent) }
     }
 }
 
 @Composable private fun HistoryCover(kicker: String, title: String, date: String, summary: String, action: String,
     eraIndex: Int?, onStep: (Int) -> Unit, select: () -> Unit) {
-    Box(Modifier.fillMaxWidth().clip(rounded).background(forest)) {
-        // A graticule on the cover echoes the geographic scope of the selected folio.
-        Canvas(Modifier.align(Alignment.TopEnd).size(126.dp)) {
-            val radius = size.width * .55f
-            val center = Offset(size.width * .81f, size.height * .22f)
-            val line = gold.copy(alpha = .20f)
-            val stroke = Stroke(1.dp.toPx())
-            rotate(-22f, center) {
-                drawCircle(line, radius, center, style = stroke)
-                listOf(.32f, .67f).forEach { ratio ->
-                    drawOval(line, center - Offset(radius * ratio, radius), Size(radius * ratio * 2, radius * 2), style = stroke)
-                    drawOval(line, center - Offset(radius, radius * ratio), Size(radius * 2, radius * ratio * 2), style = stroke)
-                }
-                drawLine(line, center - Offset(radius, 0f), center + Offset(radius, 0f))
-                drawCircle(line, radius * 1.13f, center, style = stroke)
-            }
-        }
-        Column(Modifier.padding(horizontal = 20.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            Text(kicker, color = gold, style = MaterialTheme.typography.labelLarge)
-            Text(title, color = ivory, fontSize = 29.sp, lineHeight = 38.sp, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold)
-            Text(date, color = gold, fontSize = 14.sp)
-            HorizontalDivider(Modifier.padding(vertical = 5.dp), color = ivory.copy(alpha = .24f))
-            Text(summary, color = ivory, style = MaterialTheme.typography.bodyMedium)
+    Panel(Modifier.fillMaxWidth()) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(kicker, color = Accent, style = MaterialTheme.typography.labelLarge)
+            Text(title, color = Ink, style = MaterialTheme.typography.headlineSmall)
+            Text(date, color = Muted, fontSize = 14.sp)
+            HorizontalDivider(Modifier.padding(vertical = 5.dp), color = Outline)
+            Text(summary, color = Ink, style = MaterialTheme.typography.bodyMedium)
             Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                Surface(onClick = select, color = Color.Transparent, shape = RoundedCornerShape(8.dp),
-                    border = BorderStroke(1.dp, gold.copy(alpha = .65f))) {
-                    Row(Modifier.heightIn(min = 44.dp).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(action, color = gold, style = MaterialTheme.typography.labelLarge)
-                        Icon(Icons.Outlined.ExpandMore, null, Modifier.size(18.dp), tint = gold)
-                    }
+                FilledTonalButton(onClick = select) {
+                    Text(action)
+                    Icon(Icons.Outlined.ExpandMore, null, Modifier.size(18.dp))
                 }
                 if (eraIndex != null) {
                     Spacer(Modifier.weight(1f))
-                    val colors = IconButtonDefaults.iconButtonColors(contentColor = gold, disabledContentColor = gold.copy(alpha = .28f))
+                    val colors = IconButtonDefaults.iconButtonColors(contentColor = Accent)
                     IconButton(onClick = { onStep(-1) }, enabled = eraIndex > 0, colors = colors) { Icon(Icons.Outlined.ChevronLeft, "上一阶段") }
                     IconButton(onClick = { onStep(1) }, enabled = eraIndex < historyEras.lastIndex, colors = colors) { Icon(Icons.Outlined.ChevronRight, "下一阶段") }
                 }
@@ -197,25 +170,56 @@ private val rounded = RoundedCornerShape(14.dp)
     }
 }
 
-@Composable private fun HistoryCard(event: HistoryEvent, regional: Boolean, modifier: Modifier, open: () -> Unit) {
-    val (icon, tint) = when (event.lens) {
-        HistoryLens.Governance -> Icons.Outlined.AccountBalance to Color(0xFF805037)
-        HistoryLens.Economy -> Icons.Outlined.SwapHoriz to Color(0xFF386859)
-        HistoryLens.Society -> Icons.Outlined.Groups to Color(0xFF4D6375)
-        HistoryLens.Ideas -> Icons.Outlined.AutoStories to Color(0xFF725579)
-        HistoryLens.Technology -> Icons.Outlined.Architecture to Color(0xFF826328)
+@Composable private fun RegionComparison(events: List<HistoryEvent>, open: (HistoryEvent) -> Unit) {
+    val regions = events.groupBy { it.region }.entries.sortedBy { it.key.ordinal }
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val columns = if (maxWidth >= 600.dp) 2 else 1
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            regions.chunked(columns).forEach { row ->
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    row.forEach { (region, entries) ->
+                        Panel(Modifier.weight(1f)) {
+                            Text(region.label, color = Accent, style = MaterialTheme.typography.titleMedium)
+                            entries.forEach { event ->
+                                HorizontalDivider(color = Outline)
+                                Column(Modifier.fillMaxWidth().clickable(role = Role.Button) { open(event) }
+                                    .padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text(event.date, color = Muted, style = MaterialTheme.typography.bodySmall)
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(event.title, Modifier.weight(1f), color = Ink, style = MaterialTheme.typography.titleMedium)
+                                        Icon(Icons.Outlined.ChevronRight, null, Modifier.size(18.dp), tint = Accent)
+                                    }
+                                    Text(event.detail.substringBefore('。') + "。", color = Muted, style = MaterialTheme.typography.bodyMedium)
+                                }
+                            }
+                        }
+                    }
+                    if (row.size < columns) Spacer(Modifier.weight(1f))
+                }
+            }
+        }
     }
-    Surface(onClick = open, modifier = modifier, shape = rounded, color = ivory, border = BorderStroke(1.dp, rule)) {
+}
+
+@Composable private fun HistoryCard(event: HistoryEvent, regional: Boolean, modifier: Modifier, open: () -> Unit) {
+    val icon = when (event.lens) {
+        HistoryLens.Governance -> Icons.Outlined.AccountBalance
+        HistoryLens.Economy -> Icons.Outlined.SwapHoriz
+        HistoryLens.Society -> Icons.Outlined.Groups
+        HistoryLens.Ideas -> Icons.Outlined.AutoStories
+        HistoryLens.Technology -> Icons.Outlined.Architecture
+    }
+    Surface(onClick = open, modifier = modifier, shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surface, border = BorderStroke(1.dp, Outline)) {
         Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(icon, null, Modifier.size(17.dp), tint = tint)
-                Text(if (regional) event.date else event.region.label, Modifier.weight(1f).padding(start = 7.dp), color = editorialInk, style = MaterialTheme.typography.labelLarge)
-                Text(event.lens.label, color = tint, style = MaterialTheme.typography.bodySmall)
+                Icon(icon, null, Modifier.size(17.dp), tint = Accent)
+                Text(if (regional) event.date else event.region.label, Modifier.weight(1f).padding(start = 7.dp), color = Ink, style = MaterialTheme.typography.labelLarge)
+                Text(event.lens.label, color = Muted, style = MaterialTheme.typography.bodySmall)
             }
-            if (!regional) Text(event.date, color = secondaryInk, style = MaterialTheme.typography.bodySmall)
+            if (!regional) Text(event.date, color = Muted, style = MaterialTheme.typography.bodySmall)
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(event.title, Modifier.weight(1f), fontSize = 17.sp, lineHeight = 24.sp, fontWeight = FontWeight.SemiBold, color = editorialInk)
-                Icon(Icons.Outlined.ChevronRight, null, Modifier.size(18.dp), tint = secondaryInk)
+                Text(event.title, Modifier.weight(1f), fontSize = 17.sp, lineHeight = 24.sp, fontWeight = FontWeight.SemiBold, color = Ink)
+                Icon(Icons.Outlined.ChevronRight, null, Modifier.size(18.dp), tint = Muted)
             }
         }
     }
@@ -223,13 +227,13 @@ private val rounded = RoundedCornerShape(14.dp)
 
 @Composable private fun HistoryDialog(title: String, close: () -> Unit, body: @Composable ColumnScope.() -> Unit) {
     Dialog(onDismissRequest = close) {
-        Surface(shape = rounded, color = ivory, modifier = Modifier.widthIn(max = 480.dp).fillMaxWidth()) {
+        Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surface, modifier = Modifier.widthIn(max = 480.dp).fillMaxWidth()) {
             Column(Modifier.padding(16.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(title, Modifier.weight(1f), color = editorialInk, style = MaterialTheme.typography.titleLarge)
-                    IconButton(onClick = close) { Icon(Icons.Outlined.Close, "关闭", tint = secondaryInk) }
+                    Text(title, Modifier.weight(1f), color = Ink, style = MaterialTheme.typography.titleLarge)
+                    IconButton(onClick = close) { Icon(Icons.Outlined.Close, "关闭", tint = Muted) }
                 }
-                HorizontalDivider(color = rule)
+                HorizontalDivider(color = Outline)
                 Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(vertical = 10.dp),
                     verticalArrangement = Arrangement.spacedBy(7.dp), content = body)
             }
@@ -238,29 +242,29 @@ private val rounded = RoundedCornerShape(14.dp)
 }
 
 @Composable private fun PickerRow(title: String, dates: String?, selected: Boolean, select: () -> Unit) {
-    Row(Modifier.fillMaxWidth().clip(rounded).background(if (selected) Color(0xFFE1ECE2) else Color.Transparent)
+    Row(Modifier.fillMaxWidth().clip(MaterialTheme.shapes.large).background(if (selected) AccentSurface else Color.Transparent)
         .selectable(selected, role = Role.RadioButton, onClick = select).heightIn(min = 48.dp).padding(10.dp),
         verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
-            Text(title, color = editorialInk, fontWeight = FontWeight.Medium)
-            dates?.let { Text(it, color = secondaryInk, style = MaterialTheme.typography.bodySmall) }
+            Text(title, color = Ink, fontWeight = FontWeight.Medium)
+            dates?.let { Text(it, color = Muted, style = MaterialTheme.typography.bodySmall) }
         }
-        if (selected) Icon(Icons.Outlined.Check, "已选", tint = forest)
+        if (selected) Icon(Icons.Outlined.Check, "已选", tint = Accent)
     }
 }
 
 @Composable private fun DialogSection(title: String, body: String) {
-    Text(title, color = forest, fontWeight = FontWeight.Bold)
-    Text(body, color = editorialInk, style = MaterialTheme.typography.bodyMedium)
+    Text(title, color = Accent, fontWeight = FontWeight.Bold)
+    Text(body, color = Ink, style = MaterialTheme.typography.bodyMedium)
 }
 
 @Composable private fun ReadingLink(label: String, url: String) {
     val handler = LocalUriHandler.current
     var unavailable by remember { mutableStateOf(false) }
     TextButton(onClick = { unavailable = runCatching { handler.openUri(url) }.isFailure }) {
-        Icon(Icons.AutoMirrored.Outlined.OpenInNew, null, Modifier.size(16.dp), tint = forest)
+        Icon(Icons.AutoMirrored.Outlined.OpenInNew, null, Modifier.size(16.dp), tint = Accent)
         Spacer(Modifier.width(6.dp))
-        Text(label, color = forest)
+        Text(label, color = Accent)
     }
-    if (unavailable) Text("当前设备无法打开此链接。", color = secondaryInk)
+    if (unavailable) Text("当前设备无法打开此链接。", color = Muted)
 }

@@ -20,7 +20,7 @@ class ChronicleAcceptanceTest {
 
     @Test fun navigateCompareTraceAndFilter() {
         compose.openWorkbenchTab("史时")
-        compose.onNodeWithText("4 个区域 · 5 条记录").assertIsDisplayed()
+        compose.onNodeWithText("4 个区域 · 12 条记录").assertIsDisplayed()
         capture("overview")
         compose.onNodeWithContentDescription("上一阶段").performClick()
         compose.onNodeWithContentDescription("上一阶段").assertIsNotEnabled()
@@ -58,5 +58,25 @@ class ChronicleAcceptanceTest {
         compose.onNodeWithText("当前选材没有这一维度的记录。").assertIsDisplayed()
         compose.onNodeWithText("查看全部维度").performClick()
         compose.onNodeWithText("绳文聚落依水而居").performScrollTo().assertIsDisplayed()
+    }
+
+    @Test fun compareEarlyCitiesWithSources() {
+        compose.openWorkbenchTab("史时")
+        fun compare(lens: String, count: Int, name: String) {
+            compose.onNodeWithContentDescription("筛选维度").performClick()
+            compose.onNode(hasText(lens) and hasAnyAncestor(isPopup())).performClick()
+            compose.onNodeWithText("同期区域对照").assertIsDisplayed()
+            compose.onNodeWithText("4 个区域 · $count 条记录").assertIsDisplayed()
+            capture(name)
+        }
+        compare("文化思想", 5, "culture")
+        compose.onNodeWithText("乌尔琴饰描绘动物奏乐").performScrollTo().performClick()
+        compose.onNodeWithText("史料出处").assertIsDisplayed()
+        compose.onNodeWithText("宾夕法尼亚大学博物馆 · 乌尔里拉琴饰板").assertIsDisplayed()
+        compose.onNodeWithContentDescription("关闭").performClick()
+        compose.onNodeWithContentDescription("筛选维度").performScrollTo()
+        compare("社会生活", 4, "society")
+        compose.onNodeWithText("王墓工匠一家几代做同一门手艺").performScrollTo().performClick()
+        compose.onNodeWithText("大都会艺术博物馆 · 新王国埃及的工匠墓").assertIsDisplayed()
     }
 }
