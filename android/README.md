@@ -62,7 +62,7 @@ cd android
 
 未签名 APK 位于 `android/app/build/outputs/apk/release/app-release-unsigned.apk`。调试或真机验收可另行执行 `:app:assembleDebug :app:assembleDebugAndroidTest`。
 
-正式发布由[独立签名服务](server/ops/release-service/README.md)处理。GitHub Actions 产出未签名 APK，服务器开发账号提交通过验收的运行，管理员在 SSH 会话批准特定候选包。签名服务使用现有正式证书签名，并更新私有更新源。APP 从「设置 → 应用更新」经 SSH 获取包，在安装前核验签名和摘要。USB 覆盖安装可使用 `adb install -r`。
+正式发布由[独立签名服务](server/ops/release-service/README.md)处理。Windows 本机发布使用 `tools/submit-local-release.ps1` 构建并提交候选，服务端开发可提交验收通过的 GitHub Actions 运行。绑定的平板在「会话 → 任务 → 正式发布审批」核对并批准候选。签名服务使用现有正式证书签名，并更新私有更新源。APP 从「设置 → 应用更新」经 SSH 获取包，在安装前核验签名和摘要。USB 覆盖安装可使用 `adb install -r`。
 
 使用 `-PusbAcceptance` 构建独立验收包 `cn.xux.cloudworkbench.acceptance`。实体设备上可与正式版本并存。
 
