@@ -1,0 +1,62 @@
+package cn.xux.cloudworkbench
+
+import androidx.compose.ui.test.*
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import org.junit.Assert.assertTrue
+import org.junit.Rule
+import org.junit.Test
+import org.junit.runner.RunWith
+
+@RunWith(AndroidJUnit4::class)
+class ChronicleAcceptanceTest {
+    @get:Rule val compose = createAndroidComposeRule<MainActivity>()
+
+    private fun capture(name: String) {
+        compose.waitForIdle()
+        android.os.SystemClock.sleep(450)
+        captureReviewScreen("chronicle-$name")
+    }
+
+    @Test fun navigateCompareTraceAndFilter() {
+        compose.openWorkbenchTab("史时")
+        compose.onNodeWithText("4 个区域 · 5 条记录").assertIsDisplayed()
+        capture("overview")
+        compose.onNodeWithContentDescription("上一阶段").performClick()
+        compose.onNodeWithContentDescription("上一阶段").assertIsNotEnabled()
+        compose.onNodeWithContentDescription("下一阶段").performClick()
+        compose.onNodeWithTag("menuToggle").performClick()
+        val browse = compose.onNodeWithTag("nav-浏览").fetchSemanticsNode().boundsInWindow
+        val history = compose.onNodeWithTag("nav-史时").fetchSemanticsNode().boundsInWindow
+        assertTrue(browse.bottom <= history.top)
+        capture("menu")
+        compose.onNodeWithTag("menuClose").performClick()
+
+        compose.onNodeWithText("良渚以稻作支撑古城").performScrollTo().performClick()
+        compose.onNodeWithText("联合国教科文组织 · 良渚古城遗址").assertIsDisplayed()
+        capture("detail")
+        compose.onNodeWithText("追踪中国的历史").performClick()
+        compose.onNodeWithText("历时脉络").assertIsDisplayed()
+        capture("region")
+        compose.onNodeWithText("选择区域").performClick()
+        compose.onNodeWithText("日本列岛").performScrollTo().performClick()
+        compose.onNodeWithText("全部维度").performClick()
+        compose.onNode(hasText("科学技术") and hasAnyAncestor(isPopup())).performClick()
+        compose.onNodeWithText("东海道新干线开通").assertIsDisplayed()
+        compose.openWorkbenchTab("设置")
+        compose.openWorkbenchTab("史时")
+        compose.onNodeWithText("东海道新干线开通").assertIsDisplayed()
+        compose.onNodeWithText("东海道新干线开通").performClick()
+        compose.onNodeWithText("对照这个阶段的其他区域").performClick()
+        compose.onNodeWithText("战后与当代世界").assertIsDisplayed()
+
+        compose.onNodeWithText("选择阶段").performClick()
+        capture("periods")
+        compose.onNodeWithText("聚落与生计").performScrollTo().performClick()
+        compose.onNodeWithText("全部维度").performClick()
+        compose.onNode(hasText("政权制度") and hasAnyAncestor(isPopup())).performClick()
+        compose.onNodeWithText("当前选材没有这一维度的记录。").assertIsDisplayed()
+        compose.onNodeWithText("查看全部维度").performClick()
+        compose.onNodeWithText("绳文聚落依水而居").performScrollTo().assertIsDisplayed()
+    }
+}

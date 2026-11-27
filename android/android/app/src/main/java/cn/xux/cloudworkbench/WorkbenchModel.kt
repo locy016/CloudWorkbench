@@ -51,6 +51,7 @@ enum class WorkbenchPage(val title: String) {
     Cloud("云端"),
     Sessions("会话"),
     Browse("浏览"),
+    Chronicle("史时"),
     Settings("设置")
 }
 

@@ -36,6 +36,7 @@ import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -131,6 +132,7 @@ class MainActivity : ComponentActivity() {
     var connectionHelp by rememberSaveable { mutableStateOf(false) }
     var browserOpened by remember { mutableStateOf(vm.tab == WorkbenchPage.Browse) }
     val browserVisible = vm.tab == WorkbenchPage.Browse
+    val pageState = rememberSaveableStateHolder()
     LaunchedEffect(browserVisible) { if (browserVisible) browserOpened = true }
     Surface(Modifier.fillMaxSize(), color = Background) {
         BoxWithConstraints(Modifier.fillMaxSize().safeDrawingPadding().imePadding()) {
@@ -179,6 +181,7 @@ class MainActivity : ComponentActivity() {
                             when (vm.tab) {
                                 WorkbenchPage.Cloud -> Dashboard(vm)
                                 WorkbenchPage.Sessions -> ProjectPage(vm)
+                                WorkbenchPage.Chronicle -> pageState.SaveableStateProvider("chronicle") { ChroniclePage() }
                                 WorkbenchPage.Settings -> Settings(vm, connectionHelp) { connectionHelp = it }
                                 WorkbenchPage.Browse -> Unit
                             }
@@ -271,6 +274,7 @@ class MainActivity : ComponentActivity() {
         WorkbenchPage.Cloud -> Icons.Outlined.CloudQueue
         WorkbenchPage.Sessions -> Icons.Outlined.Forum
         WorkbenchPage.Browse -> Icons.Outlined.Language
+        WorkbenchPage.Chronicle -> Icons.Outlined.AutoStories
         WorkbenchPage.Settings -> Icons.Outlined.Settings
     }
     NavigationDrawerItem(label = { Text(page.title, maxLines = 1) }, selected = vm.tab == page,
