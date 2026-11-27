@@ -6,6 +6,20 @@ internal data class HistoryTrail(val title: String, val span: String, val subjec
     val steps: List<TrailStep>, val newsStatus: String? = null)
 
 internal object HistoryTrails {
+    val coldWar = HistoryTrail("从柏林空运到苏联解体", "1948—1991", "柏林居民、肯尼迪、赫鲁晓夫、里根与戈尔巴乔夫",
+        "沿城市供应、危机谈判、军控和各共和国的独立诉求，观察曾在二战中结盟的美国与苏联如何对峙，又如何走到冷战结束。", listOf(
+            TrailStep("1948—1949年", "西柏林居民靠空运获得燃料与食品", "苏联封锁陆路，西方盟国组织空运。封锁次年解除，德国的政治分裂却继续加深。",
+                TrailSource("美国国务院历史办公室 · 柏林空运", "https://history.state.gov/milestones/1945-1952/berlin-airlift")),
+            TrailStep("1962年10月", "古巴危机走上谈判桌", "肯尼迪与赫鲁晓夫在公开声明和秘密沟通之间寻找退路。苏联撤走在古巴的导弹，美国承诺不入侵古巴。",
+                TrailSource("美国国务院历史办公室 · 古巴导弹危机", "https://history.state.gov/milestones/1961-1968/cuban-missile-crisis")),
+            TrailStep("1972年5月", "莫斯科谈判产生书面限制", "尼克松与勃列日涅夫签署反弹道导弹条约和临时协定，把缓和时期的一部分政治承诺写成双方义务。",
+                TrailSource("美国国务院历史办公室 · 战略武器谈判", "https://history.state.gov/milestones/1969-1976/salt")),
+            TrailStep("1987年12月", "里根与戈尔巴乔夫签署中导条约", "两国承诺消除约定范围内的陆基导弹并接受核查。谈判将重点从限制部署推进到核实销毁。",
+                TrailSource("里根总统图书馆 · 总统致参议院文书", "https://www.reaganlibrary.gov/public/2023-09/40-219-6927378-004-008-2023.pdf")),
+            TrailStep("1991年12月", "各共和国走向独立", "乌克兰公投确认独立，白俄罗斯、俄罗斯与乌克兰随后签署独联体协定。戈尔巴乔夫辞职，苏联在当月终结。",
+                TrailSource("美国国务院历史办公室 · 苏联解体", "https://history.state.gov/milestones/1989-1992/collapse-soviet-union"))
+        ))
+
     private val diarySource = TrailSource("安妮·弗兰克之家 · 日记与手稿",
         "https://www.annefrank.org/en/anne-frank/diary/complete-works-anne-frank/")
     private val testimonySource = TrailSource("安妮·弗兰克之家 · 从写作到出版",

@@ -59,7 +59,7 @@ internal val postwarPeriods = listOf(
             }
             HorizontalDivider(Modifier.padding(vertical = 5.dp), color = Outline)
             Text("文化与日常生活", color = Accent, style = MaterialTheme.typography.labelLarge)
-            Text(selected.culture, color = Ink, style = MaterialTheme.typography.bodyMedium)
+            HistoryParagraph(selected.culture)
         }
     }
 }

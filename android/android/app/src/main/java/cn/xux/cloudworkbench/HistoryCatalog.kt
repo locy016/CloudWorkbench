@@ -10,7 +10,8 @@ internal enum class HistoryRegion(val label: String, val scope: String) {
     India("南亚", "从今巴基斯坦的印度河城市，延伸至印度次大陆及当代印度。"),
     Britain("不列颠", "从岛上的王国、英格兰议会，追踪至近现代英国。"),
     France("法国及其前身地区", "以今法国所在区域为线索，区分法兰克王国、法国王室与共和国。"),
-    Russia("俄罗斯及其前身地区", "沿莫斯科国家、俄罗斯帝国、苏联及俄罗斯联邦观察政权变迁。"),
+    Ukraine("乌克兰", "沿1991年独立后的制度、文化与平民生活追踪乌克兰。"),
+    Russia("俄国、苏联与俄罗斯", "沿莫斯科国家、俄罗斯帝国、苏联及俄罗斯联邦观察政权变迁。"),
     Germany("德意志地区", "从中欧德语地区的城市与邦国，追踪至统一后的德国。"),
     Japan("日本列岛", "从绳文聚落到近现代日本，观察列岛社会与对外联系。"),
     America("北美·美国", "从今美国境内的原住民社会，追踪至美国及其跨国联系。"),
@@ -157,9 +158,9 @@ internal val historyEras = listOf(
         India to "围绕食盐的非暴力抗争让殖民税制成为公共议题，也把更多民众带入独立运动。",
         Britain to "战时配给限制家庭购买肉类、黄油和糖等食品，普通人的采购由配给簿记录。",
         France to "一战中的法国北部经历占领、物资征集与人口流离，前线与后方生活长期受到影响。",
-        Russia to "二月革命结束沙皇统治，十月革命中布尔什维克取得政权，战争与土地问题贯穿两次革命。",
+        Russia to "1917年的两次革命改变国家制度。苏联1939年与德国签订条约，两年后遭德国入侵；列宁格勒居民的饥饿与撤离，留下战争在家庭中的尺度。",
         Germany to "纳粹统治从排斥、驱逐发展到系统性杀戮，约六百万犹太人在大屠杀中遇害。",
-        America to "哈莱姆的作家与音乐家讲述非裔城市经验；大萧条后，新政以救济、监管和公共工程应对危机。"
+        America to "从哈莱姆文艺复兴与新政走到珍珠港遇袭。参战后，日裔家庭被迫迁离，返乡军人则获得就学与购房支持，战时政策在不同群体中留下不同结果。"
     ), listOf(
         HistoryEvent(China, Governance, "qing|republic", "1911—1912年", "辛亥革命与清帝退位", "武昌起义后，多省宣布独立。中华民国临时政府成立与清帝退位，标志着中国国家制度的一次转折。", "美国国务院历史办公室 · 1911年中国革命", "https://history.state.gov/milestones/1899-1913/chinese-rev", HistoryTrails.republic),
         HistoryEvent(France, Society, "third", "1914年", "第一次世界大战波及法国北部", "德军经比利时向法国推进。西线的阵地战持续多年，动员、流离失所和长期的物资征集改变了前线及后方社会。", "詹姆斯·康诺利 · 一战中法国北部的占领生活", "https://discovery.ucl.ac.uk/id/eprint/10048745/1/James%20Connolly%20-%20The%20Experience%20of%20Occupation%20in%20the%20Nord%20-%20Open%20Access.pdf"),
@@ -169,7 +170,7 @@ internal val historyEras = listOf(
         HistoryEvent(America, Economy, "p32", "1933年起", "美国推行新政", "在大萧条期间，联邦政府通过公共工程、银行监管与救济计划应对失业和金融危机。", "罗斯福总统图书馆 · 新政百日展览指南", "https://www.fdrlibrary.org/documents/356632/390886/actionguide.pdf"),
         HistoryEvent(Germany, Society, "nazi", "1933—1945年", "纳粹迫害与犹太人大屠杀", "纳粹德国及其合作者逐步将犹太人排除出公共生活，继而实施驱逐和系统性杀戮。约六百万犹太人遇害。", "美国大屠杀纪念馆 · 大屠杀概述", "https://encyclopedia.ushmm.org/content/en/article/introduction-to-the-holocaust", HistoryTrails.diary),
         HistoryEvent(Britain, Society, "war", "1941年", "伦敦家庭凭配给簿购买日常食品", "伦敦北部霍恩西签发的配给簿列出肉类、黄油和糖等限量食品。一本用过的簿册，保存了战争如何改变日常采购的细节。", "英国科学博物馆集团 · 英格兰配给簿藏品", "https://collection.sciencemuseumgroup.org.uk/objects/co154306/used-ration-book-and-two-ration-book-supplements-england-1939-1941-ration-book")
-    )),
+    ).plus(secondWorldWarEvents)),
     HistoryEra("战后与当代世界", "1945年至今", "从战后重建到今天，分六个时期对读。同一年代的电影、文学、音乐和家庭生活，与去殖民化、社会运动和技术变迁彼此交织。", mapOf(
         China to "从1949年政权更替、文化大革命和恢复高考，到改革开放、昆曲传承、月背取样与大模型，制度、家庭和科研各有自己的时间尺度。",
         Egypt to "苏伊士运河国有化引发国际危机。马哈福兹的小说则从开罗几个世代的家庭关系观察同一社会。",
@@ -177,10 +178,11 @@ internal val historyEras = listOf(
         India to "分治使家庭跨越新国界。雷伊把孟加拉乡村生活搬上银幕，学校供餐和月船任务后来呈现教育与科研的变化。",
         Britain to "国民医疗服务连接就医与医护迁移。北爱尔兰和平进程与疫情接种分别展现政治协商与公共照护。",
         France to "巴黎见证人权宣言和气候协定；埃尔诺从个人成长经验写出法国社会中的阶层与性别。",
-        Russia to "帕斯捷尔纳克拒领奖项留下文艺与权力相遇的记录。1991年苏联解体则改变国家制度与国际身份。",
+        Ukraine to "1991年公投确认独立。联合国决议、文化档案与平民状况报告记载了此后国家与社会面对的变化。",
+        Russia to "从赫鲁晓夫时期的住宅、文学解冻与载人航天，到戈尔巴乔夫改革与苏联解体。1991年后单列俄罗斯的宪法、金融危机、地方文化与俄乌战争。",
         Germany to "柏林墙开放后，原来的边界成为艺术现场。两德统一有明确法律日期，分裂记忆则持续留在公共空间。",
         Japan to "广岛保存原爆记忆，新干线改变旅程的时间，家庭节庆餐桌则记录知识的代际传递。",
-        America to "民权游行与纪念被使就业、平等和疾病进入公共讨论。另一条线索从晶体管、数控与联网主机延伸到登月和引力波观测。",
+        America to "从学校合校、投票权和医保，到九一一、金融危机、疫情失业与芯片投资。可沿总统任期查看政策，也可沿维度比较纪念被、嘻哈、登月与大模型。",
         SouthAfrica to "1994年各族选民首次共同选举全国议会。随后公开听证让受害者和亲属讲述种族隔离时期遭受的侵害。",
         Brazil to "艺术家把城市边缘的居住经验带入美术馆，巴伊亚社群以音乐和舞步传递记忆。贝伦气候大会展现另一种公共参与。"
     ), listOf(
@@ -193,18 +195,18 @@ internal val historyEras = listOf(
         HistoryEvent(Japan, Technology, "showa", "1964年", "东海道新干线开通", "东海道新干线在东京和新大阪之间开通。新线开业时全程约需四小时，此后提速继续缩短两地间的旅程。", "东海旅客铁道株式会社 · 公司沿革", "https://global.jr-central.co.jp/en/company/ir/annualreport/_pdf/annualreport2024-03.pdf"),
         HistoryEvent(America, Technology, "p37", "1969年", "阿波罗11号载人登月", "两名宇航员在月面活动并采回样品，一名宇航员留在月球轨道。太空竞赛也为月球带回了可在地球实验室研究的实物。", "美国国家航空航天局 · 阿波罗11号任务", "https://www.nasa.gov/missions/apollo/apollo-11/apollo-11-mission-overview/", HistoryTrails.apollo),
         HistoryEvent(America, Technology, "p37", "1969年", "ARPANET 连接四台主机", "到年底，四个节点接入早期分组交换网络。不同地点的研究人员开始尝试远程使用计算资源。", "互联网协会 · 互联网简史", "https://www.internetsociety.org/internet/history-internet/brief-history-internet/", TechnologyHistory.networks),
-        HistoryEvent(China, Economy, "reform", "1978年起", "中国开启改革开放", "中共十一届三中全会后，农村经营方式和对外经济政策陆续调整。经济特区随后成为引入外资和试验制度的窗口。", "国家发展改革委 · 中国经济体制改革的历史进程", "https://www.ndrc.gov.cn/fggz/tzgg/byggdt/200606/t20060605_1021728_ext.html"),
+        HistoryEvent(China, Economy, "prc-opening", "1978年起", "中国开启改革开放", "中共十一届三中全会后，农村经营方式和对外经济政策陆续调整。经济特区随后成为引入外资和试验制度的窗口。", "国家发展改革委 · 中国经济体制改革的历史进程", "https://www.ndrc.gov.cn/fggz/tzgg/byggdt/200606/t20060605_1021728_ext.html"),
         HistoryEvent(Germany, Governance, "united", "1990年", "德国实现统一", "民主德国人民议院于8月表决通过加入联邦德国的决定，10月3日生效。两德统一由此有了明确的法律日期。", "德国联邦议院 · 民主德国人民议院的加入决议", "https://www.bundestag.de/dokumente/textarchiv/1990-08-23-volkskammer-ddr-beitritt-202398"),
-        HistoryEvent(Russia, Governance, "ussr|federation", "1991年", "苏联解体", "苏联解体之际，俄罗斯总统于12月24日致函联合国秘书长，通知俄罗斯联邦将延续苏联的会员资格，包括安理会席位。联合国保存了相关函件。", "联合国 · 1991年12月24日会员资格函件", "https://ask.un.org/faq/378083"),
+        HistoryEvent(Russia, Governance, "union-reform|rf-nineties", "1991年", "苏联解体", "苏联解体之际，俄罗斯总统于12月24日致函联合国秘书长，通知俄罗斯联邦将延续苏联的会员资格，包括安理会席位。联合国保存了相关函件。", "联合国 · 1991年12月24日会员资格函件", "https://ask.un.org/faq/378083"),
         HistoryEvent(India, Society, "india", "1995年起", "印度把学校膳食纳入全国营养支持计划", "印度中央政府启动面向小学生的营养支持计划，将改善营养与提高入学、出勤和留校率联系起来。计划在各地已有供餐经验的基础上扩大。", "印度政府新闻局 · 儿童营养与学校膳食计划", "https://static.pib.gov.in/WriteReadData/specificdocs/documents/2022/sep/doc2022915104101.pdf"),
         HistoryEvent(Britain, Governance, "devolution", "1998年", "《贝尔法斯特协议》达成", "英国、爱尔兰两国政府与北爱尔兰主要政治力量促成协议，为权力分享及跨境合作提供制度框架。", "英国北爱尔兰事务部 · 《贝尔法斯特协议》", "https://www.gov.uk/government/publications/the-belfast-agreement"),
         HistoryEvent(France, Governance, "fifth", "2015年", "各方在巴黎通过气候协定", "联合国气候变化大会在巴黎通过《巴黎协定》。各方以自主贡献提出减排目标，并按约定周期报告和更新行动。", "联合国气候变化框架公约 · 巴黎协定", "https://unfccc.int/process-and-meetings/the-paris-agreement", HistoryTrails.climate),
         HistoryEvent(America, Technology, "p44", "2015—2016年", "干涉仪首次直接探测到引力波", "LIGO 的两台探测器于2015年记录到双黑洞并合信号，团队在2016年公布结果。天文学由此增加了观测时空扰动的方法。", "LIGO · 实验年表", "https://www.ligo.caltech.edu/page/timeline", TechnologyHistory.science),
         HistoryEvent(Iraq, Ideas, "modern", "2019年", "巴比伦列入世界遗产", "伊拉克的巴比伦遗址获列入世界遗产名录。考古遗迹、近现代重建与保护工作叠加在同一处历史景观中。", "联合国教科文组织 · 巴比伦", "https://whc.unesco.org/en/list/278/"),
         HistoryEvent(India, Technology, "india", "2023年", "月船三号在月球南部高纬着陆", "着陆器于8月23日实现软着陆，巡视器随后探测着陆点附近的月面。印度由此获得该区域的原位观测资料。", "印度空间研究组织 · 月船三号", "https://www.isro.gov.in/Release_of_Chandrayaan-3_science_data_to_the_Scientific_Community.html"),
-        HistoryEvent(China, Technology, "prc-now", "2024年", "嫦娥六号带回月背样品", "返回器于6月25日带回在月球背面采集的样品。研究者首次能够在地球实验室直接分析来自月背的材料。", "国家航天局 · 嫦娥六号样品交接", "https://www.cnsa.gov.cn/n6758823/n6758844/n10518102/n10518147/c10567320/content.html", HistoryTrails.changeSix),
-        HistoryEvent(China, Technology, "prc-now", "2025年1月", "DeepSeek-R1 公布推理训练研究", "团队报告以强化学习改善数学和代码等任务上的推理表现，并发布模型权重及蒸馏模型，供其他团队检验和复用。", "DeepSeek · R1 研究报告", "https://arxiv.org/abs/2501.12948", TechnologyHistory.ai),
+        HistoryEvent(China, Technology, "prc-current", "2024年", "嫦娥六号带回月背样品", "返回器于6月25日带回在月球背面采集的样品。研究者首次能够在地球实验室直接分析来自月背的材料。", "国家航天局 · 嫦娥六号样品交接", "https://www.cnsa.gov.cn/n6758823/n6758844/n10518102/n10518147/c10567320/content.html", HistoryTrails.changeSix),
+        HistoryEvent(China, Technology, "prc-current", "2025年1月", "DeepSeek-R1 公布推理训练研究", "团队报告以强化学习改善数学和代码等任务上的推理表现，并发布模型权重及蒸馏模型，供其他团队检验和复用。", "DeepSeek · R1 研究报告", "https://arxiv.org/abs/2501.12948", TechnologyHistory.ai),
         HistoryEvent(Brazil, Governance, "democracy", "2025年", "贝伦承办联合国气候大会", "各方在巴西贝伦举行第三十届联合国气候变化大会，围绕气候行动的落实、资金和适应问题展开谈判。", "联合国气候变化框架公约 · 贝伦会议成果", "https://unfccc.int/cop30/belem-political-package", HistoryTrails.climate),
         HistoryEvent(America, Society, "p47", "2026年", "北美三国合办世界杯", "加拿大、墨西哥和美国共同举办男子足球世界杯。参赛队扩大至48支，赛事分布于三国的16座城市。", "国际足联 · 2026年世界杯", "https://www.fifa.com/en/tournaments/mens/worldcup/canadamexicousa2026/articles/fifa-world-cup-2026-hosts-cities-dates-usa-mexico-canada", HistoryTrails.worldCup)
-    ).plus(postwarCultureEvents).sortedBy { it.date.take(4).toInt() })
+    ).plus(postwarCultureEvents).plus(modernChinaEvents).plus(modernAmericaEvents).plus(sovietAndSuccessorEvents).sortedBy { it.date.take(4).toInt() })
 )

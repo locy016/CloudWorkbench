@@ -21,6 +21,7 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -30,6 +31,7 @@ import androidx.compose.ui.unit.sp
     var regional by rememberSaveable { mutableStateOf(false) }
     var eraIndex by rememberSaveable { mutableIntStateOf(1) }
     var region by rememberSaveable { mutableStateOf(HistoryRegion.China) }
+    var modernOnly by rememberSaveable { mutableStateOf(false) }
     var lens by rememberSaveable { mutableStateOf<HistoryLens?>(null) }
     var picking by rememberSaveable { mutableStateOf(false) }
     var about by rememberSaveable { mutableStateOf(false) }
@@ -40,14 +42,17 @@ import androidx.compose.ui.unit.sp
     var sliceStart by rememberSaveable { mutableIntStateOf(0) }
     val slice = postwarPeriods.find { isPostwar && it.start == sliceStart }
     val groups = historyEras.mapIndexedNotNull { index, period ->
-        val matching = period.events.filter { (if (regional) it.region == region else index == eraIndex) && (lens == null || it.lens == lens) && (slice == null || slice.contains(it)) }
+        val matching = period.events.filter {
+            (if (regional) it.region == region else index == eraIndex) && (lens == null || it.lens == lens) &&
+                (slice == null || slice.contains(it)) && (!regional || !modernOnly || it.inModernRegionalHistory())
+        }
         if (matching.isEmpty()) null else period to matching
     }
     val visibleEvents = groups.flatMap { it.second }
     val detail = visibleEvents.find { it.title == detailTitle }
     val trails = visibleEvents.mapNotNull { it.trail }.distinct()
     val openTrail = trails.find { it.title == trailTitle }
-    val scroll = key(regional, eraIndex, region, lens) { rememberScrollState() }
+    val scroll = key(regional, eraIndex, region, lens, modernOnly) { rememberScrollState() }
     Box(Modifier.fillMaxSize().background(Background), contentAlignment = Alignment.TopCenter) {
         Column(Modifier.widthIn(max = 1040.dp).fillMaxWidth().fillMaxHeight().historyScrollbar(scroll).verticalScroll(scroll)
             .padding(horizontal = LocalPagePadding.current, vertical = 12.dp),
@@ -70,6 +75,21 @@ import androidx.compose.ui.unit.sp
                 if (regional) region.scope else slice?.context ?: era.summary, if (regional) "选择区域" else "选择阶段",
                 if (regional) null else eraIndex, onStep = { eraIndex += it; lens = null; sliceStart = 0 }, select = { picking = true })
             if (isPostwar) PostwarPeriodPanel(slice) { sliceStart = it?.start ?: 0 }
+            if (isPostwar && slice == null) {
+                Text("从区域时间轴阅读", color = Ink, style = MaterialTheme.typography.titleMedium)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    modernRegionLabels.forEach { (option, label) ->
+                        OutlinedButton(onClick = { region = option; regional = true; modernOnly = true; lens = null },
+                            modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 6.dp)) { Text(label) }
+                    }
+                }
+            }
+            if (regional && region in modernRegionLabels) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(!modernOnly, { modernOnly = false }, { Text("全部年代") })
+                    FilterChip(modernOnly, { modernOnly = true }, { Text(if (region == HistoryRegion.China) "1949年至今" else "二战至今") })
+                }
+            }
             if (isPostwar && slice == null) {
                 if (lens == null || lens == HistoryLens.Technology) TechnologyPanel { trailTitle = it.title }
                 if (lens == null) ChronicleDailyPanel()
@@ -108,7 +128,12 @@ import androidx.compose.ui.unit.sp
                 TextButton(onClick = { lens = null }) { Text("查看全部维度") }
             }
             if (regional) {
-                key(region, lens) { RegionalTimeline(region, visibleEvents, lens) { detailTitle = it.title } }
+                BoxWithConstraints(Modifier.fillMaxWidth()) {
+                    val wide = maxWidth >= 540.dp * LocalDensity.current.fontScale.coerceAtLeast(1f)
+                    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                        key(region, lens, modernOnly) { RegionalTimeline(region, visibleEvents, lens, modernOnly, wide) { detailTitle = it.title } }
+                    }
+                }
             } else groups.forEach { (_, events) ->
                 if (lens != null || slice != null) {
                     RegionComparison(events, showLens = slice != null && lens == null) { detailTitle = it.title }
@@ -131,7 +156,7 @@ import androidx.compose.ui.unit.sp
     }
     if (picking && regional) HistoryDialog("选择区域", { picking = false }, maxWidth = 460.dp) {
         HistoryRegion.entries.forEach { option ->
-            PickerRow(option, option == region) { region = option; lens = null; picking = false }
+            PickerRow(option, option == region) { region = option; modernOnly = false; lens = null; picking = false }
         }
     }
     if (picking && !regional) HistoryTimelineDialog(eraIndex, sliceStart, { picking = false }) { index, start ->
@@ -148,7 +173,7 @@ import androidx.compose.ui.unit.sp
     }
     if (openTrail != null) HistoryDialog(openTrail.title, { trailTitle = null }, maxWidth = 656.dp) {
         Text(openTrail.subjects, color = Accent, style = MaterialTheme.typography.titleMedium)
-        Text(openTrail.introduction, color = Ink, style = MaterialTheme.typography.bodyMedium)
+        HistoryParagraph(openTrail.introduction)
         Text(openTrail.newsStatus ?: openTrail.span, color = Muted, style = MaterialTheme.typography.labelLarge)
         Column {
             openTrail.steps.forEachIndexed { index, step ->
@@ -157,32 +182,39 @@ import androidx.compose.ui.unit.sp
                     if (index > 0) drawLine(Outline, Offset(point.x, 0f), point, 2.dp.toPx())
                     if (index < openTrail.steps.lastIndex) drawLine(Outline, point, Offset(point.x, size.height), 2.dp.toPx())
                     drawCircle(Accent, 4.dp.toPx(), point)
-                }.padding(start = 22.dp, bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Text(step.date, color = Accent, style = MaterialTheme.typography.labelLarge)
-                    Text(step.title, color = Ink, style = MaterialTheme.typography.titleMedium)
-                    Text(step.body, color = Ink, style = MaterialTheme.typography.bodyMedium)
-                    ReadingLink(step.source.label, step.source.url)
+                }.padding(start = 22.dp, bottom = 14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    HistoryReadingPair(primary = {
+                        Text(step.title, color = Ink, style = MaterialTheme.typography.titleMedium)
+                        HistoryParagraph(step.body)
+                    }, secondary = {
+                        Text(step.date, color = Accent, style = MaterialTheme.typography.labelLarge)
+                        ReadingLink(step.source.label, step.source.url)
+                    })
                 }
             }
         }
-    } else if (detail != null) HistoryDialog(detail.title, { detailTitle = null }) {
+    } else if (detail != null) HistoryDialog(detail.title, { detailTitle = null }, maxWidth = 744.dp) {
         val period = groups.first { detail in it.second }.first
-        Text("${detail.date}  ·  ${detail.region.label}", color = Accent, fontWeight = FontWeight.SemiBold)
         val periodLabel = when {
             regional -> regionalChronologies.getValue(region).filter { it.id in detail.localPeriodIds }.joinToString(" / ") { it.name }
             period == historyEras.last() -> postwarPeriods.first { it.contains(detail) }.title
             else -> period.name
         }
-        Text("${periodLabel}   /   ${detail.lens.label}", color = Muted, style = MaterialTheme.typography.bodySmall)
-        Text(detail.detail, color = Ink, lineHeight = 25.sp)
-        Text("史料出处", color = Muted, style = MaterialTheme.typography.labelLarge)
-        ReadingLink(detail.reading, detail.url)
+        HistoryReadingPair(primary = {
+            HistoryParagraph(detail.detail, prominent = true)
+        }, secondary = {
+            Text("${detail.date}  ·  ${detail.region.label}", color = Accent, fontWeight = FontWeight.SemiBold)
+            Text("${periodLabel}   /   ${detail.lens.label}", color = Muted, style = MaterialTheme.typography.bodySmall)
+            Text("史料出处", color = Muted, style = MaterialTheme.typography.labelLarge)
+            ReadingLink(detail.reading, detail.url)
+        })
         detail.trail?.let { trail ->
             OutlinedButton(onClick = { trailTitle = trail.title }) { Text("查看完整事件轨迹") }
         }
         HorizontalDivider(color = Outline)
         TextButton(onClick = {
             region = detail.region
+            modernOnly = false
             eraIndex = historyEras.indexOf(period)
             sliceStart = if (regional && period == historyEras.last()) postwarPeriods.first { it.contains(detail) }.start else 0
             regional = !regional
@@ -234,7 +266,7 @@ import androidx.compose.ui.unit.sp
             }
             Text(date, color = Muted, fontSize = 14.sp)
             HorizontalDivider(Modifier.padding(vertical = 5.dp), color = Outline)
-            Text(summary, color = Ink, style = MaterialTheme.typography.bodyMedium)
+            HistoryParagraph(summary)
         }
     }
 }
@@ -258,7 +290,7 @@ import androidx.compose.ui.unit.sp
                                         Text(event.title, Modifier.weight(1f), color = Ink, style = MaterialTheme.typography.titleMedium)
                                         Icon(Icons.Outlined.ChevronRight, null, Modifier.size(18.dp), tint = Accent)
                                     }
-                                    Text(event.detail.substringBefore('。') + "。", color = Muted, style = MaterialTheme.typography.bodyMedium)
+                                    HistoryParagraph(event.detail.substringBefore('。') + "。", Muted)
                                 }
                             }
                         }
@@ -270,10 +302,19 @@ import androidx.compose.ui.unit.sp
     }
 }
 
-@Composable private fun RegionalTimeline(region: HistoryRegion, events: List<HistoryEvent>, lens: HistoryLens?, open: (HistoryEvent) -> Unit) {
+private val modernRegionLabels = mapOf(HistoryRegion.China to "中国 · 1949年起",
+    HistoryRegion.America to "美国 · 二战起", HistoryRegion.Russia to "苏联及俄罗斯 · 二战起")
+
+internal fun HistoryEvent.inModernRegionalHistory(): Boolean {
+    val start = if (region == HistoryRegion.China) 1949 else 1939
+    return region in modernRegionLabels && (date.take(4).toIntOrNull() ?: 0) >= start
+}
+
+@Composable private fun RegionalTimeline(region: HistoryRegion, events: List<HistoryEvent>, lens: HistoryLens?, modernOnly: Boolean,
+    wide: Boolean, open: (HistoryEvent) -> Unit) {
     val periods = regionalChronologies.getValue(region)
     val matches = periods.associateWith { period -> events.filter { period.id in it.localPeriodIds } }
-    val available = if (lens == null) periods else periods.filter { matches.getValue(it).isNotEmpty() }
+    val available = if (lens == null && !modernOnly) periods else periods.filter { matches.getValue(it).isNotEmpty() }
     var selected by rememberSaveable { mutableStateOf<String?>(null) }
     var picking by rememberSaveable { mutableStateOf(false) }
     val current = available.find { it.id == selected }
@@ -316,9 +357,14 @@ import androidx.compose.ui.unit.sp
                 if (index < shown.lastIndex) drawLine(Outline, node, Offset(node.x, size.height), 2.dp.toPx())
                 drawCircle(Accent, 5.dp.toPx(), node)
             }.padding(start = 25.dp, bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                Text(period.dates, color = Accent, style = MaterialTheme.typography.labelLarge)
-                Text(period.name, color = Ink, style = MaterialTheme.typography.titleLarge)
-                Text(period.summary, color = Muted, style = MaterialTheme.typography.bodyMedium)
+                if (wide) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+                    Text(period.name, Modifier.weight(1f), color = Ink, style = MaterialTheme.typography.titleLarge)
+                    Text(period.dates, color = Accent, style = MaterialTheme.typography.labelLarge)
+                } else {
+                    Text(period.dates, color = Accent, style = MaterialTheme.typography.labelLarge)
+                    Text(period.name, color = Ink, style = MaterialTheme.typography.titleLarge)
+                }
+                HistoryParagraph(period.summary, Muted)
                 if (entries.isNotEmpty()) Surface(Modifier.fillMaxWidth().padding(top = 4.dp), shape = MaterialTheme.shapes.large,
                     color = MaterialTheme.colorScheme.surface, border = BorderStroke(1.dp, Outline)) {
                     Column {
@@ -326,9 +372,13 @@ import androidx.compose.ui.unit.sp
                             if (i > 0) HorizontalDivider(Modifier.padding(horizontal = 12.dp), color = Outline)
                             Row(Modifier.fillMaxWidth().clickable(role = Role.Button) { open(event) }.padding(12.dp),
                                 verticalAlignment = Alignment.CenterVertically) {
-                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                    val overlap = if (event.localPeriodIds.size > 1) " · 跨期" else ""
-                                    Text("${event.date}   ·   ${event.lens.label}$overlap", color = Muted, style = MaterialTheme.typography.bodySmall)
+                                val overlap = if (event.localPeriodIds.size > 1) " · 跨期" else ""
+                                val context = "${event.date} · ${event.lens.label}$overlap"
+                                if (wide) {
+                                    Text(event.title, Modifier.weight(1f).padding(end = 18.dp), color = Ink, style = MaterialTheme.typography.titleMedium)
+                                    Text(context, Modifier.widthIn(max = 180.dp), color = Muted, style = MaterialTheme.typography.bodySmall)
+                                } else Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text(context, color = Muted, style = MaterialTheme.typography.bodySmall)
                                     Text(event.title, color = Ink, style = MaterialTheme.typography.titleMedium)
                                 }
                                 Icon(Icons.Outlined.ChevronRight, null, Modifier.size(18.dp), tint = Accent)
@@ -380,7 +430,7 @@ import androidx.compose.ui.unit.sp
 
 @Composable private fun DialogSection(title: String, body: String) {
     Text(title, color = Accent, fontWeight = FontWeight.Bold)
-    Text(body, color = Ink, style = MaterialTheme.typography.bodyMedium)
+    HistoryParagraph(body)
 }
 
 @Composable private fun ReadingLink(label: String, url: String) {

@@ -170,6 +170,53 @@ class ChronicleAcceptanceTest {
         compose.onNodeWithText("区域交流的扩展").assertIsDisplayed()
     }
 
+    @Test fun regionalHistoriesFromWarToToday() {
+        val records = historyEras.flatMap { it.events }
+        for (region in listOf(HistoryRegion.China, HistoryRegion.America, HistoryRegion.Russia)) {
+            val modern = records.filter { it.region == region && it.inModernRegionalHistory() }
+            assertTrue(modern.map { it.lens }.toSet() == HistoryLens.entries.toSet())
+            val decades = modern.map { it.date.take(4).toInt() / 10 }.toSet()
+            assertTrue((194..202).all { it in decades })
+            assertTrue(modern.any { it.date.startsWith("2026") })
+        }
+        compose.openWorkbenchTab("史时")
+        compose.onNodeWithText("区域追踪").performClick()
+        compose.onNodeWithText("1949年至今").performClick()
+        compose.onNodeWithText("中华人民共和国成立").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("工业利润月报记录前十个月的经营变化").performScrollTo().performClick()
+        compose.onNodeWithText("史料出处").assertIsDisplayed()
+        val report = modernChinaEvents.first { it.date == "2026年11月27日" }
+        val body = compose.onNodeWithText(report.detail).fetchSemanticsNode().boundsInWindow
+        val source = compose.onNodeWithText("史料出处").fetchSemanticsNode().boundsInWindow
+        val metrics = compose.activity.resources.displayMetrics
+        val config = compose.activity.resources.configuration
+        val gutter = if (config.screenWidthDp >= 600) 24 else 16
+        val paneWidth = compose.onNodeWithTag("historyReadingPane").fetchSemanticsNode().boundsInWindow.width / metrics.density
+        if (paneWidth - 2 * gutter >= 500 * config.fontScale.coerceAtLeast(1f)) {
+            assertTrue("宽屏正文与出处应分列", body.right <= source.left)
+        } else {
+            assertTrue("窄屏出处应位于正文下方", body.bottom <= source.top)
+        }
+        capture("china-current")
+        compose.onNodeWithContentDescription("关闭").performClick()
+        compose.onNodeWithContentDescription("选择区域").performScrollTo().performClick()
+        compose.onNodeWithText(HistoryRegion.Russia.label).performScrollTo().performClick()
+        compose.onNodeWithText("二战至今").performClick()
+        compose.onNodeWithText("德苏条约秘密议定书与波兰被瓜分").performScrollTo().assertIsDisplayed()
+        capture("soviet-wartime")
+        compose.onNodeWithText("俄罗斯金融危机波及卢布与银行储户").performScrollTo().performClick()
+        compose.onNodeWithText("史料出处").assertIsDisplayed()
+        capture("russia-transition")
+        compose.onNodeWithContentDescription("关闭").performClick()
+        compose.onNodeWithContentDescription("选择区域").performScrollTo().performClick()
+        compose.onNodeWithText(HistoryRegion.America.label).performScrollTo().performClick()
+        compose.onNodeWithText("二战至今").performClick()
+        compose.onNodeWithText("肯尼迪与赫鲁晓夫应对古巴导弹危机").performScrollTo().performClick()
+        compose.onNodeWithText("查看完整事件轨迹").performScrollTo().performClick()
+        compose.onNodeWithText("各共和国走向独立").performScrollTo().assertIsDisplayed()
+        capture("us-soviet-trail")
+    }
+
     @Test fun regionalPeriodizationAndMergedSelectors() {
         assertTrue(regionalChronologies.keys == HistoryRegion.entries.toSet())
         historyEras.flatMap { it.events }.forEach { e ->
@@ -232,7 +279,7 @@ class ChronicleAcceptanceTest {
 
     @Test fun readModernTrailsAndCurrentAffairs() {
         val trails = historyEras.flatMap { it.events }.mapNotNull { it.trail }.distinct()
-        assertTrue(trails.size == 13 && trails.all { it.steps.size >= 4 })
+        assertTrue(HistoryTrails.coldWar in trails && trails.size == 14 && trails.all { it.steps.size >= 4 })
         assertTrue(trails.flatMap { it.steps }.all { it.source.url.startsWith("https://") && it.source.label.isNotBlank() })
         compose.openWorkbenchTab("史时")
         fun enter(index: Int) {

@@ -81,7 +81,7 @@ import androidx.compose.ui.unit.dp
                         Icon(if (expanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore, null,
                             modifier = Modifier.size(22.dp), tint = if (selected) Accent else Muted)
                     }
-                    Text(era.summary, style = MaterialTheme.typography.bodyMedium, color = Ink)
+                    HistoryParagraph(era.summary)
                 }
                 if (expanded) {
                     if (index == historyEras.lastIndex) {
@@ -107,9 +107,16 @@ import androidx.compose.ui.unit.dp
         for (region in HistoryRegion.entries) {
             val summary = era.regionalSummaries[region] ?: continue
             HorizontalDivider(color = Outline)
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(region.label, style = MaterialTheme.typography.labelLarge, color = Accent)
-                Text(summary, style = MaterialTheme.typography.bodyMedium, color = Ink)
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                if (maxWidth >= 460.dp * androidx.compose.ui.platform.LocalDensity.current.fontScale.coerceAtLeast(1f)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                        Text(region.label, Modifier.width(104.dp), style = MaterialTheme.typography.labelLarge, color = Accent)
+                        HistoryParagraph(summary)
+                    }
+                } else Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(region.label, style = MaterialTheme.typography.labelLarge, color = Accent)
+                    HistoryParagraph(summary)
+                }
             }
         }
     }

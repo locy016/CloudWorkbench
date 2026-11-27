@@ -14,6 +14,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.Instant
@@ -39,7 +40,7 @@ import java.time.format.DateTimeFormatter
                 Text(trail.title, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, color = Ink)
                 Icon(Icons.Outlined.ChevronRight, "查看科技轨迹", tint = Accent)
             }
-            Text(trail.introduction, style = MaterialTheme.typography.bodyMedium, color = Muted)
+            HistoryParagraph(trail.introduction, Muted)
         }
     }
 }
@@ -106,10 +107,14 @@ import java.time.format.DateTimeFormatter
                         item.url.startsWith("https://huggingface.co/") -> "Hugging Face 仓库创建"
                         else -> "来源日期"
                     }
-                    Text(item.date + " · " + source.label + " · " + action, style = MaterialTheme.typography.bodySmall, color = Muted)
-                    Text(item.title, style = MaterialTheme.typography.titleMedium, color = Ink)
-                    if (item.summary.isNotBlank()) Text(item.summary, style = MaterialTheme.typography.bodyMedium,
-                        color = Muted, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                    HistoryReadingPair(primary = {
+                        Text(item.title, style = MaterialTheme.typography.titleMedium, color = Ink)
+                        if (item.summary.isNotBlank()) Text(item.summary, style = MaterialTheme.typography.bodyMedium,
+                            color = Muted, maxLines = 2, lineHeight = 24.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Justify,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                    }, secondary = {
+                        Text(item.date + " · " + source.label + " · " + action, style = MaterialTheme.typography.bodySmall, color = Muted)
+                    })
                 }
                 Icon(Icons.AutoMirrored.Outlined.OpenInNew, null, Modifier.size(16.dp), tint = Accent)
             }
