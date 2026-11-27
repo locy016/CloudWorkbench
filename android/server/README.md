@@ -26,8 +26,8 @@ npm test
 ## 数据与发布
 
 - 程序目录为 `~/.local/lib/cloud-workbench`。业务数据位于 `~/.local/share/cloud-workbench`，其中 `workbench.db` 保存会话。生产更新源由[独立签名服务](ops/release-service/README.md)写入，网关通过 `APP_UPDATES_DIR` 读取。
-- 部署前确认活动任务已完成，对 SQLite 数据库做一致性备份，并检查附件目录和已签名版本。通过既有 `cloud-workbench-ops restart-workbench` 运维入口在空闲时重启。回退使用工作台版本及其配置。
-- 工作台域名的 HTTP 和 TLS 拒绝配置见 [Nginx 切换脚本](ops/close-workbench-web-ingress.sh)。生产工作区由数据目录的 `projects.json` 配置，包括栖物里网站、服务器运维和云端助理。
+- 在服务器项目副本运行 `bash android/server/ops/deploy-gateway.sh --check <提交SHA>` 验证 GitHub `main` 的当前提交。获授权后通过 `--deploy` 部署网关源码和依赖，并由既有运维入口在空闲时重启。部署数据库迁移前先做一致性备份。需要回退时把修正或回退提交合入 `main` 并重新部署。
+- 工作台域名的 HTTP 和 TLS 拒绝配置见 [Nginx 切换脚本](ops/close-workbench-web-ingress.sh)。生产工作区由数据目录的 `projects.json` 配置。`cloud-workbench` 指向 `/home/xux/projects/cloud-workbench`，用于开发和验证工作台本身。源码、云端构建与正式发布流程见[项目开发说明](../../AGENTS.md)。
 - 手机密钥的绑定规则见 [SSH 业务连接](ops/ssh-mobile.md)。
 
 退役清理通过 Nginx 配置、运行状态和旧规则检查验收。证书续期单独管理。关闭工作台域名的公网解析时，现有 HTTP-01 续期无法完成。如继续使用公开受信证书，采用 DNS-01 验证。

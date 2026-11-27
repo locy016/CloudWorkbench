@@ -6,6 +6,7 @@
 
 | 内容 | 说明 |
 | --- | --- |
+| 云端开发 | [APP 工作区、构建与部署](AGENTS.md) |
 | Android 客户端 | [使用、构建与发布](android/README.md) |
 | Node.js 网关 | [本地测试、工作区配置与部署](android/server/README.md) |
 | 栖物里网站 | [站点开发与发布](site/README.md) |
