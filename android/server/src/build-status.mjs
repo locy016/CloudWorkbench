@@ -128,15 +128,16 @@ export function buildStatus({ fetcher = fetch, clock = Date.now, readToken = asy
     pending = (async () => {
       try {
         const runs = (await items(workflow + '/runs?per_page=5', 'workflow_runs')).map(parseRun).filter(Boolean);
+        const latest = runs[0];
         let checks = [], outputs = [], detailAvailable = true;
-        if (runs.length) {
-          const result = await latestDetails(runs[0]);
+        if (latest) {
+          const result = await latestDetails(latest);
           ({ checks, outputs } = result);
           detailAvailable = result.complete;
         }
         const fetchedAt = clock();
         cached = { runs, checks, outputs, detailAvailable, fetchedAt, stale: false };
-        refreshAt = fetchedAt + 150_000;
+        refreshAt = fetchedAt + (latest && !latest.completed && detailAvailable ? 15_000 : 150_000);
         return snapshot(false);
       } catch {
         if (cached) cached = { ...cached, stale: true };
