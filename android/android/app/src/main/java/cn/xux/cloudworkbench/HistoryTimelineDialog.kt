@@ -9,7 +9,6 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowForward
-import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ExpandLess
 import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material3.*
@@ -26,57 +25,41 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 
 @Composable internal fun HistoryTimelineDialog(current: Int, close: () -> Unit, enter: (Int) -> Unit) {
     var preview by rememberSaveable { mutableIntStateOf(current) }
     var showDetails by rememberSaveable { mutableStateOf(true) }
     val list = rememberLazyListState(initialFirstVisibleItemIndex = (current - 1).coerceAtLeast(0))
-    Dialog(onDismissRequest = close, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        BoxWithConstraints(Modifier.fillMaxSize().safeDrawingPadding(), contentAlignment = Alignment.Center) {
-            val wide = maxWidth >= 600.dp
-            val outer = if (wide) 32.dp else 8.dp
-            val gutter = if (wide) 24.dp else 16.dp
-            val textInset = if (wide) 18.dp else 12.dp
-            Surface(Modifier.padding(horizontal = outer, vertical = 12.dp).widthIn(max = 720.dp).fillMaxWidth().heightIn(max = 900.dp).fillMaxHeight(.94f),
-                shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surface) {
-                Column {
-                    Row(Modifier.padding(start = gutter, end = gutter - 12.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text("选择历史阶段", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, color = Ink)
-                        IconButton(onClick = close) { Icon(Icons.Outlined.Close, "关闭", tint = Muted) }
-                    }
-                    HorizontalDivider(color = Outline)
-                    LazyColumn(Modifier.weight(1f).fillMaxWidth().background(Background).testTag("eraTimeline"), state = list,
-                        contentPadding = PaddingValues(vertical = 8.dp)) {
-                        itemsIndexed(historyEras, key = { _, era -> era.name }) { index, era ->
-                            val selected = index == preview
-                            EraNode(era, index, selected, selected && showDetails, gutter, textInset) {
-                                showDetails = !selected || !showDetails
-                                preview = index
-                                if (showDetails) list.requestScrollToItem(index)
-                            }
-                        }
-                    }
-                    HorizontalDivider(color = Outline)
-                    Row(Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically) {
-                        Text("第 ${preview + 1} / ${historyEras.size} 阶段", Modifier.weight(1f), color = Muted, style = MaterialTheme.typography.bodySmall)
-                        TextButton(onClick = close) { Text("取消") }
-                        Spacer(Modifier.width(8.dp))
-                        Button(onClick = { enter(preview) }) {
-                            Text("进入本阶段")
-                            Spacer(Modifier.width(6.dp))
-                            Icon(Icons.AutoMirrored.Outlined.ArrowForward, null, Modifier.size(16.dp))
-                        }
-                    }
+    HistoryWindow("选择历史阶段", close, maxWidth = 720.dp) { gutter ->
+        val textInset = if (gutter >= 24.dp) 16.dp else 12.dp
+        LazyColumn(Modifier.weight(1f).fillMaxWidth().background(Background).historyScrollbar(list).testTag("eraTimeline"), state = list,
+            contentPadding = PaddingValues(vertical = 8.dp)) {
+            itemsIndexed(historyEras, key = { _, era -> era.name }) { index, era ->
+                val selected = index == preview
+                EraNode(era, index, selected, selected && showDetails, gutter, textInset, enter) {
+                    showDetails = !selected || !showDetails
+                    preview = index
+                    if (showDetails) list.requestScrollToItem(index)
                 }
+            }
+        }
+        HorizontalDivider(color = Outline)
+        Row(Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            Text("第 ${preview + 1} / ${historyEras.size} 阶段", Modifier.weight(1f), color = Muted, style = MaterialTheme.typography.bodySmall)
+            TextButton(onClick = close) { Text("取消") }
+            Spacer(Modifier.width(8.dp))
+            Button(onClick = { enter(preview) }) {
+                Text("进入本阶段")
+                Spacer(Modifier.width(6.dp))
+                Icon(Icons.AutoMirrored.Outlined.ArrowForward, null, Modifier.size(16.dp))
             }
         }
     }
 }
 
-@Composable private fun EraNode(era: HistoryEra, index: Int, selected: Boolean, expanded: Boolean, gutter: Dp, textInset: Dp, toggle: () -> Unit) {
+@Composable private fun EraNode(era: HistoryEra, index: Int, selected: Boolean, expanded: Boolean, gutter: Dp, textInset: Dp,
+    enter: (Int) -> Unit, toggle: () -> Unit) {
     Box(Modifier.fillMaxWidth().drawBehind {
         val point = Offset(gutter.toPx() / 2, 26.dp.toPx())
         if (index > 0) drawLine(Outline, Offset(point.x, 0f), point, 2.dp.toPx())
@@ -100,7 +83,14 @@ import androidx.compose.ui.window.DialogProperties
                     }
                     Text(era.summary, style = MaterialTheme.typography.bodyMedium, color = Ink)
                 }
-                if (expanded) RegionalSummaries(era, textInset)
+                if (expanded) {
+                    if (index == historyEras.lastIndex) {
+                        FilledTonalButton(onClick = { enter(index) }, modifier = Modifier.padding(start = textInset, top = 8.dp)) {
+                            Text("查看战后科技与每日动态")
+                        }
+                    }
+                    RegionalSummaries(era, textInset)
+                }
             }
         }
     }

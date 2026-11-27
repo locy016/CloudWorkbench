@@ -1,9 +1,12 @@
 package cn.xux.cloudworkbench
 
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.After
+import org.junit.Before
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -12,6 +15,12 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class ChronicleAcceptanceTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
+
+    @Before fun keepScreenOnDuringReview() {
+        compose.runOnUiThread {
+            compose.activity.window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
 
     @After fun finishWorkbench() {
         // On the tablet, ActivityScenario cannot launch its cross-package teardown activity.
@@ -53,6 +62,7 @@ class ChronicleAcceptanceTest {
         compose.onNodeWithText(historyEras.last().regionalSummaries.getValue(HistoryRegion.China)).performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("选择区域").performScrollTo()
         compose.onNodeWithText("选择区域").performClick()
+        capture("region-picker")
         compose.onNodeWithText("日本列岛").performScrollTo().performClick()
         compose.onNodeWithText("全部维度").performClick()
         compose.onNode(hasText("科学技术") and hasAnyAncestor(isPopup())).performClick()
@@ -76,6 +86,31 @@ class ChronicleAcceptanceTest {
         compose.onNodeWithText("当前选材没有这一维度的记录。").assertIsDisplayed()
         compose.onNodeWithText("查看全部维度").performClick()
         compose.onNodeWithText("绳文聚落依水而居").performScrollTo().assertIsDisplayed()
+    }
+
+    @Test fun readingWindowsAndDraggableScrollbars() {
+        compose.openWorkbenchTab("史时")
+        compose.onNodeWithContentDescription("分期与选材说明").performClick()
+        val infoTop = compose.onNodeWithText("分期与选材").fetchSemanticsNode().boundsInWindow.top
+        compose.onNodeWithText("查阅世界史分期标准").performScrollTo().assertIsDisplayed()
+        assertTrue(compose.onNodeWithText("分期与选材").fetchSemanticsNode().boundsInWindow.top == infoTop)
+        capture("guide")
+        compose.onNodeWithContentDescription("关闭").performClick()
+        compose.onNodeWithText("选择阶段").performClick()
+        val pane = compose.onNodeWithTag("eraTimeline")
+        pane.performScrollToIndex(0)
+        fun position() = pane.fetchSemanticsNode().config[SemanticsProperties.VerticalScrollAxisRange].value()
+        val before = position()
+        val header = compose.onNodeWithText("选择历史阶段").fetchSemanticsNode().boundsInWindow
+        pane.performTouchInput {
+            swipe(Offset(width - 5f, height * .25f), Offset(width - 5f, height * .65f), 450)
+        }
+        compose.waitForIdle()
+        assertTrue("Right-edge drag must advance the stage list", position() > before)
+        assertTrue(compose.onNodeWithText("选择历史阶段").fetchSemanticsNode().boundsInWindow == header)
+        compose.onNodeWithText("进入本阶段").assertIsDisplayed()
+        capture("timeline-scroll")
+        compose.onNodeWithContentDescription("关闭").performClick()
     }
 
     @Test fun compareEarlyCitiesWithSources() {
@@ -137,7 +172,7 @@ class ChronicleAcceptanceTest {
 
     @Test fun readModernTrailsAndCurrentAffairs() {
         val trails = historyEras.flatMap { it.events }.mapNotNull { it.trail }.distinct()
-        assertTrue(trails.size == 8 && trails.all { it.steps.size >= 4 })
+        assertTrue(trails.size == 13 && trails.all { it.steps.size >= 4 })
         assertTrue(trails.flatMap { it.steps }.all { it.source.url.startsWith("https://") && it.source.label.isNotBlank() })
         compose.openWorkbenchTab("史时")
         fun enter(index: Int) {
@@ -156,7 +191,32 @@ class ChronicleAcceptanceTest {
         compose.onNodeWithText("史料出处").performScrollTo().assertIsDisplayed()
         compose.onNodeWithContentDescription("关闭").performClick()
         enter(historyEras.lastIndex)
-        compose.onNodeWithText("时事追踪").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("战后科技发展").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("AI 与大模型").performScrollTo().performClick()
+        capture("technology-overview")
+        compose.onNodeWithContentDescription("查看科技轨迹").performScrollTo().performClick()
+        val reading = compose.onNodeWithTag("historyReadingPane")
+        reading.performTouchInput {
+            swipe(Offset(width - 5f, height * .25f), Offset(width - 5f, height * .55f), 350)
+        }
+        assertTrue(reading.fetchSemanticsNode().config[SemanticsProperties.VerticalScrollAxisRange].value() > 0f)
+        compose.onNodeWithText("同一模型接收文字与图像").performScrollTo().assertIsDisplayed()
+        capture("tech-ai")
+        compose.onNodeWithContentDescription("关闭").performClick()
+        compose.onNodeWithText("每日动态").performScrollTo().assertIsDisplayed()
+        compose.waitUntil(30_000) { !ChronicleDaily.loading.value }
+        compose.onNodeWithText("刷新动态").performScrollTo().performClick()
+        compose.waitUntil(30_000) { !ChronicleDaily.loading.value }
+        assertTrue(DailySource.entries.all { ChronicleDaily.batches.value[it]?.items?.isNotEmpty() == true })
+        for (topic in listOf("关键人物", "大模型", "地缘局势")) {
+            compose.onNodeWithText(topic).performScrollTo().performClick()
+            compose.onNodeWithText("查看全部 ", substring = true).performScrollTo().assertIsDisplayed()
+            if (topic == "大模型") {
+                compose.onAllNodes(hasText("仓库", substring = true))[2].performScrollTo().assertIsDisplayed()
+            }
+            capture("daily-" + when (topic) { "大模型" -> "models"; "关键人物" -> "people"; else -> "world" })
+        }
+        compose.onNodeWithText("时事专题").performScrollTo().assertIsDisplayed()
         capture("recent-index")
         compose.onNodeWithText(HistoryTrails.climate.title).performScrollTo().performClick()
         compose.onNodeWithText("协定在巴黎通过").assertIsDisplayed()

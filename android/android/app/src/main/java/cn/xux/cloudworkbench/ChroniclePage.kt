@@ -25,7 +25,6 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
 
 @Composable internal fun ChroniclePage() {
     var regional by rememberSaveable { mutableStateOf(false) }
@@ -46,78 +45,87 @@ import androidx.compose.ui.window.Dialog
     val trails = visibleEvents.mapNotNull { it.trail }.distinct()
     val openTrail = trails.find { it.title == trailTitle }
     val scroll = key(regional, eraIndex, region, lens) { rememberScrollState() }
-    Column(Modifier.fillMaxSize().background(Background).verticalScroll(scroll).padding(LocalPagePadding.current),
-        verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Row(Modifier.weight(1f).selectableGroup(), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-                listOf("时代对照", "区域追踪").forEachIndexed { i, label ->
-                    val selected = regional == (i == 1)
-                    Text(label, Modifier.clip(MaterialTheme.shapes.large).background(if (selected) AccentSurface else Color.Transparent)
-                        .selectable(selected, role = Role.Tab) { if (!selected) { regional = i == 1; lens = null } }
-                        .heightIn(min = 44.dp).wrapContentHeight().padding(horizontal = 13.dp),
-                        color = if (selected) Accent else Muted, fontWeight = FontWeight.SemiBold)
+    Box(Modifier.fillMaxSize().background(Background), contentAlignment = Alignment.TopCenter) {
+        Column(Modifier.widthIn(max = 1040.dp).fillMaxWidth().fillMaxHeight().historyScrollbar(scroll).verticalScroll(scroll)
+            .padding(horizontal = LocalPagePadding.current, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.weight(1f).selectableGroup(), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                    listOf("时代对照", "区域追踪").forEachIndexed { i, label ->
+                        val selected = regional == (i == 1)
+                        Text(label, Modifier.clip(MaterialTheme.shapes.large).background(if (selected) AccentSurface else Color.Transparent)
+                            .selectable(selected, role = Role.Tab) { if (!selected) { regional = i == 1; lens = null } }
+                            .heightIn(min = 44.dp).wrapContentHeight().padding(horizontal = 13.dp),
+                            color = if (selected) Accent else Muted, fontWeight = FontWeight.SemiBold)
+                    }
                 }
+                IconButton(onClick = { about = true }) { Icon(Icons.Outlined.Info, "分期与选材说明", tint = Muted) }
             }
-            IconButton(onClick = { about = true }) { Icon(Icons.Outlined.Info, "分期与选材说明", tint = Muted) }
-        }
-        HistoryCover(if (regional) "区域追踪" else "世界史分期 · ${eraIndex + 1} / ${historyEras.size}",
-            if (regional) region.label else era.name, if (regional) "区域沿革" else era.dates,
-            if (regional) region.scope else era.summary, if (regional) "选择区域" else "选择阶段",
-            if (regional) null else eraIndex, onStep = { eraIndex += it; lens = null }, select = { picking = true })
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text(if (regional) "历时脉络" else if (lens != null) "同期区域对照" else "同期动态", color = Ink, fontSize = 21.sp, fontWeight = FontWeight.Bold)
-                Text(if (regional) "${groups.size} 个阶段 · ${groups.sumOf { it.second.size }} 条记录" else
-                    "${groups.flatMap { it.second }.distinctBy { it.region }.size} 个区域 · ${groups.sumOf { it.second.size }} 条记录",
-                    color = Muted, style = MaterialTheme.typography.bodySmall)
+            HistoryCover(if (regional) "区域追踪" else "世界史分期 · ${eraIndex + 1} / ${historyEras.size}",
+                if (regional) region.label else era.name, if (regional) "区域沿革" else era.dates,
+                if (regional) region.scope else era.summary, if (regional) "选择区域" else "选择阶段",
+                if (regional) null else eraIndex, onStep = { eraIndex += it; lens = null }, select = { picking = true })
+            if (!regional && eraIndex == historyEras.lastIndex) {
+                if (lens == null || lens == HistoryLens.Technology) TechnologyPanel { trailTitle = it.title }
+                if (lens == null) ChronicleDailyPanel()
             }
-            var filterOpen by remember { mutableStateOf(false) }
-            Box {
-                OutlinedButton(onClick = { filterOpen = true }, border = BorderStroke(1.dp, Outline), colors = ButtonDefaults.outlinedButtonColors(contentColor = Accent)) {
-                    Icon(Icons.Outlined.Tune, "筛选维度", Modifier.size(16.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text(lens?.label ?: "全部维度")
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(if (regional) "历时脉络" else if (lens != null) "同期区域对照" else "同期动态", color = Ink, fontSize = 21.sp, fontWeight = FontWeight.Bold)
+                    Text(if (regional) "${groups.size} 个阶段 · ${groups.sumOf { it.second.size }} 条记录" else
+                        "${groups.flatMap { it.second }.distinctBy { it.region }.size} 个区域 · ${groups.sumOf { it.second.size }} 条记录",
+                        color = Muted, style = MaterialTheme.typography.bodySmall)
                 }
-                DropdownMenu(expanded = filterOpen, onDismissRequest = { filterOpen = false }) {
-                    (listOf(null) + HistoryLens.entries).forEach { choice ->
-                        DropdownMenuItem(text = { Text(choice?.label ?: "全部维度") }, onClick = { lens = choice; filterOpen = false },
-                            trailingIcon = { if (choice == lens) Icon(Icons.Outlined.Check, "已选") })
+                var filterOpen by remember { mutableStateOf(false) }
+                Box {
+                    OutlinedButton(onClick = { filterOpen = true }, border = BorderStroke(1.dp, Outline), colors = ButtonDefaults.outlinedButtonColors(contentColor = Accent)) {
+                        Icon(Icons.Outlined.Tune, "筛选维度", Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(lens?.label ?: "全部维度")
+                    }
+                    val menuScroll = rememberScrollState()
+                    DropdownMenu(expanded = filterOpen, onDismissRequest = { filterOpen = false }, scrollState = menuScroll,
+                        modifier = Modifier.widthIn(min = 168.dp).heightIn(max = 360.dp).historyScrollbar(menuScroll)) {
+                        (listOf(null) + HistoryLens.entries).forEach { choice ->
+                            DropdownMenuItem(text = { Text(choice?.label ?: "全部维度") }, onClick = { lens = choice; filterOpen = false },
+                                trailingIcon = { if (choice == lens) Icon(Icons.Outlined.Check, "已选") })
+                        }
                     }
                 }
             }
-        }
-        if (!regional && trails.isNotEmpty()) {
-            val (recent, historical) = trails.partition { it.newsStatus != null }
-            if (recent.isNotEmpty()) TrailIndex("时事追踪", recent) { trailTitle = it.title }
-            if (historical.isNotEmpty()) TrailIndex("重点事件轨迹", historical) { trailTitle = it.title }
-        }
-        if (groups.isEmpty()) {
-            Text("当前选材没有这一维度的记录。", color = Muted)
-            TextButton(onClick = { lens = null }) { Text("查看全部维度") }
-        }
-        if (regional) {
-            RegionalTimeline(region, groups) { detailTitle = it.title }
-        } else groups.forEach { (_, events) ->
-            if (lens != null) {
-                RegionComparison(events) { detailTitle = it.title }
-                return@forEach
+            if (!regional && trails.isNotEmpty()) {
+                val (recent, historical) = trails.filterNot { trail -> TechnologyHistory.topics.any { it.second == trail } }.partition { it.newsStatus != null }
+                if (recent.isNotEmpty()) TrailIndex("时事专题", recent) { trailTitle = it.title }
+                if (historical.isNotEmpty()) TrailIndex("重点事件轨迹", historical) { trailTitle = it.title }
             }
-            BoxWithConstraints {
-                val columns = if (maxWidth >= 600.dp) 2 else 1
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    events.chunked(columns).forEach { row ->
-                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            row.forEach { event -> HistoryCard(event, Modifier.weight(1f)) { detailTitle = event.title } }
-                            if (row.size < columns) Spacer(Modifier.weight(1f))
+            if (groups.isEmpty()) {
+                Text("当前选材没有这一维度的记录。", color = Muted)
+                TextButton(onClick = { lens = null }) { Text("查看全部维度") }
+            }
+            if (regional) {
+                RegionalTimeline(region, groups) { detailTitle = it.title }
+            } else groups.forEach { (_, events) ->
+                if (lens != null) {
+                    RegionComparison(events) { detailTitle = it.title }
+                    return@forEach
+                }
+                BoxWithConstraints {
+                    val columns = if (maxWidth >= 600.dp) 2 else 1
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        events.chunked(columns).forEach { row ->
+                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                row.forEach { event -> HistoryCard(event, Modifier.weight(1f)) { detailTitle = event.title } }
+                                if (row.size < columns) Spacer(Modifier.weight(1f))
+                            }
                         }
                     }
                 }
             }
         }
     }
-    if (picking && regional) HistoryDialog("选择区域", { picking = false }) {
+    if (picking && regional) HistoryDialog("选择区域", { picking = false }, maxWidth = 460.dp) {
         HistoryRegion.entries.forEach { option ->
-            PickerRow(option.label, option == region) { region = option; lens = null; picking = false }
+            PickerRow(option, option == region) { region = option; lens = null; picking = false }
         }
     }
     if (picking && !regional) HistoryTimelineDialog(eraIndex, { picking = false }) { index ->
@@ -131,7 +139,7 @@ import androidx.compose.ui.window.Dialog
         DialogSection("如何读选材", "每条记录归入一个主要维度。同一事件可能同时影响多个领域；各阶段展示代表性节点。")
         ReadingLink("查阅世界史分期标准", HISTORY_STANDARD)
     }
-    if (openTrail != null) HistoryDialog(openTrail.title, { trailTitle = null }) {
+    if (openTrail != null) HistoryDialog(openTrail.title, { trailTitle = null }, maxWidth = 656.dp) {
         Text(openTrail.subjects, color = Accent, style = MaterialTheme.typography.titleMedium)
         Text(openTrail.introduction, color = Ink, style = MaterialTheme.typography.bodyMedium)
         Text(openTrail.newsStatus ?: openTrail.span, color = Muted, style = MaterialTheme.typography.labelLarge)
@@ -302,27 +310,15 @@ import androidx.compose.ui.window.Dialog
     }
 }
 
-@Composable private fun HistoryDialog(title: String, close: () -> Unit, body: @Composable ColumnScope.() -> Unit) {
-    Dialog(onDismissRequest = close) {
-        Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surface, modifier = Modifier.widthIn(max = 480.dp).fillMaxWidth()) {
-            Column(Modifier.padding(16.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(title, Modifier.weight(1f), color = Ink, style = MaterialTheme.typography.titleLarge)
-                    IconButton(onClick = close) { Icon(Icons.Outlined.Close, "关闭", tint = Muted) }
-                }
-                HorizontalDivider(color = Outline)
-                Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(vertical = 10.dp),
-                    verticalArrangement = Arrangement.spacedBy(7.dp), content = body)
-            }
-        }
-    }
-}
-
-@Composable private fun PickerRow(title: String, selected: Boolean, select: () -> Unit) {
+@Composable private fun PickerRow(region: HistoryRegion, selected: Boolean, select: () -> Unit) {
     Row(Modifier.fillMaxWidth().clip(MaterialTheme.shapes.large).background(if (selected) AccentSurface else Color.Transparent)
-        .selectable(selected, role = Role.RadioButton, onClick = select).heightIn(min = 48.dp).padding(10.dp),
+        .selectable(selected, role = Role.RadioButton, onClick = select).heightIn(min = 52.dp)
+        .padding(horizontal = 12.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically) {
-        Text(title, Modifier.weight(1f), color = Ink, fontWeight = FontWeight.Medium)
+        Column(Modifier.weight(1f).padding(end = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(region.label, color = if (selected) Accent else Ink, style = MaterialTheme.typography.titleMedium)
+            Text(region.scope, color = Muted, style = MaterialTheme.typography.bodySmall)
+        }
         if (selected) Icon(Icons.Outlined.Check, "已选", tint = Accent)
     }
 }

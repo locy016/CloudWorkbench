@@ -1,0 +1,221 @@
+{
+  "Peace": {
+    "checked": 1795761793051,
+    "items": [
+      {
+        "title": "哥伦比亚和平协议签署十周年  古特雷斯呼吁加快落实关键进程",
+        "date": "2026-11-24",
+        "url": "https://news.un.org/feed/view/zh/story/2026/11/1143260"
+      },
+      {
+        "title": "安理会聚焦人工智能军事应用 古特雷斯和红十字国际委员会呼吁加强国际规范",
+        "date": "2026-11-24",
+        "url": "https://news.un.org/feed/view/zh/story/2026/11/1143258"
+      },
+      {
+        "title": "古特雷斯呼吁就全球人工智能安全框架展开磋商，警告将出现历史性的权力转移",
+        "date": "2026-11-23",
+        "url": "https://news.un.org/feed/view/zh/story/2026/11/1143254"
+      },
+      {
+        "title": "利比亚：联合国特派团敦促对班加西港口袭击事件展开调查",
+        "date": "2026-11-23",
+        "url": "https://news.un.org/feed/view/zh/story/2026/11/1143251"
+      },
+      {
+        "title": "安理会讨论乌克兰局势：袭击加剧平民苦难，黑海粮食运输受阻",
+        "date": "2026-11-23",
+        "url": "https://news.un.org/feed/view/zh/story/2026/11/1143250"
+      }
+    ]
+  },
+  "Diplomacy": {
+    "checked": 1795761469582,
+    "items": [
+      {
+        "title": "李强会见亚洲开发银行行长神田真人",
+        "date": "2026-11-26",
+        "url": "https://www.mfa.gov.cn/web/wjdt_674879/gjldrhd_674881/202611/t20261126_12067805.shtml"
+      },
+      {
+        "title": "陈文清赴德国出席第六次中德高级别安全对话",
+        "date": "2026-11-25",
+        "url": "https://www.mfa.gov.cn/web/wjdt_674879/gjldrhd_674881/202611/t20261125_12067187.shtml"
+      },
+      {
+        "title": "王毅同荷兰外交大臣贝伦德森会谈",
+        "date": "2026-11-25",
+        "url": "https://www.mfa.gov.cn/web/wjdt_674879/gjldrhd_674881/202611/t20261125_12066791.shtml"
+      },
+      {
+        "title": "蔡奇会见古巴共产党干部考察团",
+        "date": "2026-11-25",
+        "url": "https://www.mfa.gov.cn/web/wjdt_674879/gjldrhd_674881/202611/t20261125_12067077.shtml"
+      },
+      {
+        "title": "丁薛祥会见荷兰外交大臣贝伦德森",
+        "date": "2026-11-25",
+        "url": "https://www.mfa.gov.cn/web/wjdt_674879/gjldrhd_674881/202611/t20261125_12067073.shtml"
+      }
+    ]
+  },
+  "Downing": {
+    "checked": 1795761793788,
+    "items": [
+      {
+        "title": "PM meeting with King of Jordan Abdullah II: 26 November 2026",
+        "date": "2026-11-26",
+        "url": "https://www.gov.uk/government/news/pm-meeting-with-king-of-jordan-abdullah-ii-26-november-2026"
+      },
+      {
+        "title": "PM statement on Nuclear Test Veterans: 25 November",
+        "date": "2026-11-25",
+        "url": "https://www.gov.uk/government/speeches/pm-statement-on-nuclear-test-veterans-25-november"
+      },
+      {
+        "title": "“Nuclear test veterans and their families have waited too long for the truth” – PM announces Independent Panel on nuclear weapons testing",
+        "date": "2026-11-24",
+        "url": "https://www.gov.uk/government/news/nuclear-test-veterans-and-their-families-have-waited-too-long-for-the-truth-pm-announces-independent-panel-on-nuclear-weapons-testing"
+      },
+      {
+        "title": "Prime Minister calls time on abusers hiding in plain sight",
+        "date": "2026-11-24",
+        "url": "https://www.gov.uk/government/news/prime-minister-calls-time-on-abusers-hiding-in-plain-sight"
+      },
+      {
+        "title": "PM meeting with His Royal Highness The Prince of Wales: 24 November 2026",
+        "date": "2026-11-24",
+        "url": "https://www.gov.uk/government/news/pm-meeting-with-his-royal-highness-the-prince-of-wales-24-november-2026"
+      }
+    ]
+  },
+  "Qwen": {
+    "checked": 1795761792978,
+    "items": [
+      {
+        "title": "Qwen/Qwen-Drive-1.0-4B",
+        "date": "2026-08-27",
+        "url": "https://huggingface.co/Qwen/Qwen-Drive-1.0-4B",
+        "summary": "图文输入 · transformers · 许可 apache-2.0"
+      },
+      {
+        "title": "Qwen/Qwen3.8-Flash-Next-FP8",
+        "date": "2026-08-24",
+        "url": "https://huggingface.co/Qwen/Qwen3.8-Flash-Next-FP8",
+        "summary": "图文输入 · transformers · 许可 other"
+      },
+      {
+        "title": "Qwen/Qwen3.8-Flash-Next",
+        "date": "2026-08-24",
+        "url": "https://huggingface.co/Qwen/Qwen3.8-Flash-Next",
+        "summary": "图文输入 · transformers · 许可 other"
+      },
+      {
+        "title": "Qwen/Qwen3.8-27B-FP8",
+        "date": "2026-08-13",
+        "url": "https://huggingface.co/Qwen/Qwen3.8-27B-FP8",
+        "summary": "图文输入 · transformers · 许可 apache-2.0"
+      },
+      {
+        "title": "Qwen/Qwen3.8-2.4T-A95B",
+        "date": "2026-08-08",
+        "url": "https://huggingface.co/Qwen/Qwen3.8-2.4T-A95B",
+        "summary": "文本生成 · transformers · 许可 other"
+      }
+    ]
+  },
+  "DeepSeek": {
+    "checked": 1795761792919,
+    "items": [
+      {
+        "title": "deepseek-ai/DeepSeek-V4.1-Flash-1017",
+        "date": "2026-10-17",
+        "url": "https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash-1017",
+        "summary": "图文输入 · transformers · 许可 mit"
+      },
+      {
+        "title": "deepseek-ai/DeepSeek-V4.1-Flash",
+        "date": "2026-09-10",
+        "url": "https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash",
+        "summary": "图文输入 · transformers · 许可 mit"
+      },
+      {
+        "title": "deepseek-ai/DeepSeek-V4-Flash-Vision-Exp",
+        "date": "2026-08-31",
+        "url": "https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash-Vision-Exp",
+        "summary": "图文输入 · transformers · 许可 mit"
+      },
+      {
+        "title": "deepseek-ai/DeepSeek-V4-Pro-0813",
+        "date": "2026-08-13",
+        "url": "https://huggingface.co/deepseek-ai/DeepSeek-V4-Pro-0813",
+        "summary": "文本生成 · transformers · 许可 mit"
+      },
+      {
+        "title": "deepseek-ai/DeepSeek-V4-Flash-0731",
+        "date": "2026-07-31",
+        "url": "https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash-0731",
+        "summary": "文本生成 · transformers · 许可 mit"
+      }
+    ]
+  },
+  "Mistral": {
+    "checked": 1795761792994,
+    "items": [
+      {
+        "title": "mistralai/Mistral-Large-4-1T-A52B",
+        "date": "2026-09-30",
+        "url": "https://huggingface.co/mistralai/Mistral-Large-4-1T-A52B",
+        "summary": "图文输入 · transformers · 许可 other"
+      },
+      {
+        "title": "mistralai/Ministral-3-3B-Instruct-2512-ONNX",
+        "date": "2025-11-24",
+        "url": "https://huggingface.co/mistralai/Ministral-3-3B-Instruct-2512-ONNX",
+        "summary": "图文输入 · transformers.js · 许可 apache-2.0"
+      },
+      {
+        "title": "mistralai/Magistral-Small-2507-GGUF",
+        "date": "2025-07-23",
+        "url": "https://huggingface.co/mistralai/Magistral-Small-2507-GGUF",
+        "summary": "文本生成 · llama.cpp · 许可 apache-2.0"
+      },
+      {
+        "title": "mistralai/Devstral-Small-2507_gguf",
+        "date": "2025-07-07",
+        "url": "https://huggingface.co/mistralai/Devstral-Small-2507_gguf",
+        "summary": "文本生成 · llama.cpp · 许可 apache-2.0"
+      }
+    ]
+  },
+  "GoogleAI": {
+    "checked": 1795761794257,
+    "items": [
+      {
+        "title": "How Gemini is changing the game for Golden State's organization and fans.",
+        "date": "2026-11-24",
+        "url": "https://blog.google/products-and-platforms/products/gemini/gemini-golden-state/"
+      },
+      {
+        "title": "Introducing Tool Retrieval in the Gemini API",
+        "date": "2026-11-19",
+        "url": "https://blog.google/innovation-and-ai/technology/developers-tools/gemini-api-tool-retrieval/"
+      },
+      {
+        "title": "The Gemini app is now available on lower-memory Android devices.",
+        "date": "2026-11-18",
+        "url": "https://blog.google/innovation-and-ai/products/gemini-app/gemini-lower-memory-devices/"
+      },
+      {
+        "title": "Put Gemini to work for you",
+        "date": "2026-11-17",
+        "url": "https://blog.google/innovation-and-ai/products/gemini-app/tasks-in-gemini-free-new-features/"
+      },
+      {
+        "title": "Google Search gets a major upgrade with Gemini 4 Hydrogen",
+        "date": "2026-11-12",
+        "url": "https://blog.google/products-and-platforms/products/search/gemini-4-hydrogen-search-upgrade/"
+      }
+    ]
+  }
+}

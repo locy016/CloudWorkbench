@@ -1,6 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
@@ -13,6 +14,7 @@
     <application android:label="云端工作台" android:theme="@style/AppTheme"
         android:allowBackup="false" android:icon="@mipmap/ic_launcher"
         android:networkSecurityConfig="@xml/network_security_config" android:supportsRtl="true">
+        <service android:name=".ChronicleDailyJob" android:permission="android.permission.BIND_JOB_SERVICE" android:exported="false" />
         <provider
             android:name=".CameraFileProvider"
             android:authorities="${applicationId}.camera"

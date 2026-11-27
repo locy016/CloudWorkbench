@@ -167,8 +167,8 @@ internal val historyEras = listOf(
         HistoryEvent(Germany, Society, "1933—1945年", "纳粹迫害与犹太人大屠杀", "纳粹德国及其合作者逐步将犹太人排除出公共生活，继而实施驱逐和系统性杀戮。约六百万犹太人遇害。", "美国大屠杀纪念馆 · 大屠杀概述", "https://encyclopedia.ushmm.org/content/en/article/introduction-to-the-holocaust", HistoryTrails.diary),
         HistoryEvent(Britain, Society, "1941年", "伦敦家庭凭配给簿购买日常食品", "伦敦北部霍恩西签发的配给簿列出肉类、黄油和糖等限量食品。一本用过的簿册，保存了战争如何改变日常采购的细节。", "英国科学博物馆集团 · 英格兰配给簿藏品", "https://collection.sciencemuseumgroup.org.uk/objects/co154306/used-ration-book-and-two-ration-book-supplements-england-1939-1941-ration-book")
     )),
-    HistoryEra("战后与当代世界", "1945年至今", "从民族独立、冷战与欧洲重组，到太空探索和气候谈判，国家之间的竞争与合作并行展开。", mapOf(
-        China to "改革开放改变农村经营与对外经济联系；数十年后，嫦娥六号带回首批月球背面样品。",
+    HistoryEra("战后与当代世界", "1945年至今", "从民族独立与冷战，到数控机床、晶体管、互联网和大模型，沿人物与事物看战后世界怎样改变。", mapOf(
+        China to "改革开放改变城乡生产与对外经济联系。嫦娥六号带回月背样品，DeepSeek-R1 团队公开推理模型与训练研究。",
         Egypt to "苏伊士运河公司国有化引发国际危机，运河控制权成为去殖民化进程中的争议焦点。",
         Iraq to "巴比伦列入世界遗产，现代伊拉克面对考古遗迹、历次重建与保护工作并存的历史景观。",
         India to "分治与独立伴随大规模迁徙。后来的学校膳食计划与月船三号任务分别展示公共教育和航天探索的变化。",
@@ -177,24 +177,29 @@ internal val historyEras = listOf(
         Russia to "苏联解体后，俄罗斯联邦延续其联合国会员资格及安理会席位。",
         Germany to "1990年民主德国加入联邦德国，冷战期间形成的两德分立格局结束。",
         Japan to "东海道新干线开通并不断提速，东京与大阪之间的往来时间缩短。",
-        America to "从旧金山签署《联合国宪章》、阿波罗登月到北美三国合办世界杯，美国参与了外交、科技和体育领域的跨国活动。",
+        America to "从晶体管、数控铣床到联网主机和引力波探测器，实验室与工厂不断改变计算、生产与观测的方式。登月与跨国赛事也留下了另一条公共生活的线索。",
         Brazil to "贝伦承办联合国气候大会，为围绕资金、适应和气候行动的国际谈判提供会场。"
     ), listOf(
         HistoryEvent(America, Governance, "1945年", "《联合国宪章》在旧金山签署", "来自不同地区的代表在美国旧金山签署宪章。宪章于同年10月生效，联合国正式成立，为战后国际合作建立了常设机构。", "联合国 · 宪章", "https://www.un.org/en/about-us/un-charter"),
         HistoryEvent(India, Governance, "1947年", "英属印度分治并独立", "印度与巴基斯坦成为两个独立自治领。新边界伴随大规模迁徙与暴力，长期影响南亚的国家关系。", "英国国家档案馆 · 英属印度分治", "https://www.nationalarchives.gov.uk/education/teaching-resources/partition-of-british-india/"),
+        HistoryEvent(America, Technology, "1947年", "点接触晶体管放大信号", "贝尔实验室的巴丁和布拉顿在锗上实现信号放大。半导体器件为替代体积大、耗能高的电子管打开了路径。", "计算机历史博物馆 · 点接触晶体管", "https://www.computerhistory.org/siliconengine/invention-of-the-point-contact-transistor/", TechnologyHistory.chips),
         HistoryEvent(France, Ideas, "1948年", "联合国大会在巴黎通过《世界人权宣言》", "宣言把平等、教育和参与文化生活等权利写入同一份文本。巴黎是通过地，起草和表决的参与者来自多个国家。", "联合国 · 《世界人权宣言》原文", "https://www.un.org/en/about-us/universal-declaration-of-human-rights"),
+        HistoryEvent(America, Technology, "1952年", "纸带指挥铣床切削", "麻省理工学院把零件图样转成数字指令，编码在穿孔纸带上。伺服机构依次移动刀具，复杂曲面可以重复加工。", "MIT 档案馆 · 数控铣床公告", "https://cdn.libraries.mit.edu/dissemination/diponline/AC0069_NewReleases/NewsRelease_1950/AC0069_1952/AC0069_195208_005.pdf", TechnologyHistory.mechanical),
         HistoryEvent(Egypt, Economy, "1956年", "埃及将苏伊士运河公司国有化", "纳赛尔宣布国有化后，英、法、以色列对埃及采取军事行动。运河的控制权成为去殖民化与冷战外交的交汇点。", "美国国务院历史办公室 · 1956年苏伊士危机", "https://history.state.gov/milestones/1953-1960/suez", HistoryTrails.suez),
         HistoryEvent(Japan, Technology, "1964年", "东海道新干线开通", "东海道新干线在东京和新大阪之间开通。新线开业时全程约需四小时，此后提速继续缩短两地间的旅程。", "东海旅客铁道株式会社 · 公司沿革", "https://global.jr-central.co.jp/en/company/ir/annualreport/_pdf/annualreport2024-03.pdf"),
         HistoryEvent(America, Technology, "1969年", "阿波罗11号载人登月", "两名宇航员在月面活动并采回样品，一名宇航员留在月球轨道。太空竞赛也为月球带回了可在地球实验室研究的实物。", "美国国家航空航天局 · 阿波罗11号任务", "https://www.nasa.gov/missions/apollo/apollo-11/apollo-11-mission-overview/", HistoryTrails.apollo),
+        HistoryEvent(America, Technology, "1969年", "ARPANET 连接四台主机", "到年底，四个节点接入早期分组交换网络。不同地点的研究人员开始尝试远程使用计算资源。", "互联网协会 · 互联网简史", "https://www.internetsociety.org/internet/history-internet/brief-history-internet/", TechnologyHistory.networks),
         HistoryEvent(China, Economy, "1978年起", "中国开启改革开放", "中共十一届三中全会后，农村经营方式和对外经济政策陆续调整。经济特区随后成为引入外资和试验制度的窗口。", "国家发展改革委 · 中国经济体制改革的历史进程", "https://www.ndrc.gov.cn/fggz/tzgg/byggdt/200606/t20060605_1021728_ext.html"),
         HistoryEvent(Germany, Governance, "1990年", "德国实现统一", "民主德国人民议院于8月表决通过加入联邦德国的决定，10月3日生效。两德统一由此有了明确的法律日期。", "德国联邦议院 · 民主德国人民议院的加入决议", "https://www.bundestag.de/dokumente/textarchiv/1990-08-23-volkskammer-ddr-beitritt-202398"),
         HistoryEvent(Russia, Governance, "1991年", "苏联解体", "苏联解体之际，俄罗斯总统于12月24日致函联合国秘书长，通知俄罗斯联邦将延续苏联的会员资格，包括安理会席位。联合国保存了相关函件。", "联合国 · 1991年12月24日会员资格函件", "https://ask.un.org/faq/378083"),
         HistoryEvent(India, Society, "1995年起", "印度把学校膳食纳入全国营养支持计划", "印度中央政府启动面向小学生的营养支持计划，将改善营养与提高入学、出勤和留校率联系起来。计划在各地已有供餐经验的基础上扩大。", "印度政府新闻局 · 儿童营养与学校膳食计划", "https://static.pib.gov.in/WriteReadData/specificdocs/documents/2022/sep/doc2022915104101.pdf"),
         HistoryEvent(Britain, Governance, "1998年", "《贝尔法斯特协议》达成", "英国、爱尔兰两国政府与北爱尔兰主要政治力量促成协议，为权力分享及跨境合作提供制度框架。", "英国北爱尔兰事务部 · 《贝尔法斯特协议》", "https://www.gov.uk/government/publications/the-belfast-agreement"),
         HistoryEvent(France, Governance, "2015年", "各方在巴黎通过气候协定", "联合国气候变化大会在巴黎通过《巴黎协定》。各方以自主贡献提出减排目标，并按约定周期报告和更新行动。", "联合国气候变化框架公约 · 巴黎协定", "https://unfccc.int/process-and-meetings/the-paris-agreement", HistoryTrails.climate),
+        HistoryEvent(America, Technology, "2015—2016年", "干涉仪首次直接探测到引力波", "LIGO 的两台探测器于2015年记录到双黑洞并合信号，团队在2016年公布结果。天文学由此增加了观测时空扰动的方法。", "LIGO · 实验年表", "https://www.ligo.caltech.edu/page/timeline", TechnologyHistory.science),
         HistoryEvent(Iraq, Ideas, "2019年", "巴比伦列入世界遗产", "伊拉克的巴比伦遗址获列入世界遗产名录。考古遗迹、近现代重建与保护工作叠加在同一处历史景观中。", "联合国教科文组织 · 巴比伦", "https://whc.unesco.org/en/list/278/"),
         HistoryEvent(India, Technology, "2023年", "月船三号在月球南部高纬着陆", "着陆器于8月23日实现软着陆，巡视器随后探测着陆点附近的月面。印度由此获得该区域的原位观测资料。", "印度空间研究组织 · 月船三号", "https://www.isro.gov.in/Release_of_Chandrayaan-3_science_data_to_the_Scientific_Community.html"),
         HistoryEvent(China, Technology, "2024年", "嫦娥六号带回月背样品", "返回器于6月25日带回在月球背面采集的样品。研究者首次能够在地球实验室直接分析来自月背的材料。", "国家航天局 · 嫦娥六号样品交接", "https://www.cnsa.gov.cn/n6758823/n6758844/n10518102/n10518147/c10567320/content.html", HistoryTrails.changeSix),
+        HistoryEvent(China, Technology, "2025年1月", "DeepSeek-R1 公布推理训练研究", "团队报告以强化学习改善数学和代码等任务上的推理表现，并发布模型权重及蒸馏模型，供其他团队检验和复用。", "DeepSeek · R1 研究报告", "https://arxiv.org/abs/2501.12948", TechnologyHistory.ai),
         HistoryEvent(Brazil, Governance, "2025年", "贝伦承办联合国气候大会", "各方在巴西贝伦举行第三十届联合国气候变化大会，围绕气候行动的落实、资金和适应问题展开谈判。", "联合国气候变化框架公约 · 贝伦会议成果", "https://unfccc.int/cop30/belem-political-package", HistoryTrails.climate),
         HistoryEvent(America, Society, "2026年", "北美三国合办世界杯", "加拿大、墨西哥和美国共同举办男子足球世界杯。参赛队扩大至48支，赛事分布于三国的16座城市。", "国际足联 · 2026年世界杯", "https://www.fifa.com/en/tournaments/mens/worldcup/canadamexicousa2026/articles/fifa-world-cup-2026-hosts-cities-dates-usa-mexico-canada", HistoryTrails.worldCup)
     ))
