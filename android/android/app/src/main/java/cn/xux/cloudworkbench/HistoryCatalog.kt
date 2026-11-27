@@ -23,7 +23,7 @@ internal enum class HistoryLens(val label: String) {
 
 internal data class HistoryEvent(
     val region: HistoryRegion, val lens: HistoryLens, val date: String, val title: String,
-    val detail: String, val reading: String, val url: String
+    val detail: String, val reading: String, val url: String, val trail: HistoryTrail? = null
 )
 
 internal data class HistoryEra(val name: String, val dates: String, val summary: String,
@@ -144,7 +144,7 @@ internal val historyEras = listOf(
         HistoryEvent(America, Society, "19世纪上半叶", "洛厄尔纺织女工在厂区工作和寄宿", "来自新英格兰乡村的年轻女性进入洛厄尔的纺织厂，许多人住进公司安排的宿舍。工资收入与严格的厂规同时进入她们的日常生活。", "美国国家公园管理局 · 洛厄尔的纺织女工", "https://www.nps.gov/lowe/learn/historyculture/the-mill-girls-of-lowell.htm"),
         HistoryEvent(China, Economy, "1842年", "《南京条约》规定五口通商", "第一次鸦片战争后，清政府被迫与英国签订条约。广州、厦门、福州、宁波和上海被列为通商口岸，沿海贸易格局由此改变。", "故宫博物院 · 《南京条约》", "https://www.dpm.org.cn/lemmas/241863.html"),
         HistoryEvent(Japan, Governance, "1868年", "明治维新开始", "新政府以天皇名义重组政权，随后推动废藩置县、征兵与兴办学校。地方治理和日常生活都受到影响。", "哥伦比亚大学 · 明治维新与近代日本", "https://afe.easia.columbia.edu/special/japan_1750_meiji.htm"),
-        HistoryEvent(Egypt, Economy, "1869年", "苏伊士运河通航", "运河连通地中海与红海，缩短欧洲至印度洋的海运航程。埃及在国际航运与列强竞争中的位置随之改变。", "苏伊士运河管理局 · 运河历史", "https://www.suezcanal.gov.eg/English/About/SuezCanal/Pages/CanalHistory.aspx"),
+        HistoryEvent(Egypt, Economy, "1869年", "苏伊士运河通航", "运河连通地中海与红海，缩短欧洲至印度洋的海运航程。埃及在国际航运与列强竞争中的位置随之改变。", "苏伊士运河管理局 · 运河历史", "https://www.suezcanal.gov.eg/English/About/SuezCanal/Pages/CanalHistory.aspx", HistoryTrails.suez),
         HistoryEvent(Germany, Governance, "1871年", "德意志帝国成立", "普鲁士国王在凡尔赛获拥立为德意志皇帝。多个邦国纳入联邦结构，普鲁士在新国家中居于主导地位。", "凡尔赛宫 · 1871年德意志帝国宣告成立", "https://en.chateauversailles.fr/discover/history/key-dates/proclamation-german-empire-1871"),
         HistoryEvent(Japan, Society, "1872年起", "富冈制丝厂招收女工学习机械缫丝", "在富冈，女工随法国女教师学习操作缫丝设备。厂区保留下来的教师住宅、缫丝车间和后来改作宿舍的建筑，记录了生产与生活怎样共处一地。", "富冈市 · 富冈制丝厂建筑", "https://www.tomioka-silk.jp/_tomioka-silk-mill/about/building.html"),
         HistoryEvent(France, Society, "1882年", "法国法律规定儿童接受初等教育", "1882年教育法规定六至十三岁的男女儿童均须受教育，可在学校或家庭完成。法条区分了受教育的义务和接受教育的地点。", "法国国民议会 · 1882年初等教育法原文", "https://www.assemblee-nationale.fr/histoire/loiferry/loi.pdf")
@@ -158,13 +158,13 @@ internal val historyEras = listOf(
         Germany to "纳粹统治从排斥、驱逐发展到系统性杀戮，约六百万犹太人在大屠杀中遇害。",
         America to "哈莱姆的作家与音乐家讲述非裔城市经验；大萧条后，新政以救济、监管和公共工程应对危机。"
     ), listOf(
-        HistoryEvent(China, Governance, "1911—1912年", "辛亥革命与清帝退位", "武昌起义后，多省宣布独立。中华民国临时政府成立与清帝退位，标志着中国国家制度的一次转折。", "美国国务院历史办公室 · 1911年中国革命", "https://history.state.gov/milestones/1899-1913/chinese-rev"),
+        HistoryEvent(China, Governance, "1911—1912年", "辛亥革命与清帝退位", "武昌起义后，多省宣布独立。中华民国临时政府成立与清帝退位，标志着中国国家制度的一次转折。", "美国国务院历史办公室 · 1911年中国革命", "https://history.state.gov/milestones/1899-1913/chinese-rev", HistoryTrails.republic),
         HistoryEvent(France, Society, "1914年", "第一次世界大战波及法国北部", "德军经比利时向法国推进。西线的阵地战持续多年，动员、流离失所和长期的物资征集改变了前线及后方社会。", "詹姆斯·康诺利 · 一战中法国北部的占领生活", "https://discovery.ucl.ac.uk/id/eprint/10048745/1/James%20Connolly%20-%20The%20Experience%20of%20Occupation%20in%20the%20Nord%20-%20Open%20Access.pdf"),
         HistoryEvent(Russia, Governance, "1917年", "俄国发生两次革命", "二月革命终结沙皇统治，十月革命中布尔什维克夺取政权。战争、土地分配和工人生活贯穿政治冲突。", "马克思纪念图书馆 · 1917年俄国革命", "https://www.marx-memorial-library.org.uk/project/centenary-russian-revolution/brief-history-russian-revolution"),
         HistoryEvent(America, Ideas, "20世纪20年代", "哈莱姆的作家与音乐家重塑非裔表达", "纽约哈莱姆聚集了一批非裔美国作家、艺术家和音乐家。诗作、演出与刊物为他们讲述迁徙经历、城市生活与族群身份提供了公共空间。", "美国国会图书馆 · 哈莱姆文艺复兴史料选", "https://www.loc.gov/classroom-materials/harlem-renaissance/"),
-        HistoryEvent(India, Society, "1930年", "食盐进军挑战殖民盐税", "甘地及追随者步行抵达海岸制盐。围绕日常必需品的非暴力抗争，吸引了更广泛的民众参与独立运动。", "甘地遗产门户 · 丹迪食盐进军", "https://www.gandhiheritageportal.org/gandhi_heritage_site/writeup/MzY%3D"),
+        HistoryEvent(India, Society, "1930年", "食盐进军挑战殖民盐税", "甘地及追随者步行抵达海岸制盐。围绕日常必需品的非暴力抗争，吸引了更广泛的民众参与独立运动。", "甘地遗产门户 · 丹迪食盐进军", "https://www.gandhiheritageportal.org/gandhi_heritage_site/writeup/MzY%3D", HistoryTrails.gandhi),
         HistoryEvent(America, Economy, "1933年起", "美国推行新政", "在大萧条期间，联邦政府通过公共工程、银行监管与救济计划应对失业和金融危机。", "罗斯福总统图书馆 · 新政百日展览指南", "https://www.fdrlibrary.org/documents/356632/390886/actionguide.pdf"),
-        HistoryEvent(Germany, Society, "1933—1945年", "纳粹迫害与犹太人大屠杀", "纳粹德国及其合作者逐步将犹太人排除出公共生活，继而实施驱逐和系统性杀戮。约六百万犹太人遇害。", "美国大屠杀纪念馆 · 大屠杀概述", "https://encyclopedia.ushmm.org/content/en/article/introduction-to-the-holocaust"),
+        HistoryEvent(Germany, Society, "1933—1945年", "纳粹迫害与犹太人大屠杀", "纳粹德国及其合作者逐步将犹太人排除出公共生活，继而实施驱逐和系统性杀戮。约六百万犹太人遇害。", "美国大屠杀纪念馆 · 大屠杀概述", "https://encyclopedia.ushmm.org/content/en/article/introduction-to-the-holocaust", HistoryTrails.diary),
         HistoryEvent(Britain, Society, "1941年", "伦敦家庭凭配给簿购买日常食品", "伦敦北部霍恩西签发的配给簿列出肉类、黄油和糖等限量食品。一本用过的簿册，保存了战争如何改变日常采购的细节。", "英国科学博物馆集团 · 英格兰配给簿藏品", "https://collection.sciencemuseumgroup.org.uk/objects/co154306/used-ration-book-and-two-ration-book-supplements-england-1939-1941-ration-book")
     )),
     HistoryEra("战后与当代世界", "1945年至今", "从民族独立、冷战与欧洲重组，到太空探索和气候谈判，国家之间的竞争与合作并行展开。", mapOf(
@@ -183,19 +183,19 @@ internal val historyEras = listOf(
         HistoryEvent(America, Governance, "1945年", "《联合国宪章》在旧金山签署", "来自不同地区的代表在美国旧金山签署宪章。宪章于同年10月生效，联合国正式成立，为战后国际合作建立了常设机构。", "联合国 · 宪章", "https://www.un.org/en/about-us/un-charter"),
         HistoryEvent(India, Governance, "1947年", "英属印度分治并独立", "印度与巴基斯坦成为两个独立自治领。新边界伴随大规模迁徙与暴力，长期影响南亚的国家关系。", "英国国家档案馆 · 英属印度分治", "https://www.nationalarchives.gov.uk/education/teaching-resources/partition-of-british-india/"),
         HistoryEvent(France, Ideas, "1948年", "联合国大会在巴黎通过《世界人权宣言》", "宣言把平等、教育和参与文化生活等权利写入同一份文本。巴黎是通过地，起草和表决的参与者来自多个国家。", "联合国 · 《世界人权宣言》原文", "https://www.un.org/en/about-us/universal-declaration-of-human-rights"),
-        HistoryEvent(Egypt, Economy, "1956年", "埃及将苏伊士运河公司国有化", "纳赛尔宣布国有化后，英、法、以色列对埃及采取军事行动。运河的控制权成为去殖民化与冷战外交的交汇点。", "美国国务院历史办公室 · 1956年苏伊士危机", "https://history.state.gov/milestones/1953-1960/suez"),
+        HistoryEvent(Egypt, Economy, "1956年", "埃及将苏伊士运河公司国有化", "纳赛尔宣布国有化后，英、法、以色列对埃及采取军事行动。运河的控制权成为去殖民化与冷战外交的交汇点。", "美国国务院历史办公室 · 1956年苏伊士危机", "https://history.state.gov/milestones/1953-1960/suez", HistoryTrails.suez),
         HistoryEvent(Japan, Technology, "1964年", "东海道新干线开通", "东海道新干线在东京和新大阪之间开通。新线开业时全程约需四小时，此后提速继续缩短两地间的旅程。", "东海旅客铁道株式会社 · 公司沿革", "https://global.jr-central.co.jp/en/company/ir/annualreport/_pdf/annualreport2024-03.pdf"),
-        HistoryEvent(America, Technology, "1969年", "阿波罗11号载人登月", "两名宇航员在月面活动并采回样品，一名宇航员留在月球轨道。太空竞赛也为月球带回了可在地球实验室研究的实物。", "美国国家航空航天局 · 阿波罗11号任务", "https://www.nasa.gov/missions/apollo/apollo-11/apollo-11-mission-overview/"),
+        HistoryEvent(America, Technology, "1969年", "阿波罗11号载人登月", "两名宇航员在月面活动并采回样品，一名宇航员留在月球轨道。太空竞赛也为月球带回了可在地球实验室研究的实物。", "美国国家航空航天局 · 阿波罗11号任务", "https://www.nasa.gov/missions/apollo/apollo-11/apollo-11-mission-overview/", HistoryTrails.apollo),
         HistoryEvent(China, Economy, "1978年起", "中国开启改革开放", "中共十一届三中全会后，农村经营方式和对外经济政策陆续调整。经济特区随后成为引入外资和试验制度的窗口。", "国家发展改革委 · 中国经济体制改革的历史进程", "https://www.ndrc.gov.cn/fggz/tzgg/byggdt/200606/t20060605_1021728_ext.html"),
         HistoryEvent(Germany, Governance, "1990年", "德国实现统一", "民主德国人民议院于8月表决通过加入联邦德国的决定，10月3日生效。两德统一由此有了明确的法律日期。", "德国联邦议院 · 民主德国人民议院的加入决议", "https://www.bundestag.de/dokumente/textarchiv/1990-08-23-volkskammer-ddr-beitritt-202398"),
         HistoryEvent(Russia, Governance, "1991年", "苏联解体", "苏联解体之际，俄罗斯总统于12月24日致函联合国秘书长，通知俄罗斯联邦将延续苏联的会员资格，包括安理会席位。联合国保存了相关函件。", "联合国 · 1991年12月24日会员资格函件", "https://ask.un.org/faq/378083"),
         HistoryEvent(India, Society, "1995年起", "印度把学校膳食纳入全国营养支持计划", "印度中央政府启动面向小学生的营养支持计划，将改善营养与提高入学、出勤和留校率联系起来。计划在各地已有供餐经验的基础上扩大。", "印度政府新闻局 · 儿童营养与学校膳食计划", "https://static.pib.gov.in/WriteReadData/specificdocs/documents/2022/sep/doc2022915104101.pdf"),
         HistoryEvent(Britain, Governance, "1998年", "《贝尔法斯特协议》达成", "英国、爱尔兰两国政府与北爱尔兰主要政治力量促成协议，为权力分享及跨境合作提供制度框架。", "英国北爱尔兰事务部 · 《贝尔法斯特协议》", "https://www.gov.uk/government/publications/the-belfast-agreement"),
-        HistoryEvent(France, Governance, "2015年", "各方在巴黎通过气候协定", "联合国气候变化大会在巴黎通过《巴黎协定》。各方以自主贡献提出减排目标，并按约定周期报告和更新行动。", "联合国气候变化框架公约 · 巴黎协定", "https://unfccc.int/process-and-meetings/the-paris-agreement"),
+        HistoryEvent(France, Governance, "2015年", "各方在巴黎通过气候协定", "联合国气候变化大会在巴黎通过《巴黎协定》。各方以自主贡献提出减排目标，并按约定周期报告和更新行动。", "联合国气候变化框架公约 · 巴黎协定", "https://unfccc.int/process-and-meetings/the-paris-agreement", HistoryTrails.climate),
         HistoryEvent(Iraq, Ideas, "2019年", "巴比伦列入世界遗产", "伊拉克的巴比伦遗址获列入世界遗产名录。考古遗迹、近现代重建与保护工作叠加在同一处历史景观中。", "联合国教科文组织 · 巴比伦", "https://whc.unesco.org/en/list/278/"),
         HistoryEvent(India, Technology, "2023年", "月船三号在月球南部高纬着陆", "着陆器于8月23日实现软着陆，巡视器随后探测着陆点附近的月面。印度由此获得该区域的原位观测资料。", "印度空间研究组织 · 月船三号", "https://www.isro.gov.in/Release_of_Chandrayaan-3_science_data_to_the_Scientific_Community.html"),
-        HistoryEvent(China, Technology, "2024年", "嫦娥六号带回月背样品", "返回器于6月25日带回在月球背面采集的样品。研究者首次能够在地球实验室直接分析来自月背的材料。", "国家航天局 · 嫦娥六号样品交接", "https://www.cnsa.gov.cn/n6758823/n6758844/n10518102/n10518147/c10567320/content.html"),
-        HistoryEvent(Brazil, Governance, "2025年", "贝伦承办联合国气候大会", "各方在巴西贝伦举行第三十届联合国气候变化大会，围绕气候行动的落实、资金和适应问题展开谈判。", "联合国气候变化框架公约 · 贝伦会议成果", "https://unfccc.int/cop30/belem-political-package"),
-        HistoryEvent(America, Society, "2026年", "北美三国合办世界杯", "加拿大、墨西哥和美国共同举办男子足球世界杯。参赛队扩大至48支，赛事分布于三国的16座城市。", "国际足联 · 2026年世界杯", "https://www.fifa.com/en/tournaments/mens/worldcup/canadamexicousa2026/articles/fifa-world-cup-2026-hosts-cities-dates-usa-mexico-canada")
+        HistoryEvent(China, Technology, "2024年", "嫦娥六号带回月背样品", "返回器于6月25日带回在月球背面采集的样品。研究者首次能够在地球实验室直接分析来自月背的材料。", "国家航天局 · 嫦娥六号样品交接", "https://www.cnsa.gov.cn/n6758823/n6758844/n10518102/n10518147/c10567320/content.html", HistoryTrails.changeSix),
+        HistoryEvent(Brazil, Governance, "2025年", "贝伦承办联合国气候大会", "各方在巴西贝伦举行第三十届联合国气候变化大会，围绕气候行动的落实、资金和适应问题展开谈判。", "联合国气候变化框架公约 · 贝伦会议成果", "https://unfccc.int/cop30/belem-political-package", HistoryTrails.climate),
+        HistoryEvent(America, Society, "2026年", "北美三国合办世界杯", "加拿大、墨西哥和美国共同举办男子足球世界杯。参赛队扩大至48支，赛事分布于三国的16座城市。", "国际足联 · 2026年世界杯", "https://www.fifa.com/en/tournaments/mens/worldcup/canadamexicousa2026/articles/fifa-world-cup-2026-hosts-cities-dates-usa-mexico-canada", HistoryTrails.worldCup)
     ))
 )

@@ -24,6 +24,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -33,20 +34,24 @@ import androidx.compose.ui.window.DialogProperties
     var showDetails by rememberSaveable { mutableStateOf(true) }
     val list = rememberLazyListState(initialFirstVisibleItemIndex = (current - 1).coerceAtLeast(0))
     Dialog(onDismissRequest = close, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Box(Modifier.fillMaxSize().safeDrawingPadding().padding(12.dp), contentAlignment = Alignment.Center) {
-            Surface(Modifier.widthIn(max = 760.dp).fillMaxWidth().heightIn(max = 900.dp).fillMaxHeight(.94f),
+        BoxWithConstraints(Modifier.fillMaxSize().safeDrawingPadding(), contentAlignment = Alignment.Center) {
+            val wide = maxWidth >= 600.dp
+            val outer = if (wide) 32.dp else 8.dp
+            val gutter = if (wide) 24.dp else 16.dp
+            val textInset = if (wide) 18.dp else 12.dp
+            Surface(Modifier.padding(horizontal = outer, vertical = 12.dp).widthIn(max = 720.dp).fillMaxWidth().heightIn(max = 900.dp).fillMaxHeight(.94f),
                 shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surface) {
                 Column {
-                    Row(Modifier.padding(start = 20.dp, end = 6.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.padding(start = gutter, end = gutter - 12.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text("选择历史阶段", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, color = Ink)
                         IconButton(onClick = close) { Icon(Icons.Outlined.Close, "关闭", tint = Muted) }
                     }
                     HorizontalDivider(color = Outline)
                     LazyColumn(Modifier.weight(1f).fillMaxWidth().background(Background).testTag("eraTimeline"), state = list,
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp)) {
+                        contentPadding = PaddingValues(vertical = 8.dp)) {
                         itemsIndexed(historyEras, key = { _, era -> era.name }) { index, era ->
                             val selected = index == preview
-                            EraNode(era, index, selected, selected && showDetails) {
+                            EraNode(era, index, selected, selected && showDetails, gutter, textInset) {
                                 showDetails = !selected || !showDetails
                                 preview = index
                                 if (showDetails) list.requestScrollToItem(index)
@@ -54,7 +59,7 @@ import androidx.compose.ui.window.DialogProperties
                         }
                     }
                     HorizontalDivider(color = Outline)
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+                    Row(Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically) {
                         Text("第 ${preview + 1} / ${historyEras.size} 阶段", Modifier.weight(1f), color = Muted, style = MaterialTheme.typography.bodySmall)
                         TextButton(onClick = close) { Text("取消") }
@@ -71,22 +76,22 @@ import androidx.compose.ui.window.DialogProperties
     }
 }
 
-@Composable private fun EraNode(era: HistoryEra, index: Int, selected: Boolean, expanded: Boolean, toggle: () -> Unit) {
+@Composable private fun EraNode(era: HistoryEra, index: Int, selected: Boolean, expanded: Boolean, gutter: Dp, textInset: Dp, toggle: () -> Unit) {
     Box(Modifier.fillMaxWidth().drawBehind {
-        val point = Offset(8.dp.toPx(), 26.dp.toPx())
+        val point = Offset(gutter.toPx() / 2, 26.dp.toPx())
         if (index > 0) drawLine(Outline, Offset(point.x, 0f), point, 2.dp.toPx())
         if (index < historyEras.lastIndex) drawLine(Outline, point, Offset(point.x, size.height), 2.dp.toPx())
         if (selected) drawCircle(AccentSurface, 8.dp.toPx(), point)
         drawCircle(if (selected) Accent else Background, 4.dp.toPx(), point)
         drawCircle(if (selected) Accent else Muted, 4.dp.toPx(), point, style = Stroke(1.5.dp.toPx()))
-    }.padding(start = 21.dp, top = 4.dp, bottom = 4.dp)) {
+    }.padding(horizontal = gutter, vertical = 5.dp)) {
         Surface(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface,
             border = BorderStroke(1.dp, if (selected) Accent else Outline)) {
             Column {
                 Column(Modifier.fillMaxWidth().background(if (selected) AccentSurface else MaterialTheme.colorScheme.surface)
                     .clickable(role = Role.Button, onClickLabel = if (expanded) "收起详情" else "展开详情", onClick = toggle)
                     .semantics { stateDescription = if (expanded) "已展开" else "已收起" }
-                    .padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    .padding(horizontal = textInset, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Text(era.dates, style = MaterialTheme.typography.bodySmall, color = Muted)
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(era.name, Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, color = if (selected) Accent else Ink)
@@ -95,14 +100,14 @@ import androidx.compose.ui.window.DialogProperties
                     }
                     Text(era.summary, style = MaterialTheme.typography.bodyMedium, color = Ink)
                 }
-                if (expanded) RegionalSummaries(era)
+                if (expanded) RegionalSummaries(era, textInset)
             }
         }
     }
 }
 
-@Composable private fun RegionalSummaries(era: HistoryEra) {
-    Column(Modifier.fillMaxWidth().testTag("eraSummary").padding(horizontal = 14.dp, vertical = 12.dp),
+@Composable private fun RegionalSummaries(era: HistoryEra, textInset: Dp) {
+    Column(Modifier.fillMaxWidth().testTag("eraSummary").padding(horizontal = textInset, vertical = 14.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("区域摘要", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, color = Ink)

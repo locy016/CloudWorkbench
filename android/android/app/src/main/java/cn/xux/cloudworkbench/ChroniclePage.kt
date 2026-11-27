@@ -35,12 +35,16 @@ import androidx.compose.ui.window.Dialog
     var picking by rememberSaveable { mutableStateOf(false) }
     var about by rememberSaveable { mutableStateOf(false) }
     var detailTitle by rememberSaveable { mutableStateOf<String?>(null) }
+    var trailTitle by rememberSaveable { mutableStateOf<String?>(null) }
     val era = historyEras[eraIndex]
     val groups = historyEras.mapIndexedNotNull { index, period ->
         val matching = period.events.filter { (if (regional) it.region == region else index == eraIndex) && (lens == null || it.lens == lens) }
         if (matching.isEmpty()) null else period to matching
     }
-    val detail = groups.flatMap { it.second }.find { it.title == detailTitle }
+    val visibleEvents = groups.flatMap { it.second }
+    val detail = visibleEvents.find { it.title == detailTitle }
+    val trails = visibleEvents.mapNotNull { it.trail }.distinct()
+    val openTrail = trails.find { it.title == trailTitle }
     val scroll = key(regional, eraIndex, region, lens) { rememberScrollState() }
     Column(Modifier.fillMaxSize().background(Background).verticalScroll(scroll).padding(LocalPagePadding.current),
         verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -82,6 +86,11 @@ import androidx.compose.ui.window.Dialog
                 }
             }
         }
+        if (!regional && trails.isNotEmpty()) {
+            val (recent, historical) = trails.partition { it.newsStatus != null }
+            if (recent.isNotEmpty()) TrailIndex("时事追踪", recent) { trailTitle = it.title }
+            if (historical.isNotEmpty()) TrailIndex("重点事件轨迹", historical) { trailTitle = it.title }
+        }
         if (groups.isEmpty()) {
             Text("当前选材没有这一维度的记录。", color = Muted)
             TextButton(onClick = { lens = null }) { Text("查看全部维度") }
@@ -122,13 +131,35 @@ import androidx.compose.ui.window.Dialog
         DialogSection("如何读选材", "每条记录归入一个主要维度。同一事件可能同时影响多个领域；各阶段展示代表性节点。")
         ReadingLink("查阅世界史分期标准", HISTORY_STANDARD)
     }
-    if (detail != null) HistoryDialog(detail.title, { detailTitle = null }) {
+    if (openTrail != null) HistoryDialog(openTrail.title, { trailTitle = null }) {
+        Text(openTrail.subjects, color = Accent, style = MaterialTheme.typography.titleMedium)
+        Text(openTrail.introduction, color = Ink, style = MaterialTheme.typography.bodyMedium)
+        Text(openTrail.newsStatus ?: openTrail.span, color = Muted, style = MaterialTheme.typography.labelLarge)
+        Column {
+            openTrail.steps.forEachIndexed { index, step ->
+                Column(Modifier.fillMaxWidth().drawBehind {
+                    val point = Offset(6.dp.toPx(), 12.dp.toPx())
+                    if (index > 0) drawLine(Outline, Offset(point.x, 0f), point, 2.dp.toPx())
+                    if (index < openTrail.steps.lastIndex) drawLine(Outline, point, Offset(point.x, size.height), 2.dp.toPx())
+                    drawCircle(Accent, 4.dp.toPx(), point)
+                }.padding(start = 22.dp, bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(step.date, color = Accent, style = MaterialTheme.typography.labelLarge)
+                    Text(step.title, color = Ink, style = MaterialTheme.typography.titleMedium)
+                    Text(step.body, color = Ink, style = MaterialTheme.typography.bodyMedium)
+                    ReadingLink(step.source.label, step.source.url)
+                }
+            }
+        }
+    } else if (detail != null) HistoryDialog(detail.title, { detailTitle = null }) {
         val period = groups.first { detail in it.second }.first
         Text("${detail.date}  ·  ${detail.region.label}", color = Accent, fontWeight = FontWeight.SemiBold)
         Text("${period.name}   /   ${detail.lens.label}", color = Muted, style = MaterialTheme.typography.bodySmall)
         Text(detail.detail, color = Ink, lineHeight = 25.sp)
         Text("史料出处", color = Muted, style = MaterialTheme.typography.labelLarge)
         ReadingLink(detail.reading, detail.url)
+        detail.trail?.let { trail ->
+            OutlinedButton(onClick = { trailTitle = trail.title }) { Text("查看完整事件轨迹") }
+        }
         HorizontalDivider(color = Outline)
         TextButton(onClick = {
             region = detail.region
@@ -137,6 +168,24 @@ import androidx.compose.ui.window.Dialog
             lens = null
             detailTitle = null
         }) { Text(if (regional) "对照这个阶段的其他区域" else "追踪${detail.region.label}的历史", color = Accent) }
+    }
+}
+
+@Composable private fun TrailIndex(title: String, trails: List<HistoryTrail>, open: (HistoryTrail) -> Unit) {
+    Panel(Modifier.fillMaxWidth()) {
+        Text(title, color = Ink, style = MaterialTheme.typography.titleMedium)
+        trails.forEach { trail ->
+            HorizontalDivider(color = Outline)
+            Row(Modifier.fillMaxWidth().clickable(role = Role.Button) { open(trail) }.padding(vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(trail.title, color = Accent, style = MaterialTheme.typography.titleMedium)
+                    Text(trail.newsStatus ?: "${trail.span} · ${trail.subjects}", color = Muted, style = MaterialTheme.typography.bodySmall)
+                    if (trail.newsStatus != null) Text(trail.steps.last().title, color = Ink, style = MaterialTheme.typography.bodyMedium)
+                }
+                Icon(Icons.Outlined.ChevronRight, null, Modifier.size(18.dp), tint = Accent)
+            }
+        }
     }
 }
 

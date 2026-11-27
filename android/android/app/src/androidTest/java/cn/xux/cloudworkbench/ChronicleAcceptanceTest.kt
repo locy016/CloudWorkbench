@@ -112,6 +112,8 @@ class ChronicleAcceptanceTest {
             header(index).performClick().assert(hasStateDescription("已展开"))
             val heading = header(index).fetchSemanticsNode().boundsInWindow
             val details = compose.onNodeWithTag("eraSummary").fetchSemanticsNode().boundsInWindow
+            val axis = timeline.fetchSemanticsNode().boundsInWindow
+            assertTrue("阶段卡左右边距应相等", kotlin.math.abs((heading.left - axis.left) - (axis.right - heading.right)) <= 2)
             assertTrue("地区摘要应位于阶段概况正下方", heading.bottom <= details.top + 1 && details.width >= heading.width * .95f)
         }
         compose.onNodeWithText("区域摘要").assertIsDisplayed()
@@ -131,5 +133,37 @@ class ChronicleAcceptanceTest {
         capture("timeline-exchange")
         compose.onNodeWithText("进入本阶段").performClick()
         compose.onNodeWithText("区域交流的扩展").assertIsDisplayed()
+    }
+
+    @Test fun readModernTrailsAndCurrentAffairs() {
+        val trails = historyEras.flatMap { it.events }.mapNotNull { it.trail }.distinct()
+        assertTrue(trails.size == 8 && trails.all { it.steps.size >= 4 })
+        assertTrue(trails.flatMap { it.steps }.all { it.source.url.startsWith("https://") && it.source.label.isNotBlank() })
+        compose.openWorkbenchTab("史时")
+        fun enter(index: Int) {
+            compose.onNodeWithText("选择阶段").performScrollTo().performClick()
+            compose.onNodeWithTag("eraTimeline").performScrollToIndex(index)
+            compose.onNode(hasText(historyEras[index].name) and hasAnyAncestor(hasTestTag("eraTimeline"))).performClick()
+            compose.onNodeWithText("进入本阶段").performClick()
+        }
+        enter(7)
+        compose.onNodeWithText("辛亥革命与清帝退位").performScrollTo().performClick()
+        compose.onNodeWithText("查看完整事件轨迹").performScrollTo().performClick()
+        compose.onNodeWithText("同盟会在东京成立").assertIsDisplayed()
+        capture("modern-person")
+        compose.onNodeWithText("孙中山卸任").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithContentDescription("关闭").performClick()
+        compose.onNodeWithText("史料出处").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithContentDescription("关闭").performClick()
+        enter(historyEras.lastIndex)
+        compose.onNodeWithText("时事追踪").performScrollTo().assertIsDisplayed()
+        capture("recent-index")
+        compose.onNodeWithText(HistoryTrails.climate.title).performScrollTo().performClick()
+        compose.onNodeWithText("协定在巴黎通过").assertIsDisplayed()
+        compose.onNodeWithText(HistoryTrails.climate.steps.last().source.label).performScrollTo().assertIsDisplayed()
+        capture("recent-progress")
+        compose.onNodeWithContentDescription("关闭").performClick()
+        compose.onNodeWithText(HistoryTrails.worldCup.title).performScrollTo().performClick()
+        compose.onNode(hasText("西班牙在加时赛夺冠") and hasAnyAncestor(isDialog())).performScrollTo().assertIsDisplayed()
     }
 }
