@@ -1,0 +1,118 @@
+package cn.xux.cloudworkbench
+
+internal data class RegionalPeriod(val id: String, val name: String, val dates: String, val summary: String)
+
+internal val regionalChronologies = mapOf(
+    HistoryRegion.China to listOf(
+        RegionalPeriod("neolithic", "新石器时代的区域文化", "约公元前七千纪至前三千纪", "贾湖、河姆渡和良渚分属不同区域。骨笛、木构建筑和玉器展示了多种聚落传统。"),
+        RegionalPeriod("xia", "夏与早期青铜文化", "约前二千纪前半叶", "传世文献将夏列于商前。考古可见早期城市与青铜生产，遗址与具体王朝的对应仍有讨论。"),
+        RegionalPeriod("shang", "商", "约前16世纪—前11世纪", "晚商王室以甲骨记录占卜，铸铜工匠留下陶范。两类材料分别保存了王室与作坊的活动。"),
+        RegionalPeriod("zhou", "周：西周与东周", "约前11世纪—前256年", "从分封与宗法秩序到春秋战国的诸侯竞争，不同政治共同体并存。"),
+        RegionalPeriod("qin", "秦", "前221—前206年", "秦完成统一，把郡县和统一政令推向更大疆域。"),
+        RegionalPeriod("han", "汉", "前206年—公元220年，中有新朝", "西汉与东汉围绕郡国、边郡和交通组织帝国，期间经历王莽代汉。"),
+        RegionalPeriod("division", "魏晋南北朝", "220—589年", "北方多政权并立与南方政权更迭交错发生。敦煌开窟可放回河西走廊的佛教传播中阅读。"),
+        RegionalPeriod("sui", "隋", "581—618年", "隋结束长期分裂，运河工程把南北运输与征发劳役联系起来。"),
+        RegionalPeriod("tang", "唐", "618—907年", "长安汇聚各地来客。陶俑中的服饰和骑乘形象，为制度史补上城市生活的线索。"),
+        RegionalPeriod("five", "五代十国", "907—979年", "中原数次更换王朝，江南、巴蜀等地另有政权，统一过程延续到宋初。"),
+        RegionalPeriod("song", "宋与辽、西夏、金", "10—13世纪", "多个政权长期并存。四川交子的流通呈现宋代城市商业中的信用与支付问题。"),
+        RegionalPeriod("yuan", "元", "1271—1368年", "元朝以大都为政治中心，行省、驿站和长途运输联结广阔地域。"),
+        RegionalPeriod("ming", "明", "1368—1644年", "赋役与市场交易更多使用白银，中国市场与跨海贸易的联系加深。"),
+        RegionalPeriod("qing", "清", "1636年定国号，1644年入关—1912年退位", "清代政治版图与对外关系多次变化。通商条约和清帝退位构成晚清两个不同性质的转折。"),
+        RegionalPeriod("republic", "中华民国在大陆时期", "1912—1949年", "清帝退位与民国建立宣告政体转换，此后经历政权更迭与战争。此处以大陆政权更替划界。"),
+        RegionalPeriod("prc-early", "中华人民共和国成立与早期建设", "1949—1977年", "国家制度、教育与社会生活经历重组和动荡。恢复高考让一代人重新获得竞争入学的机会。"),
+        RegionalPeriod("reform", "改革开放与市场转型", "1978—2011年", "经济体制、对外贸易与城乡生产方式发生变化。同期也出现了对传统表演艺术的系统保护。"),
+        RegionalPeriod("prc-now", "当代中国", "2012年至今", "制茶与待客进入非遗档案，月背样品和大模型成果进入公共视野。观察点从家庭和作坊延伸到实验室。"),
+    ),
+    HistoryRegion.Egypt to listOf(
+        RegionalPeriod("old", "古王国", "约前27—前22世纪", "吉萨王陵与乌纳斯墓室文字展示王权、工艺和死后信仰的不同侧面。"),
+        RegionalPeriod("new", "新王国", "约前16—前11世纪", "王墓建设需要常驻工匠社群，家族墓留下了多代工人的姓名与职业。"),
+        RegionalPeriod("roman", "罗马统治时期", "前30年起", "托勒密王朝终结，埃及被纳入罗马的政治与税收体系。"),
+        RegionalPeriod("fatimid", "法蒂玛王朝治下的埃及", "969—1171年", "新都开罗的建立和市民保存的婚嫁清单，让宫廷史与家庭财产史可以并读。"),
+        RegionalPeriod("khedive", "赫迪夫时期", "1867—1914年", "苏伊士运河通航把运输时间、工程投资与埃及的财政问题联系起来。"),
+        RegionalPeriod("republic", "埃及共和国", "1953年至今", "运河国有化体现国家主权诉求，马哈福兹的小说则从开罗家庭内部写城市变化。"),
+    ),
+    HistoryRegion.Iraq to listOf(
+        RegionalPeriod("uruk", "乌鲁克时期", "约前四千纪", "城市与神庙的物资管理留下早期记账泥板。"),
+        RegionalPeriod("early", "苏美尔早王朝时期", "约前2900—前2350年", "乌尔王墓的棋盘、琴饰与随葬品，为观察城邦的娱乐、礼仪和工艺提供实物。"),
+        RegionalPeriod("babylon", "新巴比伦王国", "前626—前539年", "巴比伦成为王国中心，大型城市建筑服务于仪式与统治。"),
+        RegionalPeriod("abbasid", "阿拔斯哈里发治下的巴格达", "762年建城—1258年陷落", "翻译、赞助与学术交流汇集于巴格达。1258年陷落改变了这座都城的政治地位。"),
+        RegionalPeriod("modern", "2003年以来的伊拉克", "2003年至今", "战争与重建改变城市空间，玛卡姆演唱、遗产保护和摩苏尔修复保存了不同的城市记忆。"),
+    ),
+    HistoryRegion.India to listOf(
+        RegionalPeriod("village", "早期农业聚落", "约前七千纪起", "梅尔格尔的储粮设施和动物遗存记录了印度河城市兴起之前的生产生活。"),
+        RegionalPeriod("harappa", "哈拉帕文明成熟期", "约前2600—前1900年", "规划街道、排水系统和印章表明多个城市共享某些技术与符号。"),
+        RegionalPeriod("maurya", "孔雀王朝", "约前4世纪末—前2世纪初", "阿育王的诏令与桑奇的佛教遗存，将王权传播和信仰实践联系起来。"),
+        RegionalPeriod("deccan", "德干诸王朝与阿旃陀", "约5—6世纪", "阿旃陀晚期石窟的营造与德干地区的宫廷赞助有关，壁画保存佛教叙事与人物形象。"),
+        RegionalPeriod("mughal", "莫卧儿王朝", "1526—1857年", "王朝从北印度扩展，统治范围和地方政治关系随时期改变。"),
+        RegionalPeriod("raj", "英属印度", "1858—1947年", "盐税把殖民财政伸入日常消费，食盐进军使这种联系成为公开的政治议题。"),
+        RegionalPeriod("partition", "分治与独立自治领", "1947年起", "印度、巴基斯坦独立与分治伴随人口迁移，两国此后的宪政道路分开发展。"),
+        RegionalPeriod("india", "印度共和国", "1950年至今", "孟加拉语电影、学校膳食和月球探测记录了共和国在文化、教育和科研上的不同历程。"),
+    ),
+    HistoryRegion.Britain to listOf(
+        RegionalPeriod("plantagenet", "英格兰的金雀花王朝", "1154—1399年", "《大宪章》产生于约翰王与贵族的冲突，约束王权的条款后来得到不同解释。"),
+        RegionalPeriod("stuart", "斯图亚特王朝与议会革命", "1603—1714年，中有共和国时期", "英格兰与苏格兰先共戴一君，后合并王国。1689年的权利法案重塑君主与议会的关系。"),
+        RegionalPeriod("georgian", "乔治时代", "1714—1830年", "蒸汽动力与工业城镇发展改变劳动组织，地区和行业的机械化速度不同。"),
+        RegionalPeriod("war", "第二次世界大战时期的英国", "1939—1945年", "物资配给进入家庭日常，购买食品须同时考虑供应、现金和配给额度。"),
+        RegionalPeriod("welfare", "战后重建与福利国家", "1945年以后，聚焦四五十年代", "医院与公共财政重新组织，医护人员的跨国迁移支撑国民医疗服务。"),
+        RegionalPeriod("devolution", "权力下放与当代英国", "20世纪90年代后期至今", "北爱尔兰和平进程改变了治理安排，公共卫生服务在疫情中再次面对全国动员。"),
+    ),
+    HistoryRegion.France to listOf(
+        RegionalPeriod("carolingian", "加洛林王朝与法兰克帝国", "8—9世纪", "查理曼的政治共同体跨越后来的国界，800年加冕是帝号与教会关系的节点。"),
+        RegionalPeriod("capet", "卡佩王朝时期", "987—1328年，直系", "主教座堂、城市团体与工匠通过彩窗赞助和制作共同塑造公共宗教空间。"),
+        RegionalPeriod("bourbon", "波旁王朝与旧制度", "16世纪末—1789年革命前", "印刷出版让工艺图版与知识分类广泛传播，《百科全书》成为启蒙时期的代表工程。"),
+        RegionalPeriod("revolution", "法国大革命", "1789—1799年", "从等级会议到国民议会，公民权利与政治代表成为革命的中心问题。"),
+        RegionalPeriod("third", "第三共和国", "1870—1940年", "义务初等教育与大战动员分别把共和制度带入教室和战地。"),
+        RegionalPeriod("fourth", "第四共和国", "1946—1958年", "战后重建与国际合作交错，巴黎也是1948年世界人权宣言的通过地。"),
+        RegionalPeriod("fifth", "第五共和国", "1958年至今", "气候协商和埃尔诺的社会记忆写作，同处共和国年表却来自不同公共领域。"),
+    ),
+    HistoryRegion.Russia to listOf(
+        RegionalPeriod("tsar", "莫斯科沙皇国", "1547—1721年", "伊凡四世的加冕使沙皇称号成为莫斯科统治者的正式头衔。"),
+        RegionalPeriod("empire", "俄罗斯帝国", "1721—1917年", "帝国末年的战争与社会危机最终动摇了沙皇统治。"),
+        RegionalPeriod("revolution", "革命与内战", "1917年至20世纪20年代初", "二月与十月革命先后改变权力归属，内战与新国家的建立接踵而至。"),
+        RegionalPeriod("ussr", "苏联时期", "1922—1991年", "联盟制度也塑造文艺的出版和传播，帕斯捷尔纳克拒领奖项可见个人受到的政治压力。"),
+        RegionalPeriod("federation", "俄罗斯联邦", "1991年至今", "苏联解体后，俄罗斯联邦延续其联合国会员资格，国家制度与经济生活经历转型。"),
+    ),
+    HistoryRegion.Germany to listOf(
+        RegionalPeriod("hre", "神圣罗马帝国与汉萨城市", "中世纪至1806年，汉萨网络兴盛于中后期", "德意志地区诸侯、自由城市与教会领地并存，吕贝克依靠海上商路联系各港。"),
+        RegionalPeriod("empire", "德意志帝国", "1871—1918年", "统一帝国以联邦形式建立，皇帝、邦国与帝国议会并存。"),
+        RegionalPeriod("weimar", "魏玛共和国", "1918/1919—1933年", "帝制结束后建立议会共和政体，战争遗产、经济危机和政治暴力影响其发展。"),
+        RegionalPeriod("nazi", "纳粹统治", "1933—1945年", "独裁统治将排斥和迫害制度化，最终对欧洲犹太人实施系统性屠杀。"),
+        RegionalPeriod("division", "占领、两德与分裂边界", "1945—1990年", "1949年两个德国成立，柏林墙成为分裂的象征。1989年开放后，墙体逐渐获得新的公共用途。"),
+        RegionalPeriod("united", "统一后的联邦德国", "1990年10月起", "民主德国加入联邦德国，统一的法律时点与社会融合的长期过程需要分别观察。"),
+    ),
+    HistoryRegion.Japan to listOf(
+        RegionalPeriod("jomon", "绳文时代", "约前一万余年至前一千纪，各地有别", "定居聚落、陶器与森林和水域资源共同构成绳文生活，区域差异明显。"),
+        RegionalPeriod("nara", "奈良时代", "710—794年", "平城京的营建和东大寺的献物反映律令国家、佛教与宫廷物质文化。"),
+        RegionalPeriod("edo", "江户时代", "1603—1868年", "德川幕府统治下的城市消费带动版画出版，因而可从武家政治转读町人生活。"),
+        RegionalPeriod("meiji", "明治时代", "1868—1912年", "新政府重组制度并推动工业化，富冈制丝厂女工呈现技术移转中的劳动经验。"),
+        RegionalPeriod("showa", "昭和时代", "1926—1989年", "此年号横跨战争与重建。战后原爆记忆与铁路提速体现截然不同的公共议题。"),
+        RegionalPeriod("heisei", "平成时代", "1989—2019年", "家庭年节与饮食技艺进入遗产档案，为观察这一时期的代际传承提供材料。"),
+    ),
+    HistoryRegion.Brazil to listOf(
+        RegionalPeriod("colony", "葡属巴西", "16世纪初—1822年", "沿海种植园依赖被奴役者的劳动；巴伊亚的音乐与舞蹈留下非洲后裔社群的文化实践。"),
+        RegionalPeriod("empire", "巴西帝国", "1822—1889年", "独立后保持帝制，国家形成、土地制度与奴隶制相互纠缠。"),
+        RegionalPeriod("military", "军事统治", "1964—1985年", "审查与社会抗争并存，热带主义艺术重新审视现代城市与国家形象。"),
+        RegionalPeriod("democracy", "重返文人政府与新共和国", "1985年至今", "民主化后，非遗保护与气候谈判分别让社群文化和国家治理进入国际讨论。"),
+    ),
+    HistoryRegion.SouthAfrica to listOf(
+        RegionalPeriod("apartheid", "种族隔离制度", "1948—1994年", "居住、教育、流动和政治资格受种族分类约束，多种抗争运动挑战这些制度。"),
+        RegionalPeriod("democracy", "民主转型与宪政南非", "1994年至今", "各族共同参加全国选举，真相与和解委员会的公开听证留下受害者与家属的证言。"),
+    ),
+    HistoryRegion.America to americanPeriods
+)
+
+internal val HistoryRegion.periodBasis: String
+    get() = when (this) {
+        HistoryRegion.China -> "考古文化、历代王朝与近现代制度"
+        HistoryRegion.America -> "原住民与建国前史 · 联邦总统任期 · 跨任期记录"
+        HistoryRegion.Japan -> "考古文化、幕府与近现代年号"
+        HistoryRegion.Egypt -> "法老王国、统治王朝与共和国"
+        HistoryRegion.Iraq -> "城邦、帝国、哈里发时代与当代伊拉克"
+        HistoryRegion.India -> "聚落文明、区域王朝、殖民与独立后的国家"
+        HistoryRegion.Britain -> "王朝、议会变革与战后制度"
+        HistoryRegion.France -> "王朝、革命与历次共和国"
+        HistoryRegion.Russia -> "沙皇国、帝国、苏联与俄罗斯联邦"
+        HistoryRegion.Germany -> "诸邦与帝国、共和国、分裂与统一"
+        HistoryRegion.Brazil -> "葡萄牙殖民、帝国与共和国政治转型"
+        HistoryRegion.SouthAfrica -> "种族隔离与民主转型"
+    }

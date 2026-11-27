@@ -36,8 +36,11 @@ import androidx.compose.ui.unit.sp
     var detailTitle by rememberSaveable { mutableStateOf<String?>(null) }
     var trailTitle by rememberSaveable { mutableStateOf<String?>(null) }
     val era = historyEras[eraIndex]
+    val isPostwar = !regional && eraIndex == historyEras.lastIndex
+    var sliceStart by rememberSaveable { mutableIntStateOf(0) }
+    val slice = postwarPeriods.find { isPostwar && it.start == sliceStart }
     val groups = historyEras.mapIndexedNotNull { index, period ->
-        val matching = period.events.filter { (if (regional) it.region == region else index == eraIndex) && (lens == null || it.lens == lens) }
+        val matching = period.events.filter { (if (regional) it.region == region else index == eraIndex) && (lens == null || it.lens == lens) && (slice == null || slice.contains(it)) }
         if (matching.isEmpty()) null else period to matching
     }
     val visibleEvents = groups.flatMap { it.second }
@@ -54,7 +57,7 @@ import androidx.compose.ui.unit.sp
                     listOf("时代对照", "区域追踪").forEachIndexed { i, label ->
                         val selected = regional == (i == 1)
                         Text(label, Modifier.clip(MaterialTheme.shapes.large).background(if (selected) AccentSurface else Color.Transparent)
-                            .selectable(selected, role = Role.Tab) { if (!selected) { regional = i == 1; lens = null } }
+                            .selectable(selected, role = Role.Tab) { if (!selected) { regional = i == 1; lens = null; sliceStart = 0 } }
                             .heightIn(min = 44.dp).wrapContentHeight().padding(horizontal = 13.dp),
                             color = if (selected) Accent else Muted, fontWeight = FontWeight.SemiBold)
                     }
@@ -62,17 +65,19 @@ import androidx.compose.ui.unit.sp
                 IconButton(onClick = { about = true }) { Icon(Icons.Outlined.Info, "分期与选材说明", tint = Muted) }
             }
             HistoryCover(if (regional) "区域追踪" else "世界史分期 · ${eraIndex + 1} / ${historyEras.size}",
-                if (regional) region.label else era.name, if (regional) "区域沿革" else era.dates,
-                if (regional) region.scope else era.summary, if (regional) "选择区域" else "选择阶段",
-                if (regional) null else eraIndex, onStep = { eraIndex += it; lens = null }, select = { picking = true })
-            if (!regional && eraIndex == historyEras.lastIndex) {
+                if (regional) region.label else slice?.title ?: era.name,
+                if (regional) region.periodBasis else if (slice != null) "${era.name} · ${slice.dates}" else era.dates,
+                if (regional) region.scope else slice?.context ?: era.summary, if (regional) "选择区域" else "选择阶段",
+                if (regional) null else eraIndex, onStep = { eraIndex += it; lens = null; sliceStart = 0 }, select = { picking = true })
+            if (isPostwar) PostwarPeriodPanel(slice) { sliceStart = it?.start ?: 0 }
+            if (isPostwar && slice == null) {
                 if (lens == null || lens == HistoryLens.Technology) TechnologyPanel { trailTitle = it.title }
                 if (lens == null) ChronicleDailyPanel()
             }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text(if (regional) "历时脉络" else if (lens != null) "同期区域对照" else "同期动态", color = Ink, fontSize = 21.sp, fontWeight = FontWeight.Bold)
-                    Text(if (regional) "${groups.size} 个阶段 · ${groups.sumOf { it.second.size }} 条记录" else
+                    Text(if (regional) "历时脉络" else if (lens != null || slice != null) "同期区域对照" else "同期动态", color = Ink, fontSize = 21.sp, fontWeight = FontWeight.Bold)
+                    Text(if (regional) "${visibleEvents.flatMap { it.localPeriodIds }.distinct().size} 个分期有记录 · ${visibleEvents.size} 条记录" else
                         "${groups.flatMap { it.second }.distinctBy { it.region }.size} 个区域 · ${groups.sumOf { it.second.size }} 条记录",
                         color = Muted, style = MaterialTheme.typography.bodySmall)
                 }
@@ -93,7 +98,7 @@ import androidx.compose.ui.unit.sp
                     }
                 }
             }
-            if (!regional && trails.isNotEmpty()) {
+            if (!regional && slice == null && trails.isNotEmpty()) {
                 val (recent, historical) = trails.filterNot { trail -> TechnologyHistory.topics.any { it.second == trail } }.partition { it.newsStatus != null }
                 if (recent.isNotEmpty()) TrailIndex("时事专题", recent) { trailTitle = it.title }
                 if (historical.isNotEmpty()) TrailIndex("重点事件轨迹", historical) { trailTitle = it.title }
@@ -103,10 +108,10 @@ import androidx.compose.ui.unit.sp
                 TextButton(onClick = { lens = null }) { Text("查看全部维度") }
             }
             if (regional) {
-                RegionalTimeline(region, groups) { detailTitle = it.title }
+                key(region, lens) { RegionalTimeline(region, visibleEvents, lens) { detailTitle = it.title } }
             } else groups.forEach { (_, events) ->
-                if (lens != null) {
-                    RegionComparison(events) { detailTitle = it.title }
+                if (lens != null || slice != null) {
+                    RegionComparison(events, showLens = slice != null && lens == null) { detailTitle = it.title }
                     return@forEach
                 }
                 BoxWithConstraints {
@@ -121,6 +126,7 @@ import androidx.compose.ui.unit.sp
                     }
                 }
             }
+            if (slice == postwarPeriods.last() && lens == null) ChronicleDailyPanel()
         }
     }
     if (picking && regional) HistoryDialog("选择区域", { picking = false }, maxWidth = 460.dp) {
@@ -128,14 +134,15 @@ import androidx.compose.ui.unit.sp
             PickerRow(option, option == region) { region = option; lens = null; picking = false }
         }
     }
-    if (picking && !regional) HistoryTimelineDialog(eraIndex, { picking = false }) { index ->
+    if (picking && !regional) HistoryTimelineDialog(eraIndex, sliceStart, { picking = false }) { index, start ->
         eraIndex = index
+        sliceStart = start
         lens = null
         picking = false
     }
     if (about) HistoryDialog("分期与选材", { about = false }) {
         DialogSection("如何读时间", "九个阶段参照 UCLA 美国国家学校历史中心的世界史教学标准。相邻时段有重叠；跨界事件按主题归入一处。年代前的“约”表示估年。")
-        DialogSection("如何读区域", "古代以古埃及、两河流域、南亚和中国为主线。当代选取安理会五个常任理事国，加上印度、日本、德国和巴西作为观察样本。地区标签用于串联地理空间，疆界与政治实体随时代变化。")
+        DialogSection("如何读区域", "古代以古埃及、两河流域、南亚和中国为主线。当代选取安理会五个常任理事国，加上印度、日本、德国、巴西及南非等区域样本。地区标签用于串联地理空间，疆界与政治实体随时代变化。")
         DialogSection("如何读选材", "每条记录归入一个主要维度。同一事件可能同时影响多个领域；各阶段展示代表性节点。")
         ReadingLink("查阅世界史分期标准", HISTORY_STANDARD)
     }
@@ -161,7 +168,12 @@ import androidx.compose.ui.unit.sp
     } else if (detail != null) HistoryDialog(detail.title, { detailTitle = null }) {
         val period = groups.first { detail in it.second }.first
         Text("${detail.date}  ·  ${detail.region.label}", color = Accent, fontWeight = FontWeight.SemiBold)
-        Text("${period.name}   /   ${detail.lens.label}", color = Muted, style = MaterialTheme.typography.bodySmall)
+        val periodLabel = when {
+            regional -> regionalChronologies.getValue(region).filter { it.id in detail.localPeriodIds }.joinToString(" / ") { it.name }
+            period == historyEras.last() -> postwarPeriods.first { it.contains(detail) }.title
+            else -> period.name
+        }
+        Text("${periodLabel}   /   ${detail.lens.label}", color = Muted, style = MaterialTheme.typography.bodySmall)
         Text(detail.detail, color = Ink, lineHeight = 25.sp)
         Text("史料出处", color = Muted, style = MaterialTheme.typography.labelLarge)
         ReadingLink(detail.reading, detail.url)
@@ -172,6 +184,7 @@ import androidx.compose.ui.unit.sp
         TextButton(onClick = {
             region = detail.region
             eraIndex = historyEras.indexOf(period)
+            sliceStart = if (regional && period == historyEras.last()) postwarPeriods.first { it.contains(detail) }.start else 0
             regional = !regional
             lens = null
             detailTitle = null
@@ -202,27 +215,31 @@ import androidx.compose.ui.unit.sp
     Panel(Modifier.fillMaxWidth()) {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(kicker, color = Accent, style = MaterialTheme.typography.labelLarge)
-            Text(title, color = Ink, style = MaterialTheme.typography.headlineSmall)
-            Text(date, color = Muted, fontSize = 14.sp)
-            HorizontalDivider(Modifier.padding(vertical = 5.dp), color = Outline)
-            Text(summary, color = Ink, style = MaterialTheme.typography.bodyMedium)
-            Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                FilledTonalButton(onClick = select) {
-                    Text(action)
-                    Icon(Icons.Outlined.ExpandMore, null, Modifier.size(18.dp))
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.weight(1f)) {
+                    Row(Modifier.clip(MaterialTheme.shapes.medium).background(AccentSurface)
+                        .clickable(role = Role.Button, onClickLabel = action, onClick = select)
+                        .heightIn(min = 48.dp).padding(horizontal = 12.dp, vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Text(title, Modifier.weight(1f, fill = false), color = Ink, style = MaterialTheme.typography.headlineSmall)
+                        Spacer(Modifier.width(6.dp))
+                        Icon(Icons.Outlined.ExpandMore, action, Modifier.size(20.dp), tint = Accent)
+                    }
                 }
                 if (eraIndex != null) {
-                    Spacer(Modifier.weight(1f))
                     val colors = IconButtonDefaults.iconButtonColors(contentColor = Accent)
                     IconButton(onClick = { onStep(-1) }, enabled = eraIndex > 0, colors = colors) { Icon(Icons.Outlined.ChevronLeft, "上一阶段") }
                     IconButton(onClick = { onStep(1) }, enabled = eraIndex < historyEras.lastIndex, colors = colors) { Icon(Icons.Outlined.ChevronRight, "下一阶段") }
                 }
             }
+            Text(date, color = Muted, fontSize = 14.sp)
+            HorizontalDivider(Modifier.padding(vertical = 5.dp), color = Outline)
+            Text(summary, color = Ink, style = MaterialTheme.typography.bodyMedium)
         }
     }
 }
 
-@Composable private fun RegionComparison(events: List<HistoryEvent>, open: (HistoryEvent) -> Unit) {
+@Composable private fun RegionComparison(events: List<HistoryEvent>, showLens: Boolean, open: (HistoryEvent) -> Unit) {
     val regions = events.groupBy { it.region }.entries.sortedBy { it.key.ordinal }
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val columns = if (maxWidth >= 600.dp) 2 else 1
@@ -236,7 +253,7 @@ import androidx.compose.ui.unit.sp
                                 HorizontalDivider(color = Outline)
                                 Column(Modifier.fillMaxWidth().clickable(role = Role.Button) { open(event) }
                                     .padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Text(event.date, color = Muted, style = MaterialTheme.typography.bodySmall)
+                                    Text(if (showLens) "${event.date} · ${event.lens.label}" else event.date, color = Muted, style = MaterialTheme.typography.bodySmall)
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Text(event.title, Modifier.weight(1f), color = Ink, style = MaterialTheme.typography.titleMedium)
                                         Icon(Icons.Outlined.ChevronRight, null, Modifier.size(18.dp), tint = Accent)
@@ -253,27 +270,65 @@ import androidx.compose.ui.unit.sp
     }
 }
 
-@Composable private fun RegionalTimeline(region: HistoryRegion, groups: List<Pair<HistoryEra, List<HistoryEvent>>>, open: (HistoryEvent) -> Unit) {
+@Composable private fun RegionalTimeline(region: HistoryRegion, events: List<HistoryEvent>, lens: HistoryLens?, open: (HistoryEvent) -> Unit) {
+    val periods = regionalChronologies.getValue(region)
+    val matches = periods.associateWith { period -> events.filter { period.id in it.localPeriodIds } }
+    val available = if (lens == null) periods else periods.filter { matches.getValue(it).isNotEmpty() }
+    var selected by rememberSaveable { mutableStateOf<String?>(null) }
+    var picking by rememberSaveable { mutableStateOf(false) }
+    val current = available.find { it.id == selected }
+    val shown = available.filter { current == null || it == current }
+    val unit = if (region == HistoryRegion.America) "任期与前史" else "本地分期"
+    if (available.isEmpty()) return
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        OutlinedButton(onClick = { picking = true }) {
+            Text(current?.name ?: unit)
+            Icon(Icons.Outlined.ExpandMore, "选择本地分期", Modifier.size(18.dp))
+        }
+        if (current != null) TextButton(onClick = { selected = null }) { Text("显示全线") }
+    }
+    if (picking) HistoryDialog(unit, { picking = false }) {
+        if (region == HistoryRegion.America) ReadingLink("总统任期年表 · 弗吉尼亚大学米勒中心", "https://millercenter.org/president")
+        if (region == HistoryRegion.China) ReadingLink("古代王朝对照年表 · 大都会艺术博物馆", "https://resources.metmuseum.org/resources/metpublications/pdf/The_Arts_of_Korea_A_Resource_for_Educators.pdf")
+        var query by rememberSaveable { mutableStateOf("") }
+        if (available.size > 12) OutlinedTextField(query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth(),
+            label = { Text("按名称或年代查找") }, singleLine = true)
+        val results = available.filter { it.name.contains(query.trim()) || it.dates.contains(query.trim()) }
+        if (results.isEmpty()) Text("没有匹配的分期", color = Muted)
+        results.forEach { period ->
+            Row(Modifier.fillMaxWidth().clickable(role = Role.Button) { selected = period.id; picking = false }
+                .heightIn(min = 48.dp).padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(period.dates, color = Muted, style = MaterialTheme.typography.bodySmall)
+                    Text(period.name, color = Ink, style = MaterialTheme.typography.titleMedium)
+                }
+                if (current == period) Icon(Icons.Outlined.Check, "已选", tint = Accent)
+            }
+            HorizontalDivider(color = Outline)
+        }
+    }
     Column(Modifier.fillMaxWidth()) {
-        groups.forEachIndexed { index, (era, events) ->
+        shown.forEachIndexed { index, period ->
+            val entries = matches.getValue(period)
             Column(Modifier.fillMaxWidth().drawBehind {
                 val node = Offset(8.dp.toPx(), 10.dp.toPx())
                 if (index > 0) drawLine(Outline, Offset(node.x, 0f), node, 2.dp.toPx())
-                if (index < groups.lastIndex) drawLine(Outline, node, Offset(node.x, size.height), 2.dp.toPx())
+                if (index < shown.lastIndex) drawLine(Outline, node, Offset(node.x, size.height), 2.dp.toPx())
                 drawCircle(Accent, 5.dp.toPx(), node)
             }.padding(start = 25.dp, bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                Text(era.dates, color = Accent, style = MaterialTheme.typography.labelLarge)
-                Text(era.name, color = Ink, style = MaterialTheme.typography.titleLarge)
-                Text(era.regionalSummaries.getValue(region), color = Muted, style = MaterialTheme.typography.bodyMedium)
-                Surface(Modifier.fillMaxWidth().padding(top = 4.dp), shape = MaterialTheme.shapes.large,
+                Text(period.dates, color = Accent, style = MaterialTheme.typography.labelLarge)
+                Text(period.name, color = Ink, style = MaterialTheme.typography.titleLarge)
+                Text(period.summary, color = Muted, style = MaterialTheme.typography.bodyMedium)
+                if (entries.isNotEmpty()) Surface(Modifier.fillMaxWidth().padding(top = 4.dp), shape = MaterialTheme.shapes.large,
                     color = MaterialTheme.colorScheme.surface, border = BorderStroke(1.dp, Outline)) {
                     Column {
-                        events.forEachIndexed { i, event ->
+                        entries.forEachIndexed { i, event ->
                             if (i > 0) HorizontalDivider(Modifier.padding(horizontal = 12.dp), color = Outline)
                             Row(Modifier.fillMaxWidth().clickable(role = Role.Button) { open(event) }.padding(12.dp),
                                 verticalAlignment = Alignment.CenterVertically) {
                                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                    Text("${event.date}   ·   ${event.lens.label}", color = Muted, style = MaterialTheme.typography.bodySmall)
+                                    val overlap = if (event.localPeriodIds.size > 1) " · 跨期" else ""
+                                    Text("${event.date}   ·   ${event.lens.label}$overlap", color = Muted, style = MaterialTheme.typography.bodySmall)
                                     Text(event.title, color = Ink, style = MaterialTheme.typography.titleMedium)
                                 }
                                 Icon(Icons.Outlined.ChevronRight, null, Modifier.size(18.dp), tint = Accent)
