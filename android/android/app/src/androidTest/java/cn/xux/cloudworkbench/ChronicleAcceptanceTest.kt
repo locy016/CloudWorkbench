@@ -46,11 +46,19 @@ class ChronicleAcceptanceTest {
         compose.onNodeWithText("追踪中国的历史").performClick()
         compose.onNodeWithText("历时脉络").assertIsDisplayed()
         capture("region")
+        val firstChina = historyEras.first().regionalSummaries.getValue(HistoryRegion.China)
+        compose.onNodeWithText(firstChina).performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("良渚以稻作支撑古城").performScrollTo()
+        capture("region-timeline")
+        compose.onNodeWithText(historyEras.last().regionalSummaries.getValue(HistoryRegion.China)).performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("选择区域").performScrollTo()
         compose.onNodeWithText("选择区域").performClick()
         compose.onNodeWithText("日本列岛").performScrollTo().performClick()
         compose.onNodeWithText("全部维度").performClick()
         compose.onNode(hasText("科学技术") and hasAnyAncestor(isPopup())).performClick()
-        compose.onNodeWithText("东海道新干线开通").assertIsDisplayed()
+        compose.onNodeWithText(historyEras.last().regionalSummaries.getValue(HistoryRegion.Japan)).performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("东海道新干线开通").performScrollTo().assertIsDisplayed()
+        capture("region-filtered")
         compose.openWorkbenchTab("设置")
         compose.openWorkbenchTab("史时")
         compose.onNodeWithText("东海道新干线开通").assertIsDisplayed()
@@ -60,7 +68,9 @@ class ChronicleAcceptanceTest {
 
         compose.onNodeWithText("选择阶段").performClick()
         capture("periods")
-        compose.onNodeWithText("聚落与生计").performScrollTo().performClick()
+        compose.onNodeWithTag("eraTimeline").performScrollToIndex(0)
+        compose.onNode(hasText("聚落与生计") and hasAnyAncestor(hasTestTag("eraTimeline"))).performClick()
+        compose.onNodeWithText("进入本阶段").performClick()
         compose.onNodeWithText("全部维度").performClick()
         compose.onNode(hasText("政权制度") and hasAnyAncestor(isPopup())).performClick()
         compose.onNodeWithText("当前选材没有这一维度的记录。").assertIsDisplayed()
@@ -86,5 +96,31 @@ class ChronicleAcceptanceTest {
         compare("社会生活", 4, "society")
         compose.onNodeWithText("王墓工匠一家几代做同一门手艺").performScrollTo().performClick()
         compose.onNodeWithText("大都会艺术博物馆 · 新王国埃及的工匠墓").assertIsDisplayed()
+    }
+
+    @Test fun timelinePreviewsRegionalSummariesBeforeEntering() {
+        historyEras.forEach { era ->
+            assertTrue(era.events.map { it.region }.toSet() == era.regionalSummaries.keys)
+            assertTrue(era.regionalSummaries.values.all { it.isNotBlank() })
+        }
+        compose.openWorkbenchTab("史时")
+        compose.onNodeWithText("选择阶段").performClick()
+        val timeline = compose.onNodeWithTag("eraTimeline")
+        fun preview(index: Int) {
+            timeline.performScrollToIndex(index)
+            compose.onNode(hasText(historyEras[index].name) and hasAnyAncestor(hasTestTag("eraTimeline"))).performClick()
+            compose.onNode(hasText(historyEras[index].name) and hasAnyAncestor(hasTestTag("eraSummary"))).assertIsDisplayed()
+        }
+        compose.onNodeWithText("区域摘要").assertIsDisplayed()
+        capture("timeline-early")
+        preview(historyEras.lastIndex)
+        compose.onNodeWithText(historyEras.last().regionalSummaries.getValue(HistoryRegion.Brazil)).performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("取消").performClick()
+        compose.onNodeWithText("城市与早期文明").assertIsDisplayed()
+        compose.onNodeWithText("选择阶段").performClick()
+        preview(3)
+        capture("timeline-exchange")
+        compose.onNodeWithText("进入本阶段").performClick()
+        compose.onNodeWithText("区域交流的扩展").assertIsDisplayed()
     }
 }

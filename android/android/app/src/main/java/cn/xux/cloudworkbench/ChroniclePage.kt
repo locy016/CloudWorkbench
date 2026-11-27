@@ -1,7 +1,6 @@
 package cn.xux.cloudworkbench
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -18,8 +17,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
@@ -86,27 +86,19 @@ import androidx.compose.ui.window.Dialog
             Text("当前选材没有这一维度的记录。", color = Muted)
             TextButton(onClick = { lens = null }) { Text("查看全部维度") }
         }
-        groups.forEach { (period, events) ->
-            if (regional) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Canvas(Modifier.size(12.dp)) {
-                        drawCircle(Accent, style = Stroke(1.dp.toPx()))
-                        drawCircle(Accent, radius = size.width * .22f)
-                    }
-                    Text(period.name, color = Accent, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                    HorizontalDivider(Modifier.weight(1f), color = Outline)
-                }
-            }
-            if (!regional && lens != null) {
+        if (regional) {
+            RegionalTimeline(region, groups) { detailTitle = it.title }
+        } else groups.forEach { (_, events) ->
+            if (lens != null) {
                 RegionComparison(events) { detailTitle = it.title }
                 return@forEach
             }
             BoxWithConstraints {
-                val columns = if (maxWidth >= 600.dp && !regional) 2 else 1
+                val columns = if (maxWidth >= 600.dp) 2 else 1
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     events.chunked(columns).forEach { row ->
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            row.forEach { event -> HistoryCard(event, regional, Modifier.weight(1f)) { detailTitle = event.title } }
+                            row.forEach { event -> HistoryCard(event, Modifier.weight(1f)) { detailTitle = event.title } }
                             if (row.size < columns) Spacer(Modifier.weight(1f))
                         }
                     }
@@ -114,12 +106,15 @@ import androidx.compose.ui.window.Dialog
             }
         }
     }
-    if (picking) HistoryDialog(if (regional) "选择区域" else "选择历史阶段", { picking = false }) {
-        if (regional) HistoryRegion.entries.forEach { option ->
-            PickerRow(option.label, null, option == region) { region = option; lens = null; picking = false }
-        } else historyEras.forEachIndexed { index, option ->
-            PickerRow(option.name, option.dates, index == eraIndex) { eraIndex = index; lens = null; picking = false }
+    if (picking && regional) HistoryDialog("选择区域", { picking = false }) {
+        HistoryRegion.entries.forEach { option ->
+            PickerRow(option.label, option == region) { region = option; lens = null; picking = false }
         }
+    }
+    if (picking && !regional) HistoryTimelineDialog(eraIndex, { picking = false }) { index ->
+        eraIndex = index
+        lens = null
+        picking = false
     }
     if (about) HistoryDialog("分期与选材", { about = false }) {
         DialogSection("如何读时间", "九个阶段参照 UCLA 美国国家学校历史中心的世界史教学标准。相邻时段有重叠；跨界事件按主题归入一处。年代前的“约”表示估年。")
@@ -201,7 +196,40 @@ import androidx.compose.ui.window.Dialog
     }
 }
 
-@Composable private fun HistoryCard(event: HistoryEvent, regional: Boolean, modifier: Modifier, open: () -> Unit) {
+@Composable private fun RegionalTimeline(region: HistoryRegion, groups: List<Pair<HistoryEra, List<HistoryEvent>>>, open: (HistoryEvent) -> Unit) {
+    Column(Modifier.fillMaxWidth()) {
+        groups.forEachIndexed { index, (era, events) ->
+            Column(Modifier.fillMaxWidth().drawBehind {
+                val node = Offset(8.dp.toPx(), 10.dp.toPx())
+                if (index > 0) drawLine(Outline, Offset(node.x, 0f), node, 2.dp.toPx())
+                if (index < groups.lastIndex) drawLine(Outline, node, Offset(node.x, size.height), 2.dp.toPx())
+                drawCircle(Accent, 5.dp.toPx(), node)
+            }.padding(start = 25.dp, bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text(era.dates, color = Accent, style = MaterialTheme.typography.labelLarge)
+                Text(era.name, color = Ink, style = MaterialTheme.typography.titleLarge)
+                Text(era.regionalSummaries.getValue(region), color = Muted, style = MaterialTheme.typography.bodyMedium)
+                Surface(Modifier.fillMaxWidth().padding(top = 4.dp), shape = MaterialTheme.shapes.large,
+                    color = MaterialTheme.colorScheme.surface, border = BorderStroke(1.dp, Outline)) {
+                    Column {
+                        events.forEachIndexed { i, event ->
+                            if (i > 0) HorizontalDivider(Modifier.padding(horizontal = 12.dp), color = Outline)
+                            Row(Modifier.fillMaxWidth().clickable(role = Role.Button) { open(event) }.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text("${event.date}   ·   ${event.lens.label}", color = Muted, style = MaterialTheme.typography.bodySmall)
+                                    Text(event.title, color = Ink, style = MaterialTheme.typography.titleMedium)
+                                }
+                                Icon(Icons.Outlined.ChevronRight, null, Modifier.size(18.dp), tint = Accent)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable private fun HistoryCard(event: HistoryEvent, modifier: Modifier, open: () -> Unit) {
     val icon = when (event.lens) {
         HistoryLens.Governance -> Icons.Outlined.AccountBalance
         HistoryLens.Economy -> Icons.Outlined.SwapHoriz
@@ -213,10 +241,10 @@ import androidx.compose.ui.window.Dialog
         Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(icon, null, Modifier.size(17.dp), tint = Accent)
-                Text(if (regional) event.date else event.region.label, Modifier.weight(1f).padding(start = 7.dp), color = Ink, style = MaterialTheme.typography.labelLarge)
+                Text(event.region.label, Modifier.weight(1f).padding(start = 7.dp), color = Ink, style = MaterialTheme.typography.labelLarge)
                 Text(event.lens.label, color = Muted, style = MaterialTheme.typography.bodySmall)
             }
-            if (!regional) Text(event.date, color = Muted, style = MaterialTheme.typography.bodySmall)
+            Text(event.date, color = Muted, style = MaterialTheme.typography.bodySmall)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(event.title, Modifier.weight(1f), fontSize = 17.sp, lineHeight = 24.sp, fontWeight = FontWeight.SemiBold, color = Ink)
                 Icon(Icons.Outlined.ChevronRight, null, Modifier.size(18.dp), tint = Muted)
@@ -241,14 +269,11 @@ import androidx.compose.ui.window.Dialog
     }
 }
 
-@Composable private fun PickerRow(title: String, dates: String?, selected: Boolean, select: () -> Unit) {
+@Composable private fun PickerRow(title: String, selected: Boolean, select: () -> Unit) {
     Row(Modifier.fillMaxWidth().clip(MaterialTheme.shapes.large).background(if (selected) AccentSurface else Color.Transparent)
         .selectable(selected, role = Role.RadioButton, onClick = select).heightIn(min = 48.dp).padding(10.dp),
         verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f)) {
-            Text(title, color = Ink, fontWeight = FontWeight.Medium)
-            dates?.let { Text(it, color = Muted, style = MaterialTheme.typography.bodySmall) }
-        }
+        Text(title, Modifier.weight(1f), color = Ink, fontWeight = FontWeight.Medium)
         if (selected) Icon(Icons.Outlined.Check, "已选", tint = Accent)
     }
 }
